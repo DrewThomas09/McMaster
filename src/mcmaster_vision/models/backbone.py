@@ -308,6 +308,13 @@ class HashBackbone(Backbone):
 # ---------------------------------------------------------------------------
 # Neural backbones (torch imported lazily)
 # ---------------------------------------------------------------------------
+def _pretrained_or_none(tag: str | None) -> str | None:
+    """Treat "", "none", "random" as "no pretrained weights" (offline / smoke tests)."""
+    if tag is None or str(tag).strip().lower() in {"", "none", "null", "random"}:
+        return None
+    return str(tag)
+
+
 def _resolve_device(device: str) -> str:
     if device != "auto":
         return device
@@ -337,13 +344,18 @@ class TorchBackbone(Backbone):
     def _forward(self, batch):  # -> torch.Tensor (B, dim)
         raise NotImplementedError
 
+    def trainable_module(self):
+        """The sub-module fine-tuned and checkpointed by ``mcv train``."""
+        return self.model
+
     def load_checkpoint(self, path: str | Path) -> None:
         """Load weights produced by ``mcv train`` (backbone + optional projection head)."""
         import torch
 
-        state = torch.load(path, map_location=self.device)
+        state = torch.load(path, map_location=self.device, weights_only=False)
         if "backbone" in state:
-            self.model.load_state_dict(state["backbone"], strict=False)
+            # ``mcv train`` saves the *trainable module* (e.g. CLIP's visual tower).
+            self.trainable_module().load_state_dict(state["backbone"], strict=True)
         if state.get("projection") is not None:
             from mcmaster_vision.models.heads import ProjectionHead
 
@@ -384,9 +396,13 @@ class OpenCLIPBackbone(TorchBackbone):
 
     name = "openclip"
 
-    def __init__(self, model_name: str = "ViT-B-16", pretrained: str = "laion2b_s34b_b88k", **kw):
+    def __init__(
+        self, model_name: str = "ViT-B-16", pretrained: str | None = "laion2b_s34b_b88k", **kw
+    ):
         super().__init__(**kw)
         import open_clip
+
+        pretrained = _pretrained_or_none(pretrained)
 
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(
             model_name, pretrained=pretrained, device=self.device
@@ -436,7 +452,11 @@ def load_backbone(settings: Settings) -> Backbone:
             settings.backbone_model, settings.backbone_pretrained, device=settings.device
         )
     elif settings.backbone == "dinov2":
-        bb = DINOv2Backbone(settings.backbone_model, device=settings.device)
+        bb = DINOv2Backbone(
+            settings.backbone_model,
+            pretrained=_pretrained_or_none(settings.backbone_pretrained) is not None,
+            device=settings.device,
+        )
     else:  # pragma: no cover - validated by pydantic Literal
         raise ValueError(f"unknown backbone {settings.backbone}")
     if settings.backbone_checkpoint:

@@ -13,7 +13,7 @@ into a *family* that is reported honestly instead of guessed.
 
 | Stage | Module | What happens |
 |---|---|---|
-| 1. Preprocess | `pipeline/preprocess.py` | decode, EXIF orientation, optional background removal (rembg), saliency crop, pad to square, resize. The **same** normalisation is applied to catalog images at index time so gallery and query vectors share a distribution. |
+| 1. Preprocess | `pipeline/preprocess.py` | decode, EXIF orientation, optional background removal (rembg), saliency crop (plane-fit foreground mask), pad to square with the photo's own border colour, resize. The **same** normalisation is applied to catalog images at index time so gallery and query vectors share a distribution. |
 | 2. OCR | `pipeline/ocr.py` | easyocr reads text; a regex extracts McMaster-style part numbers (`91251A537`). A hit that exists in the catalog is injected into the candidate pool and yields an `exact` tier. |
 | 3. Embed | `models/` | backbone → L2-normalised vector. Query side uses TTA (4 rotations × flip = 8 vectors). |
 | 4. Retrieve | `index/`, `pipeline/retrieve.py` | every TTA vector is searched; a part keeps its best score across variants and across its catalog images (multi-query retrieval). Category centroids stored in the index give a coarse prior. |
@@ -26,8 +26,14 @@ LLM reranker adds 2–6 s and is meant for the "confirm before ordering" path.
 
 ## Models
 
-* `HashBackbone` – numpy descriptor (orientation-normalised silhouette, colour,
-  Hu moments, radial profiles, HOG-lite). Dev/CI only.
+* `HashBackbone` – numpy descriptor. Foreground mask from a plane-fit background
+  model (fitted on corner patches with a robust re-fit, morphological closing,
+  largest blob), rotation-invariant polar-FFT ring signatures of the grayscale
+  image and silhouette, anisotropy-weighted oriented thumbnails, chromaticity
+  histogram, Hu moments, and a gradient-orientation spectrum. Feature-group
+  weights were tuned with `scripts/tune_hash_weights.py`. Dev/CI only; its known
+  weak spots are cast shadows merging into the silhouette and low-contrast parts
+  on similar backgrounds.
 * `OpenCLIPBackbone` – CLIP / SigLIP image tower. Best zero-shot starting point;
   its text tower can be used later for text-to-part search.
 * `DINOv2Backbone` – strongest off-the-shelf instance-retrieval features.

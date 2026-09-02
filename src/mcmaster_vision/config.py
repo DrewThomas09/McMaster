@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # Embedding backbone
     backbone: BackboneName = "hash"
     backbone_model: str = "ViT-B-16"
-    backbone_pretrained: str = "laion2b_s34b_b88k"
+    backbone_pretrained: str | None = "laion2b_s34b_b88k"  # "none" / "" = random init
     backbone_checkpoint: Path | None = None
     device: str = "auto"
     image_size: int = 224

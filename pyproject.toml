@@ -38,13 +38,15 @@ ocr = ["easyocr>=1.7"]
 llm = ["anthropic>=0.40"]
 # Background removal for cleaner query photos.
 segment = ["rembg>=2.0"]
+# ONNX export of a fine-tuned backbone for serving without torch training deps.
+export = ["onnx>=1.16", "onnxscript>=0.2", "onnxruntime>=1.18"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.4",
     "mypy>=1.9",
 ]
-all = ["mcmaster-vision[ml,faiss,ocr,llm,segment,dev]"]
+all = ["mcmaster-vision[ml,faiss,ocr,llm,segment,export,dev]"]
 
 [project.scripts]
 mcv = "mcmaster_vision.cli:app"

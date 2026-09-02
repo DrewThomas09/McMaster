@@ -144,7 +144,7 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
             * (1 + math.cos(math.pi * min(1.0, s / max(1, total_steps))))
         ),
     )
-    scaler = torch.cuda.amp.GradScaler(enabled=cfg["amp"] and device == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=cfg["amp"] and device == "cuda")
 
     hard: dict[str, list[str]] = {}
     step = 0
@@ -207,7 +207,7 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
             scaler.step(opt)
             scaler.update()
             sched.step()
-            running += float(loss)
+            running += float(loss.detach())
             step += 1
 
         # validation: Recall@1 with augmented val queries against the val gallery

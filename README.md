@@ -27,6 +27,12 @@ mcv demo --parts 300           # synthetic catalog -> index -> evaluation -> UI 
 reports Recall@K on photo-style augmented queries, identifies a sample query, and
 serves the upload UI at http://127.0.0.1:8000.
 
+The demo uses the dependency-free `hash` backbone (a hand-crafted descriptor, see
+`models/backbone.py`). It exists to exercise the plumbing, not to be accurate:
+on a 300-part synthetic catalog with photo-style queries it reaches roughly
+Recall@1 0.13 / Recall@10 0.37 / Recall@50 0.72. Real accuracy comes from the
+CLIP / DINOv2 backbones plus fine-tuning below.
+
 ## Using your own catalog data
 
 McMaster-Carr does not offer a public bulk product API and prohibits scraping, so
@@ -39,6 +45,10 @@ partner feed). Three input formats are supported:
 | JSONL | one object per line: `part_number, name, category_path[], description, attributes{}, image_paths[], family_id` |
 | CSV | same columns; `category_path` joined with `>`, `image_paths` with `;`; unknown columns become attributes |
 | Directory | `<root>/<part_number>/{meta.json, *.jpg}` |
+
+Optional extras: `ml` (torch, open_clip, timm), `faiss`, `ocr` (easyocr),
+`llm` (anthropic), `segment` (rembg), `export` (onnx, onnxscript, onnxruntime),
+`dev`, or `all`.
 
 ```bash
 cp .env.example .env                         # set MCV_BACKBONE=openclip for real models
@@ -65,6 +75,11 @@ mcv serve                                    # http://localhost:8000  (POST /ide
 4. **Collect real photos.** Put labelled phone photos under
    `data/queries/<part_number>/*.jpg` and run `mcv evaluate --query-dir data/queries`
    to measure and calibrate on the real distribution.
+5. **Export for serving.** `training/export.py` writes the fine-tuned embedder to
+   ONNX or TorchScript so the API container needs no training dependencies.
+
+Set `MCV_BACKBONE_PRETRAINED=none` to start from random weights (offline smoke
+tests only).
 
 ## API
 
