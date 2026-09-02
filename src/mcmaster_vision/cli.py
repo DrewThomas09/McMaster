@@ -219,3 +219,7 @@ def demo(
 
         typer.echo(f"\nserving UI at http://127.0.0.1:{port}")
         uvicorn.run(create_app(s, ident), host="127.0.0.1", port=port)
+
+
+if __name__ == "__main__":
+    app()
