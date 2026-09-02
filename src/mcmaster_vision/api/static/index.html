@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>McMaster-Vision</title>
+<style>
+  :root { --bg:#f6f7f8; --card:#fff; --ink:#1c1e21; --muted:#6b7280; --accent:#0b5fff; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:960px; margin:0 auto; padding:32px 20px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 24px; }
+  .drop { border:2px dashed #c7cbd1; border-radius:12px; padding:36px; text-align:center; background:var(--card); cursor:pointer; }
+  .drop.over { border-color:var(--accent); background:#eef3ff; }
+  .row { display:flex; gap:20px; margin-top:24px; flex-wrap:wrap; }
+  .preview { flex:0 0 260px; }
+  .preview img { width:100%; border-radius:10px; background:#fff; border:1px solid #e5e7eb; }
+  .results { flex:1; min-width:300px; }
+  .tier { display:inline-block; padding:3px 10px; border-radius:999px; font-weight:600; font-size:13px; color:#fff; }
+  .tier.exact { background:var(--ok);} .tier.likely{ background:var(--accent);} .tier.candidate{ background:var(--warn);} .tier.unknown{ background:var(--bad);}
+  .cand { display:flex; gap:14px; background:var(--card); border:1px solid #e5e7eb; border-radius:10px; padding:12px; margin-bottom:10px; }
+  .cand img { width:84px; height:84px; object-fit:contain; border-radius:6px; background:#fff; border:1px solid #eee; }
+  .cand .pn { font-weight:700; font-size:16px; }
+  .cand .meta { color:var(--muted); font-size:13px; }
+  .bar { height:6px; background:#e5e7eb; border-radius:3px; margin-top:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--accent); }
+  ul.reasons { margin:6px 0 0; padding-left:18px; font-size:12px; color:var(--muted); }
+  .timings { font-size:12px; color:var(--muted); margin-top:8px; }
+  label.opt { font-size:13px; color:var(--muted); margin-left:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>McMaster-Vision</h1>
+  <p class="sub">Upload a photo of a part. The system embeds it, searches the catalog index, reranks the short list, and returns calibrated part-number candidates.</p>
+
+  <div class="drop" id="drop">
+    <strong>Drop a photo here</strong> or click to choose<br>
+    <input type="file" id="file" accept="image/*" hidden>
+    <label class="opt"><input type="checkbox" id="llm"> use vision-LLM reranker</label>
+  </div>
+
+  <div class="row">
+    <div class="preview" id="preview" hidden><img id="img" alt="query"></div>
+    <div class="results" id="results"></div>
+  </div>
+</main>
+<script>
+const drop = document.getElementById('drop'), file = document.getElementById('file');
+const results = document.getElementById('results'), preview = document.getElementById('preview'), img = document.getElementById('img');
+drop.addEventListener('click', () => file.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) send(e.dataTransfer.files[0]); });
+file.addEventListener('change', () => file.files[0] && send(file.files[0]));
+
+async function send(f) {
+  preview.hidden = false; img.src = URL.createObjectURL(f);
+  results.innerHTML = '<p>Identifying…</p>';
+  const fd = new FormData(); fd.append('file', f);
+  const llm = document.getElementById('llm').checked;
+  const r = await fetch(`/identify?top_n=5${llm ? '&use_llm=true' : ''}`, { method: 'POST', body: fd });
+  if (!r.ok) { results.innerHTML = `<p style="color:#b91c1c">Error: ${(await r.json()).detail}</p>`; return; }
+  render(await r.json());
+}
+
+function render(res) {
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  let html = `<p><span class="tier ${res.tier}">${res.tier.toUpperCase()}</span>`;
+  if (res.best) html += ` &nbsp; best match <strong>${esc(res.best.part_number)}</strong> (${(res.best.confidence*100).toFixed(0)}%)`;
+  if (res.ocr_part_numbers.length) html += ` &nbsp; OCR read: ${res.ocr_part_numbers.map(esc).join(', ')}`;
+  html += '</p>';
+  for (const c of res.candidates) {
+    html += `<div class="cand">
+      <img src="/parts/${encodeURIComponent(c.part_number)}/image" onerror="this.style.visibility='hidden'">
+      <div style="flex:1">
+        <div class="pn">${esc(c.part_number)} <span style="font-weight:400">— ${esc(c.name)}</span></div>
+        <div class="meta">${esc(c.category_path.join(' › '))}</div>
+        <div class="meta">${Object.entries(c.attributes).map(([k,v]) => `${esc(k)}: ${esc(v)}`).join(' · ')}</div>
+        <div class="bar"><i style="width:${Math.round(c.confidence*100)}%"></i></div>
+        <div class="meta">confidence ${(c.confidence*100).toFixed(1)}% · similarity ${c.similarity.toFixed(3)}</div>
+        <ul class="reasons">${c.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+      </div></div>`;
+  }
+  html += `<div class="timings">model ${esc(res.model_version)} · ${Object.entries(res.timings_ms).map(([k,v]) => `${k} ${v}ms`).join(' · ')}</div>`;
+  results.innerHTML = html;
+}
+</script>
+</body>
+</html>

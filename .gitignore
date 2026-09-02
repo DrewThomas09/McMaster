@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment
+.env
+
+# Data & artifacts (large; never commit)
+data/**
+!data/**/.gitkeep
+*.npy
+*.faiss
+*.pt
+*.pth
+*.onnx
+*.sqlite
+*.sqlite3
+*.db
+runs/
+wandb/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

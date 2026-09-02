@@ -1,0 +1,25 @@
+# Default runtime configuration. Environment variables (MCV_*) override these.
+data_dir: ./data
+catalog_db: ./data/catalog/catalog.sqlite
+index_dir: ./data/index
+model_dir: ./data/models
+
+backbone: hash            # hash | openclip | dinov2
+backbone_model: ViT-B-16
+backbone_pretrained: laion2b_s34b_b88k
+backbone_checkpoint: null
+device: auto
+image_size: 224
+
+index_backend: numpy      # numpy | faiss
+index_top_k: 50
+
+rerank_llm_enabled: false
+rerank_llm_model: claude-opus-5
+rerank_llm_candidates: 8
+
+ocr_enabled: false
+
+api_host: 0.0.0.0
+api_port: 8000
+max_upload_mb: 20

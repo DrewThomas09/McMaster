@@ -1,0 +1,34 @@
+services:
+  api:
+    build:
+      context: .
+      args:
+        EXTRAS: faiss,llm
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      MCV_DATA_DIR: /data
+      MCV_CATALOG_DB: /data/catalog/catalog.sqlite
+      MCV_INDEX_DIR: /data/index
+      MCV_MODEL_DIR: /data/models
+    volumes:
+      - ./data:/data
+    command: ["mcv", "serve", "--host", "0.0.0.0", "--port", "8000"]
+
+  # One-shot job: ingest a catalog export, embed every image, build the index.
+  indexer:
+    build:
+      context: .
+      args:
+        EXTRAS: ml,faiss
+    env_file: .env
+    environment:
+      MCV_DATA_DIR: /data
+      MCV_CATALOG_DB: /data/catalog/catalog.sqlite
+      MCV_INDEX_DIR: /data/index
+      MCV_MODEL_DIR: /data/models
+    volumes:
+      - ./data:/data
+    profiles: ["jobs"]
+    command: ["sh", "-c", "mcv ingest /data/catalog/parts.jsonl && mcv build-index"]
