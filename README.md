@@ -45,12 +45,34 @@ mcv demo --parts 800 --backbone tinycnn --train-epochs 16   # train, index, eval
 Real accuracy on real photos comes from the CLIP / DINOv2 backbones plus
 fine-tuning (below). See ARCHITECTURE.md for measured numbers.
 
-## Using your own catalog data
+## Using McMaster-Carr's own images
 
-McMaster-Carr does not offer a public bulk product API and prohibits scraping, so
-this repository ships **no** McMaster data. Bring an export you are licensed to
-use (their Product Information API for account holders, an internal dataset, or a
-partner feed). Three input formats are supported:
+The most useful gallery is McMaster-Carr's own product imagery. Three ways in:
+
+1. **Import product pages by part number or URL** (fetches the page, its images,
+   name, category breadcrumb, and spec table; polite: one request at a time,
+   `robots.txt` honoured, cached on disk):
+
+   ```bash
+   mcv import-web 91251A537 9452K21 https://www.mcmaster.com/3164T1/
+   mcv import-web --file my_parts.txt        # one part number / URL per line
+   mcv build-index
+   ```
+
+   This is meant for the parts you care about (an order history, a BOM, a shelf),
+   not for crawling the whole catalog. McMaster-Carr's terms of use restrict
+   automated bulk access; for the full 700k-SKU catalog use a licensed export or
+   their account-holder Product Information API (`catalog/sources.py` has the
+   adapter stub). The page parser was written against McMaster's page structure
+   (JSON-LD product data, Open Graph tags, `ImageCache` images) and falls back to
+   generic heuristics; verify it on a live page and adjust `McMasterParser` if
+   their markup changes.
+
+2. **Screenshots.** Save screenshots of product images into a folder named by
+   part number (`91251A537.png`, `91251A537_2.png`, ...), optionally with a
+   `meta.jsonl` of names/categories, then `mcv ingest that_folder`.
+
+3. **Bulk exports** you already hold:
 
 | Format | Shape |
 |---|---|
@@ -71,6 +93,16 @@ mcv evaluate --fit-calibration               # Recall@K on augmented queries, fi
 mcv identify photo.jpg                       # JSON result
 mcv serve                                    # http://localhost:8000  (POST /identify)
 ```
+
+## One photo, one answer
+
+`mcv serve` hosts a phone-friendly page: **Take a photo** opens the camera on a
+phone, desktop users can drop an image or paste a screenshot, the image is
+downscaled client-side, and the answer comes back as a verdict card
+(`exact / likely / candidate / unknown`) with the top candidates, their catalog
+images, specs, evidence, and a link to the part on mcmaster.com. Open it from a
+phone on the same network (`mcv serve --host 0.0.0.0`) or behind HTTPS for
+camera access on iOS.
 
 ### Improving accuracy
 

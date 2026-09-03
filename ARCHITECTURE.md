@@ -43,17 +43,22 @@ one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 
 ## Measured retrieval quality (synthetic catalog, photo-style queries)
 
-Numbers from `scripts/` runs on a 300-part, 39-family synthetic catalog with the
-evaluation augmentation preset (backgrounds, shadows, perspective, colour shifts,
-noise, JPEG). `ga` = gallery-augmented index rows per catalog image.
+800-part, 39-family synthetic catalog. Queries = evaluation-preset augmentations
+(backgrounds, shadows, perspective, colour shifts, noise, JPEG) of 73 parts from
+*held-out families* plus 100 training parts; the gallery holds all 800 parts.
+`ga` = extra photo-style rows indexed per catalog image.
 
-| backbone | ga | Recall@1 | Recall@5 | Recall@10 | Recall@50 | MRR |
-|---|---|---|---|---|---|---|
-| hash | 0 | 0.18 | 0.49 | 0.57 | 0.73 | 0.32 |
-| hash | 2 | 0.28 | 0.56 | 0.67 | 0.85 | 0.41 |
+| backbone | ga | Recall@1 | Recall@5 | Recall@10 | Recall@50 | MRR | ms/query |
+|---|---|---|---|---|---|---|---|
+| hash | 0 | 0.13 | 0.34 | 0.39 | 0.62 | 0.22 | 135 |
+| hash | 2 | 0.17 | 0.39 | 0.47 | 0.70 | 0.27 | 140 |
+| tinycnn (24 epochs) | 0 | 0.12 | 0.37 | 0.59 | 0.95 | 0.26 | 75 |
+| tinycnn (24 epochs) | 2 | 0.13 | 0.46 | 0.71 | 0.97 | 0.29 | 78 |
 
-TinyCNN results on the 800-part catalog are recorded below once training runs
-finish (see the README for how to reproduce).
+The learned model was trained from scratch on CPU in ~35 minutes
+(`configs/train_tinycnn.yaml`: cached views, SupCon + classification, hard
+negatives). Its loss was still falling at the end, so longer runs improve it
+further; the ensemble of both backbones and the vision-LLM reranker sit on top.
 
 ## Training (`training/train.py`)
 
