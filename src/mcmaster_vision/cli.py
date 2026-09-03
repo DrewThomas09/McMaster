@@ -195,7 +195,9 @@ def demo(
     serve_: bool = typer.Option(True, "--serve/--no-serve", help="Start the API afterwards"),
     port: int = typer.Option(8000),
     gallery_augment: int = typer.Option(2, help="Photo-style variants indexed per catalog image"),
-    backbone: str = typer.Option("hash", help="hash | tinycnn | openclip | dinov2"),
+    backbone: str = typer.Option(
+        "hash", help="hash | tinycnn | ensemble (tinycnn+hash) | openclip | dinov2"
+    ),
     checkpoint: Path | None = typer.Option(
         None, help="Fine-tuned checkpoint (.pt) for the backbone"
     ),
@@ -220,7 +222,7 @@ def demo(
         index_dir=data_dir / "index",
         model_dir=data_dir / "models",
         backbone=backbone,  # type: ignore[arg-type]
-        backbone_pretrained="none" if backbone == "tinycnn" else None,
+        backbone_pretrained="none" if backbone in ("tinycnn", "ensemble") else None,
         backbone_checkpoint=checkpoint,
         index_backend="numpy",
     )
@@ -239,17 +241,16 @@ def demo(
         from mcmaster_vision.training.train import load_train_config
         from mcmaster_vision.training.train import train as _train
 
-        typer.echo(f"2b/4 training {backbone} for {train_epochs} epochs ...")
-        cfg = load_train_config(
-            Path("configs") / f"train_{backbone}.yaml"
-            if (Path("configs") / f"train_{backbone}.yaml").exists()
-            else None
-        )
+        # "ensemble" = learned tinycnn + hash: train the learned member, then fuse.
+        trainable = "tinycnn" if backbone == "ensemble" else backbone
+        typer.echo(f"2b/4 training {trainable} for {train_epochs} epochs ...")
+        cfg_path = Path("configs") / f"train_{trainable}.yaml"
+        cfg = load_train_config(cfg_path if cfg_path.exists() else None)
         cfg.update(
             {
-                "backbone": backbone,
+                "backbone": trainable,
                 "epochs": train_epochs,
-                "output_dir": str(s.model_dir / backbone),
+                "output_dir": str(s.model_dir / trainable),
             }
         )
         s = s.model_copy(update={"backbone_checkpoint": _train(store, cfg)})

@@ -37,9 +37,10 @@ Two backbones run fully offline:
 |---|---|---|
 | `hash` | hand-crafted numpy descriptor | CI, plumbing, no torch |
 | `tinycnn` | 1.6M-parameter residual net trained from scratch with `mcv train --config configs/train_tinycnn.yaml` | offline demos of the full learning loop |
+| `ensemble` | weighted fusion of `tinycnn` + `hash` (best offline accuracy) | offline serving |
 
 ```bash
-mcv demo --parts 800 --backbone tinycnn --train-epochs 16   # train, index, evaluate, serve
+mcv demo --parts 800 --backbone ensemble --train-epochs 24  # train tinycnn, fuse with hash, index, evaluate, serve
 ```
 
 Real accuracy on real photos comes from the CLIP / DINOv2 backbones plus

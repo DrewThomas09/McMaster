@@ -54,6 +54,8 @@ one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 | hash | 2 | 0.17 | 0.39 | 0.47 | 0.70 | 0.27 | 140 |
 | tinycnn (24 epochs) | 0 | 0.12 | 0.37 | 0.59 | 0.95 | 0.26 | 75 |
 | tinycnn (24 epochs) | 2 | 0.13 | 0.46 | 0.71 | 0.97 | 0.29 | 78 |
+| ensemble tinycnn+hash (1:1) | 2 | **0.20** | **0.57** | 0.71 | **0.98** | **0.36** | 203 |
+| ensemble + query expansion k=3 | 2 | 0.17 | 0.60 | **0.74** | 0.98 | 0.36 | 212 |
 
 The learned model was trained from scratch on CPU in ~35 minutes
 (`configs/train_tinycnn.yaml`: cached views, SupCon + classification, hard
