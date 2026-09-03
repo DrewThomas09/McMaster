@@ -163,6 +163,13 @@ def demo(
     serve_: bool = typer.Option(True, "--serve/--no-serve", help="Start the API afterwards"),
     port: int = typer.Option(8000),
     gallery_augment: int = typer.Option(2, help="Photo-style variants indexed per catalog image"),
+    backbone: str = typer.Option("hash", help="hash | tinycnn | openclip | dinov2"),
+    checkpoint: Path | None = typer.Option(
+        None, help="Fine-tuned checkpoint (.pt) for the backbone"
+    ),
+    train_epochs: int = typer.Option(
+        0, help="Train the backbone on the synthetic catalog first (needs torch)"
+    ),
 ) -> None:
     """Generate a synthetic catalog, index it, evaluate, and (optionally) serve it."""
     from PIL import Image
@@ -180,9 +187,13 @@ def demo(
         catalog_db=data_dir / "catalog.sqlite",
         index_dir=data_dir / "index",
         model_dir=data_dir / "models",
-        backbone="hash",
+        backbone=backbone,  # type: ignore[arg-type]
+        backbone_pretrained="none" if backbone == "tinycnn" else None,
+        backbone_checkpoint=checkpoint,
         index_backend="numpy",
     )
+    if backbone == "openclip":
+        s = s.model_copy(update={"backbone_pretrained": Settings().backbone_pretrained})
     s.ensure_dirs()
     typer.echo(f"1/4 generating {parts} synthetic parts ...")
     jsonl = data_dir / "parts.jsonl"
@@ -192,6 +203,25 @@ def demo(
     store = CatalogStore(s.catalog_db)
     _ingest(jsonl, store)
 
+    if train_epochs > 0:
+        from mcmaster_vision.training.train import load_train_config
+        from mcmaster_vision.training.train import train as _train
+
+        typer.echo(f"2b/4 training {backbone} for {train_epochs} epochs ...")
+        cfg = load_train_config(
+            Path("configs") / f"train_{backbone}.yaml"
+            if (Path("configs") / f"train_{backbone}.yaml").exists()
+            else None
+        )
+        cfg.update(
+            {
+                "backbone": backbone,
+                "epochs": train_epochs,
+                "output_dir": str(s.model_dir / backbone),
+            }
+        )
+        s = s.model_copy(update={"backbone_checkpoint": _train(store, cfg)})
+
     typer.echo("3/4 embedding + indexing ...")
     embedder = PartEmbedder(load_backbone(s))
     index = build_index(
@@ -199,9 +229,15 @@ def demo(
     )
     ident = Identifier(store, index, embedder, qe_k=s.query_expansion_k)
 
-    typer.echo("4/4 evaluating on photo-style augmented queries ...")
+    typer.echo("4/4 evaluating on photo-style augmented queries + fitting calibration ...")
     report = evaluate_retrieval(ident, store, max_queries=min(parts, 200))
     typer.echo(report.to_json())
+    from mcmaster_vision.pipeline.calibration import Calibration
+
+    cal = Calibration.fit_temperature(report.score_lists, report.correct_idx)
+    cal.save(s.model_dir / "calibration.json")
+    ident.calibration = cal
+    typer.echo(f"calibration temperature={cal.temperature} -> {s.model_dir / 'calibration.json'}")
 
     sample = next(store.iter_parts(with_images_only=True))
     q = PhotoAugmenter(seed=7)(Image.open(sample.image_paths[0]))

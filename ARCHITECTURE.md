@@ -41,6 +41,20 @@ LLM reranker adds 2–6 s and is meant for the "confirm before ordering" path.
 All three implement `embed(images) -> (N, dim)`; nothing downstream knows which
 one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 
+## Measured retrieval quality (synthetic catalog, photo-style queries)
+
+Numbers from `scripts/` runs on a 300-part, 39-family synthetic catalog with the
+evaluation augmentation preset (backgrounds, shadows, perspective, colour shifts,
+noise, JPEG). `ga` = gallery-augmented index rows per catalog image.
+
+| backbone | ga | Recall@1 | Recall@5 | Recall@10 | Recall@50 | MRR |
+|---|---|---|---|---|---|---|
+| hash | 0 | 0.18 | 0.49 | 0.57 | 0.73 | 0.32 |
+| hash | 2 | 0.28 | 0.56 | 0.67 | 0.85 | 0.41 |
+
+TinyCNN results on the 800-part catalog are recorded below once training runs
+finish (see the README for how to reproduce).
+
 ## Training (`training/train.py`)
 
 * **Objective**: supervised contrastive (SupCon) over SKU labels with two
@@ -52,6 +66,10 @@ one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 * **Hard negatives** (`training/mining.py`): after each epoch the gallery is
   re-embedded, each SKU's nearest *other-family* SKUs are found, and batches are
   built from anchor + confusers.
+* **Curriculum**: augmentation strength is blended from the mild evaluation
+  preset to the full training preset over the first epochs.
+* **Learning rate**: from-scratch nets stall at chance with AdamW above ~1e-3
+  (embeddings stay collapsed); `configs/train_tinycnn.yaml` uses 5e-4.
 * **Split** (`data/splits.py`): by family hash, so near-duplicates never leak.
 * **Validation**: Recall@1 with augmented queries against a held-out gallery.
 

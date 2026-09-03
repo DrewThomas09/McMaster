@@ -27,11 +27,23 @@ mcv demo --parts 300           # synthetic catalog -> index -> evaluation -> UI 
 reports Recall@K on photo-style augmented queries, identifies a sample query, and
 serves the upload UI at http://127.0.0.1:8000.
 
-The demo uses the dependency-free `hash` backbone (a hand-crafted descriptor, see
-`models/backbone.py`). It exists to exercise the plumbing, not to be accurate:
-on a 300-part synthetic catalog with photo-style queries it reaches roughly
-Recall@1 0.13 / Recall@10 0.37 / Recall@50 0.72. Real accuracy comes from the
-CLIP / DINOv2 backbones plus fine-tuning below.
+The synthetic catalog covers 39 hardware families (screws, nuts, washers, pins,
+gears, bearings, fittings, springs, brackets, tools) in 14 materials with
+canonical, top-down, and rotated views.
+
+Two backbones run fully offline:
+
+| backbone | what it is | when to use |
+|---|---|---|
+| `hash` | hand-crafted numpy descriptor | CI, plumbing, no torch |
+| `tinycnn` | 1.6M-parameter residual net trained from scratch with `mcv train --config configs/train_tinycnn.yaml` | offline demos of the full learning loop |
+
+```bash
+mcv demo --parts 800 --backbone tinycnn --train-epochs 16   # train, index, evaluate, serve
+```
+
+Real accuracy on real photos comes from the CLIP / DINOv2 backbones plus
+fine-tuning (below). See ARCHITECTURE.md for measured numbers.
 
 ## Using your own catalog data
 
@@ -70,12 +82,19 @@ mcv serve                                    # http://localhost:8000  (POST /ide
    `ANTHROPIC_API_KEY`, `pip install -e ".[llm]"`). The top candidates and their
    catalog images are shown to Claude, which ranks them and extracts attributes
    (material, drive style, visible text) that the fusion scorer then uses.
-3. **Turn on OCR.** `MCV_OCR_ENABLED=true` (`pip install -e ".[ocr]"`). A readable
+3. **Index photo-style variants.** `MCV_INDEX_GALLERY_AUGMENT=2` embeds two
+   augmented renders per catalog image alongside the clean one (database-side
+   augmentation). It lifts the hash backbone's Recall@1 by ~50% relative and
+   helps any backbone that was not fine-tuned on photos.
+4. **Query expansion.** `MCV_QUERY_EXPANSION_K=3` re-queries with the mean of
+   the query and its nearest gallery vectors. Helps learned embeddings; leave it
+   off for the hash descriptor.
+5. **Turn on OCR.** `MCV_OCR_ENABLED=true` (`pip install -e ".[ocr]"`). A readable
    part number on a bag or a stamped marking short-circuits to an exact match.
-4. **Collect real photos.** Put labelled phone photos under
+6. **Collect real photos.** Put labelled phone photos under
    `data/queries/<part_number>/*.jpg` and run `mcv evaluate --query-dir data/queries`
    to measure and calibrate on the real distribution.
-5. **Export for serving.** `training/export.py` writes the fine-tuned embedder to
+7. **Export for serving.** `training/export.py` writes the fine-tuned embedder to
    ONNX or TorchScript so the API container needs no training dependencies.
 
 Set `MCV_BACKBONE_PRETRAINED=none` to start from random weights (offline smoke

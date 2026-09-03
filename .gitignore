@@ -22,6 +22,7 @@ data/**
 *.npy
 *.faiss
 *.pt
+!assets/*.pt
 *.pth
 *.onnx
 *.sqlite
