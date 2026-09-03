@@ -16,7 +16,7 @@ import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BackboneName = Literal["hash", "openclip", "dinov2"]
+BackboneName = Literal["hash", "tinycnn", "openclip", "dinov2"]
 IndexBackend = Literal["numpy", "faiss"]
 
 
@@ -39,6 +39,9 @@ class Settings(BaseSettings):
 
     # Vector index
     index_backend: IndexBackend = "numpy"
+    index_gallery_augment: int = Field(
+        default=0, ge=0, le=8, description="Extra photo-style variants indexed per catalog image"
+    )
     index_top_k: int = Field(default=50, ge=1, le=1000)
 
     # Reranking

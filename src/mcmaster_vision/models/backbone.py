@@ -447,8 +447,12 @@ def load_backbone(settings: Settings) -> Backbone:
     """Instantiate the backbone named in settings (and load a fine-tuned checkpoint if set)."""
     if settings.backbone == "hash":
         return HashBackbone()
-    if settings.backbone == "openclip":
-        bb: TorchBackbone = OpenCLIPBackbone(
+    if settings.backbone == "tinycnn":
+        from mcmaster_vision.models.tinycnn import TinyCNNBackbone
+
+        bb: TorchBackbone = TinyCNNBackbone(device=settings.device)
+    elif settings.backbone == "openclip":
+        bb = OpenCLIPBackbone(
             settings.backbone_model, settings.backbone_pretrained, device=settings.device
         )
     elif settings.backbone == "dinov2":

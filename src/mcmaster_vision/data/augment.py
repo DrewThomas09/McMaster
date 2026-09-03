@@ -9,7 +9,7 @@ augmentation chain implemented with Pillow + numpy only, so it runs everywhere.
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
@@ -44,6 +44,44 @@ class AugmentConfig:
     occlusion_prob: float = 0.2
     grayscale_prob: float = 0.05
     backgrounds: list[tuple[int, int, int]] = field(default_factory=lambda: list(_BACKGROUNDS))
+
+    @classmethod
+    def gallery(cls) -> AugmentConfig:
+        """Mild variants used to *augment the index* (database-side augmentation):
+        backgrounds and shadows but no rotation, so every backbone sees catalog
+        parts the way phones see them without exploding the index size."""
+        return cls(
+            rotate_deg=0.0,
+            scale_range=(0.8, 1.0),
+            translate_frac=0.0,
+            perspective=0.03,
+            brightness=(0.85, 1.15),
+            contrast=(0.9, 1.1),
+            color_temp=0.04,
+            blur_prob=0.2,
+            blur_radius=(0.3, 0.8),
+            noise_sigma=3.0,
+            jpeg_prob=0.3,
+            occlusion_prob=0.0,
+            grayscale_prob=0.0,
+        )
+
+    @classmethod
+    def interpolate(cls, mild: AugmentConfig, harsh: AugmentConfig, t: float) -> AugmentConfig:
+        """Linear blend of two configs (t=0 -> mild, t=1 -> harsh) for curricula."""
+        t = max(0.0, min(1.0, t))
+        kw = {}
+        for f in fields(cls):
+            a, b = getattr(mild, f.name), getattr(harsh, f.name)
+            if isinstance(a, bool) or f.name == "backgrounds":
+                kw[f.name] = b if t >= 0.5 else a
+            elif isinstance(a, tuple):
+                kw[f.name] = tuple(type(x)(x + (y - x) * t) for x, y in zip(a, b, strict=True))
+            elif isinstance(a, (int, float)):
+                kw[f.name] = type(a)(a + (b - a) * t)
+            else:
+                kw[f.name] = b
+        return cls(**kw)
 
     @classmethod
     def evaluation(cls) -> AugmentConfig:

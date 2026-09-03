@@ -18,6 +18,7 @@ from PIL import Image
 
 from mcmaster_vision.catalog.store import CatalogStore
 from mcmaster_vision.catalog.taxonomy import Taxonomy
+from mcmaster_vision.data.augment import AugmentConfig, PhotoAugmenter
 from mcmaster_vision.index.base import VectorIndex, open_index
 from mcmaster_vision.models.backbone import l2_normalize
 from mcmaster_vision.models.embedder import PartEmbedder
@@ -34,10 +35,13 @@ def build_index(
     batch_size: int = 256,
     category_depth: int = 2,
     image_size: int = 224,
+    gallery_augment: int = 0,
+    seed: int = 0,
     progress: Callable[[int, int], None] | None = None,
     out_path: str | Path | None = None,
 ) -> VectorIndex:
     index = open_index(backend, embedder.dim)
+    augmenter = PhotoAugmenter(AugmentConfig.gallery(), seed=seed) if gallery_augment > 0 else None
     cat_sums: dict[str, np.ndarray] = {}
     cat_counts: dict[str, int] = {}
 
@@ -66,9 +70,17 @@ def build_index(
             except (OSError, FileNotFoundError):
                 log.warning("skipping unreadable image %s (%s)", path, part.part_number)
                 continue
-            ids.append(part.part_number)
-            images.append(img)
-            cats.append(cat_key)
+            variants = [img]
+            if augmenter is not None:
+                raw = Image.open(path).convert("RGB")
+                variants += [
+                    preprocess_catalog(augmenter(raw, out_size=image_size), size=image_size)
+                    for _ in range(gallery_augment)
+                ]
+            for v in variants:
+                ids.append(part.part_number)
+                images.append(v)
+                cats.append(cat_key)
             if len(images) >= batch_size:
                 flush()
         done += 1
@@ -86,6 +98,7 @@ def build_index(
             "backbone": embedder.version,
             "category_depth": category_depth,
             "image_size": image_size,
+            "gallery_augment": gallery_augment,
             "built_at": datetime.now(timezone.utc).isoformat(),
             "parts": len(set(index.ids)),
         }

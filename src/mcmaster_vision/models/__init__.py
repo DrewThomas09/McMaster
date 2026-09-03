@@ -3,4 +3,9 @@
 from mcmaster_vision.models.backbone import Backbone, HashBackbone, load_backbone
 from mcmaster_vision.models.embedder import PartEmbedder
 
-__all__ = ["Backbone", "HashBackbone", "PartEmbedder", "load_backbone"]
+__all__ = [
+    "Backbone",
+    "HashBackbone",
+    "PartEmbedder",
+    "load_backbone",
+]  # TinyCNNBackbone: models.tinycnn

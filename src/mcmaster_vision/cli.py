@@ -72,6 +72,7 @@ def build_index_cmd(
             batch_size=batch_size,
             out_path=s.index_path,
             image_size=s.image_size,
+            gallery_augment=s.index_gallery_augment,
             progress=lambda d, t: typer.echo(f"  {d}/{t} parts embedded"),
         )
     typer.echo(idx.stats().model_dump_json(indent=2))

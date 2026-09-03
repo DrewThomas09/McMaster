@@ -24,7 +24,7 @@ import numpy as np
 import yaml
 
 from mcmaster_vision.catalog.store import CatalogStore
-from mcmaster_vision.data.augment import PhotoAugmenter
+from mcmaster_vision.data.augment import AugmentConfig, PhotoAugmenter
 from mcmaster_vision.data.splits import split_by_family
 from mcmaster_vision.schemas import Part
 from mcmaster_vision.training.mining import hard_batch_sampler
@@ -56,6 +56,12 @@ DEFAULTS: dict[str, Any] = {
     "val_frac": 0.1,
     "max_parts": None,
     "output_dir": "./data/models/finetuned",
+    # Augmentation curriculum: blend from the mild evaluation preset to the full
+    # training preset over the first ``curriculum_epochs`` epochs.
+    "augment_curriculum": True,
+    "curriculum_epochs": 4,
+    "views": 2,
+    "val_max_parts": 500,
 }
 
 
@@ -93,6 +99,8 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
     from mcmaster_vision.training.mining import mine_hard_negatives
 
     torch.manual_seed(cfg["seed"])
+    if cfg.get("torch_threads"):
+        torch.set_num_threads(int(cfg["torch_threads"]))
     out_dir = Path(cfg["output_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -122,8 +130,13 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
 
     augmenter = PhotoAugmenter(seed=cfg["seed"])
     dataset, label_map = make_contrastive_dataset(
-        train_parts, backbone.preprocess, augmenter, views=2, image_size=cfg["image_size"]
+        train_parts,
+        backbone.preprocess,
+        augmenter,
+        views=int(cfg["views"]),
+        image_size=cfg["image_size"],
     )
+    eval_augmenter = PhotoAugmenter(AugmentConfig.evaluation(), seed=cfg["seed"] + 1)
     pn_by_label = {v: k for k, v in label_map.items()}
     part_by_pn = {p.part_number: p for p in train_parts}
 
@@ -153,6 +166,11 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
 
     for epoch in range(cfg["epochs"]):
         freeze = epoch < cfg["freeze_backbone_epochs"]
+        if cfg["augment_curriculum"]:
+            t_cur = min(1.0, epoch / max(1, int(cfg["curriculum_epochs"])))
+            augmenter.cfg = AugmentConfig.interpolate(
+                AugmentConfig.evaluation(), AugmentConfig(), t_cur
+            )
         for p in net.parameters():
             p.requires_grad_(not freeze)
 
@@ -176,7 +194,7 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
                 num_workers=cfg["num_workers"],
             )
 
-        net.train(not freeze)
+        net.train(not freeze or cfg["freeze_backbone_epochs"] == 0)
         head.train()
         t0 = time.time()
         running = 0.0
@@ -212,7 +230,11 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
 
         # validation: Recall@1 with augmented val queries against the val gallery
         backbone.projection = head.eval()
-        val_r1 = _validate(backbone, val_parts, augmenter) if val_parts else float("nan")
+        val_r1 = (
+            _validate(backbone, val_parts, eval_augmenter, int(cfg["val_max_parts"]))
+            if val_parts
+            else float("nan")
+        )
         backbone.projection = None
         rec = {
             "epoch": epoch,
