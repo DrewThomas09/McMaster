@@ -37,9 +37,11 @@ DEFAULTS: dict[str, Any] = {
     "backbone_pretrained": "laion2b_s34b_b88k",
     "image_size": 224,
     "embedding_dim": 512,
-    "loss": "supcon",
+    "loss": "supcon",  # supcon | arcface (= supcon + ArcFace auxiliary head)
+    "arcface_labels": "family",  # family | part : label space of the ArcFace head
     "arcface_margin": 0.3,
     "arcface_scale": 30.0,
+    "arcface_weight": 1.0,
     "temperature": 0.07,
     "epochs": 10,
     "batch_size": 128,
@@ -121,8 +123,20 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
     net = backbone.trainable_module()
     head = ProjectionHead(backbone.dim, cfg["embedding_dim"]).to(device)
     arc = None
-    fam_ids = sorted({p.family_id or p.part_number for p in train_parts})
+    if cfg.get("arcface_labels", "family") == "part":
+        fam_ids = sorted(p.part_number for p in train_parts)
+    else:
+        fam_ids = sorted({p.family_id or p.part_number for p in train_parts})
     fam_index = {f: i for i, f in enumerate(fam_ids)}
+
+    def arc_label(part: Part) -> int:
+        key = (
+            part.part_number
+            if cfg.get("arcface_labels", "family") == "part"
+            else (part.family_id or part.part_number)
+        )
+        return fam_index[key]
+
     if cfg["loss"] == "arcface":
         arc = ArcFaceHead(
             cfg["embedding_dim"], len(fam_ids), cfg["arcface_scale"], cfg["arcface_margin"]
@@ -216,15 +230,12 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
                 loss = supcon_loss(emb, labels, cfg["temperature"])
                 if arc is not None:
                     fam_labels = torch.tensor(
-                        [
-                            fam_index[
-                                part_by_pn[pn_by_label[int(lbl)]].family_id or pn_by_label[int(lbl)]
-                            ]
-                            for lbl in labels
-                        ],
+                        [arc_label(part_by_pn[pn_by_label[int(lbl)]]) for lbl in labels],
                         device=device,
                     ).repeat_interleave(v)
-                    loss = loss + arcface_loss(arc(emb.flatten(0, 1), fam_labels), fam_labels)
+                    loss = loss + float(cfg.get("arcface_weight", 1.0)) * arcface_loss(
+                        arc(emb.flatten(0, 1), fam_labels), fam_labels
+                    )
             opt.zero_grad(set_to_none=True)
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
@@ -236,7 +247,7 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
             step += 1
 
         # validation: Recall@1 with augmented val queries against the val gallery
-        backbone.projection = head.eval()
+        backbone.projection = head
         val_r1 = (
             _validate(backbone, val_parts, eval_augmenter, int(cfg["val_max_parts"]))
             if val_parts

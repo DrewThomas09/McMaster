@@ -371,10 +371,27 @@ class TorchBackbone(Backbone):
         return f"{self.name}@{Path(ck).stem}" if ck else self.name
 
     def embed(self, images: Sequence[Image.Image]) -> np.ndarray:
-        import torch
 
         if not images:
             return np.zeros((0, self.dim), dtype=np.float32)
+        outs: list[np.ndarray] = []
+        # Always embed in eval mode: BatchNorm must use running statistics even when
+        # the trainer calls embed() for validation / hard-negative mining mid-epoch.
+        was_training = self.model.training
+        proj_training = self.projection.training if self.projection is not None else False
+        self.model.eval()
+        if self.projection is not None:
+            self.projection.eval()
+        try:
+            return self._embed_eval(images)
+        finally:
+            self.model.train(was_training)
+            if self.projection is not None:
+                self.projection.train(proj_training)
+
+    def _embed_eval(self, images: Sequence[Image.Image]) -> np.ndarray:
+        import torch
+
         outs: list[np.ndarray] = []
         with torch.inference_mode():
             for i in range(0, len(images), self.batch_size):
