@@ -10,7 +10,7 @@ few epochs so the model still sees fresh augmentations over a run.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from multiprocessing import Pool
+from multiprocessing import get_context
 
 import numpy as np
 from PIL import Image
@@ -56,7 +56,9 @@ def build_view_cache(
     if not jobs:
         return np.zeros((0, image_size, image_size, 3), np.uint8), np.zeros((0,), np.int64)
     if workers > 1:
-        with Pool(workers) as pool:
+        # "spawn" (not fork): forking a process that already initialised torch's
+        # thread pool can deadlock the workers.
+        with get_context("spawn").Pool(workers) as pool:
             views = pool.map(_job, jobs, chunksize=8)
     else:
         views = [_job(j) for j in jobs]
