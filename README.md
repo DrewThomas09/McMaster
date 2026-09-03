@@ -52,6 +52,22 @@ retrain on your own images with `mcv train`.
 Real accuracy on real photos comes from the CLIP / DINOv2 backbones plus
 fine-tuning (below). See ARCHITECTURE.md for measured numbers.
 
+## From images to a running system in one command
+
+```bash
+mcv validate  /path/to/drop            # what would go wrong (missing/corrupt/duplicate images, ...)
+mcv bootstrap /path/to/drop --workers 4  # validate -> ingest + normalise -> embed + index -> evaluate + calibrate
+mcv status                             # what is built
+mcv serve                              # phone UI + API
+```
+
+The drop can be a folder of images named by part number, a `<part_number>/`
+folder tree, a JSONL/CSV export, or a spreadsheet of image URLs
+(`mcv fetch-images` downloads them first). Image-only drops get names,
+categories and specs from McMaster pages with `mcv enrich`. New SKUs later:
+`mcv ingest new.jsonl && mcv build-index --only-new`, then `POST /admin/reload`.
+See [RUNBOOK.md](RUNBOOK.md) for the full operating guide and sizing at 700k parts.
+
 ## Using McMaster-Carr's own images
 
 The most useful gallery is McMaster-Carr's own product imagery. Three ways in:

@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     max_upload_mb: int = 20
+    api_token: str | None = None  # protects /admin/* when set (header X-API-Token)
 
     @property
     def index_path(self) -> Path:

@@ -51,6 +51,203 @@ def ingest(
     typer.echo(json.dumps(stats))
 
 
+@app.command()
+def validate(
+    source: Path = typer.Argument(..., help="parts.jsonl / parts.csv / image folder"),
+    max_parts: int | None = typer.Option(None),
+    no_image_check: bool = typer.Option(False, help="Skip decoding every image (faster)"),
+) -> None:
+    """Check a catalog drop before spending hours indexing it."""
+    from mcmaster_vision.catalog.intake import validate_source
+
+    rep = validate_source(source, check_images=not no_image_check, max_parts=max_parts)
+    typer.echo(rep.to_json())
+    if not rep.ok():
+        typer.echo("PROBLEMS FOUND (see above)", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command("fetch-images")
+def fetch_images(
+    source: Path = typer.Argument(
+        ..., help="JSONL/CSV whose rows carry image_urls (list or ';'-joined)"
+    ),
+    out: Path = typer.Option(
+        Path("./data/catalog/parts_with_images.jsonl"), help="JSONL with image_paths to ingest next"
+    ),
+    config: Path | None = _config_opt,
+    delay: float = typer.Option(0.2, help="Seconds between downloads"),
+) -> None:
+    """Download the images referenced by a spreadsheet export; resumable."""
+    from mcmaster_vision.catalog.intake import fetch_image_urls, read_records, write_jsonl
+
+    s = _settings(config)
+    n = write_jsonl(
+        fetch_image_urls(
+            read_records(source),
+            s.data_dir / "images" / "fetched",
+            delay_s=delay,
+            progress=lambda i: typer.echo(f"  {i} parts..."),
+        ),
+        out,
+    )
+    typer.echo(f"{n} records -> {out}. Now run: mcv ingest {out}")
+
+
+@app.command()
+def enrich(
+    config: Path | None = _config_opt,
+    only_missing: bool = typer.Option(True, help="Only parts without a name/category"),
+    delay: float = typer.Option(1.5),
+    limit: int | None = typer.Option(None),
+) -> None:
+    """Fill in names, categories and specs from McMaster-Carr product pages for parts that only have images."""
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.catalog.web import WebImporter
+
+    s = _settings(config)
+    importer = WebImporter(s.data_dir / "images" / "web", delay_s=delay)
+    updated = 0
+    with CatalogStore(s.catalog_db) as store:
+        todo = [
+            p
+            for p in store.iter_parts()
+            if not only_missing or not p.category_path or p.name == p.part_number
+        ]
+        for i, part in enumerate(todo[:limit]):
+            data = importer.fetch_page(part.part_number)
+            if data is None:
+                continue
+            store.upsert(
+                [
+                    part.model_copy(
+                        update={
+                            "name": data.name or part.name,
+                            "category_path": data.category_path or part.category_path,
+                            "description": data.description or part.description,
+                            "attributes": {**data.attributes, **part.attributes},
+                            "url": data.url,
+                        }
+                    )
+                ]
+            )
+            updated += 1
+            if (i + 1) % 50 == 0:
+                typer.echo(f"  {i + 1}/{len(todo)} ...")
+    typer.echo(f"enriched {updated} of {len(todo)} parts")
+
+
+@app.command()
+def bootstrap(
+    source: Path = typer.Argument(
+        ..., help="Catalog drop: parts.jsonl / parts.csv / folder of images"
+    ),
+    config: Path | None = _config_opt,
+    workers: int = typer.Option(1, help="Embedding processes"),
+    normalize: bool = typer.Option(
+        True, help="Copy images into data/images normalised (EXIF, RGB, <=1024 px, de-duplicated)"
+    ),
+    evaluate_: bool = typer.Option(
+        True,
+        "--evaluate/--no-evaluate",
+        help="Measure Recall@K on augmented queries and fit calibration",
+    ),
+    max_eval_queries: int = typer.Option(300),
+    skip_validate: bool = typer.Option(False),
+) -> None:
+    """Everything from a folder of images to a served, calibrated system: validate -> ingest -> index -> evaluate."""
+    import time
+
+    from mcmaster_vision.catalog import CatalogStore, open_source
+    from mcmaster_vision.catalog.intake import normalise_parts, validate_source
+    from mcmaster_vision.index import build_index
+    from mcmaster_vision.models import PartEmbedder, load_backbone
+    from mcmaster_vision.pipeline import Identifier
+    from mcmaster_vision.pipeline.calibration import Calibration
+    from mcmaster_vision.pipeline.manifest import update_manifest
+    from mcmaster_vision.training import evaluate_retrieval
+
+    s = _settings(config)
+    t0 = time.time()
+    if not skip_validate:
+        typer.echo("1/4 validating ...")
+        rep = validate_source(source, check_images=False)
+        typer.echo(
+            f"  {rep.parts} parts, {rep.with_images} with images, {rep.missing_files} missing files, {rep.duplicate_part_numbers} duplicate part numbers"
+        )
+        if not rep.ok():
+            typer.echo(rep.to_json(), err=True)
+            raise typer.Exit(code=1)
+    typer.echo("2/4 ingesting ...")
+    src = open_source(source)
+    store = CatalogStore(s.catalog_db)
+    parts_iter = (
+        normalise_parts(
+            src,
+            s.data_dir / "images" / "catalog",
+            progress=lambda i: typer.echo(f"  {i} parts normalised"),
+        )
+        if normalize
+        else src
+    )
+    n = store.upsert(parts_iter)
+    typer.echo(f"  {n} parts in {s.catalog_db}")
+    typer.echo("3/4 embedding + indexing ...")
+    embedder = PartEmbedder(load_backbone(s))
+    t = time.time()
+    idx = build_index(
+        store,
+        embedder,
+        "auto",
+        out_path=s.index_path,
+        image_size=s.image_size,
+        gallery_augment=s.index_gallery_augment,
+        workers=workers,
+        settings_dump=s.model_dump(mode="json"),
+        progress=lambda d, tot: typer.echo(f"  {d}/{tot} parts embedded"),
+    )
+    typer.echo(f"  {idx.stats().vectors} vectors ({idx.backend}) in {time.time() - t:.0f}s")
+    report = None
+    if evaluate_:
+        typer.echo("4/4 evaluating + calibrating ...")
+        ident = Identifier(
+            store,
+            idx,
+            embedder,
+            top_k=s.index_top_k,
+            qe_k=s.query_expansion_k,
+            image_size=s.image_size,
+        )
+        report = evaluate_retrieval(ident, store, max_queries=max_eval_queries)
+        cal = Calibration.fit_temperature(report.score_lists, report.correct_idx)
+        cal.save(s.model_dir / "calibration.json")
+        typer.echo(
+            f"  Recall@1 {report.recall_at.get(1)}  Recall@10 {report.recall_at.get(10)}  MRR {report.mrr}  calibration T={cal.temperature}"
+        )
+    update_manifest(
+        s,
+        source=str(source),
+        parts=n,
+        index=idx.stats().model_dump(mode="json"),
+        index_path=str(s.index_path),
+        backbone=embedder.version,
+        evaluation=(report.to_json() and __import__("json").loads(report.to_json()))
+        if report
+        else None,
+        bootstrap_seconds=round(time.time() - t0, 1),
+    )
+    store.close()
+    typer.echo(f"done in {time.time() - t0:.0f}s. Serve with: mcv serve")
+
+
+@app.command()
+def status(config: Path | None = _config_opt) -> None:
+    """What is built: catalog, index, calibration, feedback, manifest."""
+    from mcmaster_vision.pipeline.manifest import status as _status
+
+    typer.echo(json.dumps(_status(_settings(config)), indent=2, default=str))
+
+
 @app.command("import-web")
 def import_web(
     items: list[str] = typer.Argument(None, help="Part numbers or product URLs"),
@@ -86,28 +283,52 @@ def import_web(
 @app.command("build-index")
 def build_index_cmd(
     config: Path | None = _config_opt,
-    backend: str | None = typer.Option(None, help="numpy | faiss"),
+    backend: str | None = typer.Option(
+        None, help="numpy | faiss | auto (faiss above 50k vectors when installed)"
+    ),
     batch_size: int = typer.Option(256),
+    workers: int = typer.Option(1, help="Embedding processes (CPU boxes: one per core)"),
+    only_new: bool = typer.Option(
+        False, help="Add parts missing from the existing index instead of rebuilding"
+    ),
+    gallery_augment: int | None = typer.Option(
+        None, help="Photo-style variants per catalog image (default from config)"
+    ),
 ) -> None:
     """Embed every catalog image and write the vector index."""
+    import time
+
     from mcmaster_vision.catalog import CatalogStore
     from mcmaster_vision.index import build_index
     from mcmaster_vision.models import PartEmbedder, load_backbone
+    from mcmaster_vision.pipeline.manifest import update_manifest
 
-    s = _settings(config, index_backend=backend)
+    s = _settings(config, index_backend=None if backend in (None, "auto") else backend)
+    ga = s.index_gallery_augment if gallery_augment is None else gallery_augment
     embedder = PartEmbedder(load_backbone(s))
+    t = time.time()
     with CatalogStore(s.catalog_db) as store:
         idx = build_index(
             store,
             embedder,
-            s.index_backend,
+            backend or s.index_backend,
             batch_size=batch_size,
             out_path=s.index_path,
             image_size=s.image_size,
-            gallery_augment=s.index_gallery_augment,
+            gallery_augment=ga,
+            only_new=only_new,
+            workers=workers,
+            settings_dump=s.model_dump(mode="json"),
             progress=lambda d, t: typer.echo(f"  {d}/{t} parts embedded"),
         )
-    typer.echo(idx.stats().model_dump_json(indent=2))
+    stats = idx.stats()
+    update_manifest(
+        s,
+        index=stats.model_dump(mode="json"),
+        index_build_seconds=round(time.time() - t, 1),
+        index_path=str(s.index_path),
+    )
+    typer.echo(stats.model_dump_json(indent=2))
 
 
 @app.command()

@@ -50,6 +50,30 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     def health() -> dict:
         return {"status": "ok", "version": __version__, "ready": app.state.identifier is not None}
 
+    @app.get("/status")
+    def status_view() -> dict:
+        from mcmaster_vision.pipeline.manifest import status as _status
+
+        out = _status(settings)
+        out["loaded"] = app.state.identifier is not None
+        return out
+
+    @app.post("/admin/reload")
+    def reload(request: Request) -> dict:
+        """Re-open the catalog and index after `mcv build-index` without restarting.
+        Protected by MCV_API_TOKEN (header X-API-Token) when that is set."""
+        token = settings.api_token
+        if token and request.headers.get("x-api-token") != token:
+            raise HTTPException(401, "bad or missing X-API-Token")
+        try:
+            app.state.identifier = load_identifier(settings)
+        except FileNotFoundError as e:
+            raise HTTPException(503, f"index not built yet: {e}") from e
+        return {
+            "reloaded": True,
+            "index": app.state.identifier.index.stats().model_dump(mode="json"),
+        }
+
     @app.get("/stats", response_model=IndexStats)
     def stats(ident: Identifier = Depends(get_identifier)) -> IndexStats:
         return ident.index.stats()
