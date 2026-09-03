@@ -311,9 +311,9 @@ def _train_cached(
 
     device = backbone.device
     k = int(cfg["cache_views"])
-    bs = int(cfg["batch_size"])
     epochs = int(cfg["epochs"])
     n_parts = len(train_parts)
+    bs = max(2, min(int(cfg["batch_size"]), n_parts))  # a batch cannot hold more parts than exist
     clf = (
         torch.nn.Linear(cfg["embedding_dim"], n_parts).to(device)
         if float(cfg.get("ce_weight", 0)) > 0
