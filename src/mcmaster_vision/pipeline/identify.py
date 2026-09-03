@@ -7,6 +7,7 @@ import time
 import uuid
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 from mcmaster_vision.catalog.store import CatalogStore
@@ -19,7 +20,13 @@ from mcmaster_vision.pipeline.ocr import OCREngine
 from mcmaster_vision.pipeline.preprocess import decode_image, preprocess
 from mcmaster_vision.pipeline.rerank import ClaudeVisionReranker, FusionReranker, Scored
 from mcmaster_vision.pipeline.retrieve import Retriever
-from mcmaster_vision.schemas import Candidate, ExtractedAttributes, IdentificationResult, MatchTier
+from mcmaster_vision.schemas import (
+    Candidate,
+    ExtractedAttributes,
+    FamilyHint,
+    IdentificationResult,
+    MatchTier,
+)
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +78,40 @@ class Identifier:
             for s, p in zip(scored, probs, strict=True)
         ]
 
+    @staticmethod
+    def _family_hint(
+        scored: list[Scored], probs: list[float], min_mass: float = 0.6
+    ) -> FamilyHint | None:
+        """If most of the probability mass sits on several SKUs of one family, report the
+        family and the attributes that differ between them (the question to ask the user)."""
+        mass: dict[str, float] = {}
+        members: dict[str, list[Scored]] = {}
+        for s, p in zip(scored, probs, strict=True):
+            fam = s.part.family_id
+            if not fam:
+                continue
+            mass[fam] = mass.get(fam, 0.0) + p
+            members.setdefault(fam, []).append(s)
+        if not mass:
+            return None
+        fam = max(mass, key=mass.get)  # type: ignore[arg-type]
+        if mass[fam] < min_mass or len(members[fam]) < 2:
+            return None
+        parts = [m.part for m in members[fam]]
+        differing: dict[str, list[str]] = {}
+        keys = {k for p in parts for k in p.attributes}
+        for k in sorted(keys):
+            values = [str(p.attributes.get(k, "?")) for p in parts]
+            if len(set(values)) > 1:
+                differing[k] = sorted(set(values))
+        return FamilyHint(
+            family_id=fam,
+            name=parts[0].name,
+            part_numbers=[p.part_number for p in parts],
+            probability=round(mass[fam], 4),
+            distinguishing_attributes=differing,
+        )
+
     # ------------------------------------------------------------ public
     def identify_bytes(
         self, data: bytes, *, top_n: int = 5, use_llm: bool | None = None
@@ -80,15 +121,29 @@ class Identifier:
     def identify_path(self, path: str | Path, **kw) -> IdentificationResult:
         return self.identify_bytes(Path(path).read_bytes(), **kw)
 
+    def identify_many_bytes(self, blobs: list[bytes], **kw) -> IdentificationResult:
+        return self.identify([decode_image(b) for b in blobs], **kw)
+
     def identify(
-        self, image: Image.Image, *, top_n: int = 5, use_llm: bool | None = None
+        self,
+        image: Image.Image | list[Image.Image],
+        *,
+        top_n: int = 5,
+        use_llm: bool | None = None,
     ) -> IdentificationResult:
+        """Identify one photo, or several photos of the *same* part (different angles):
+        every photo's TTA variants are searched and each catalog part keeps its best score."""
+        images = image if isinstance(image, list) else [image]
+        if not images:
+            raise ValueError("no images")
         timings: dict[str, float] = {}
         t = time.perf_counter()
         request_id = uuid.uuid4().hex[:12]
 
         # 1. preprocess
-        query_img = preprocess(image, size=self.image_size, segment=self.segment)
+        query_imgs = [preprocess(im, size=self.image_size, segment=self.segment) for im in images]
+        query_img = query_imgs[0]
+        image = images[0]
         t = self._timer(timings, "preprocess", t)
 
         # 2. OCR (may short-circuit)
@@ -97,8 +152,8 @@ class Identifier:
             ocr_pns = [pn for pn in self.ocr.read(image).part_numbers if self.store.get(pn)]
             t = self._timer(timings, "ocr", t)
 
-        # 3. embed + retrieve
-        qvec = self.embedder.embed_query(query_img)
+        # 3. embed + retrieve (all photos' TTA variants stacked into one multi-query)
+        qvec = np.concatenate([self.embedder.embed_query(q) for q in query_imgs], axis=0)
         t = self._timer(timings, "embed", t)
         hits = self.retriever.retrieve(qvec)
         for pn in ocr_pns:  # make sure OCR'd parts are in the candidate pool
@@ -146,6 +201,8 @@ class Identifier:
             tier=tier,
             best=candidates[0] if candidates and tier != MatchTier.UNKNOWN else None,
             candidates=candidates,
+            family=self._family_hint(top, probs) if tier != MatchTier.UNKNOWN else None,
+            photos=len(images),
             ocr_part_numbers=ocr_pns,
             extracted=extracted,
             timings_ms=timings,

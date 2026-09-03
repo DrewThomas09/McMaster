@@ -76,11 +76,27 @@ class ExtractedAttributes(BaseModel):
     notes: str | None = None
 
 
+class FamilyHint(BaseModel):
+    """When the top candidates are look-alike SKUs of one family (same geometry,
+    different length / thread / size), say so and list what tells them apart."""
+
+    family_id: str
+    name: str
+    part_numbers: list[str]
+    probability: float = Field(..., description="Summed confidence of the family's candidates")
+    distinguishing_attributes: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="attribute -> the values that differ across the family's candidates",
+    )
+
+
 class IdentificationResult(BaseModel):
     request_id: str
     tier: MatchTier
     best: Candidate | None
     candidates: list[Candidate]
+    family: FamilyHint | None = None
+    photos: int = 1
     ocr_part_numbers: list[str] = Field(default_factory=list)
     extracted: ExtractedAttributes | None = None
     timings_ms: dict[str, float] = Field(default_factory=dict)
@@ -95,3 +111,16 @@ class IndexStats(BaseModel):
     parts: int
     built_at: datetime | None = None
     backbone: str = "unknown"
+
+
+class Feedback(BaseModel):
+    """A user's confirmation of what a photo actually showed (or that nothing matched)."""
+
+    request_id: str
+    part_number: str | None = Field(
+        default=None, description="Confirmed part, or null for 'none of these'"
+    )
+    predicted: str | None = None
+    tier: str | None = None
+    image_path: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

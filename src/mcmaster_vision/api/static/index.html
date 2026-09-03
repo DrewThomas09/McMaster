@@ -46,6 +46,17 @@
   .actions { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
   .actions button { padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
   a.link { color:var(--accent); text-decoration:none; }
+  .search { display:flex; gap:8px; margin-top:14px; }
+  .search input { flex:1; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:15px; }
+  .search button { padding:12px 16px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  .family { background:var(--card); border:1px dashed var(--accent); border-radius:12px; padding:12px 16px; margin-bottom:12px; }
+  .family b { color:var(--accent); }
+  .confirm { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+  .confirm button { padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink); cursor:pointer; font-size:13px; }
+  .confirm button.yes { border-color:var(--ok); color:var(--ok); }
+  .confirm button.done { background:var(--ok); color:#fff; border-color:var(--ok); }
+  .thumbs { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .thumbs img { width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -68,24 +79,69 @@
       <label>show top <select id="topn"><option>3</option><option selected>5</option><option>10</option></select></label>
     </div>
   </div>
+  <form class="search" id="searchform" autocomplete="off">
+    <input id="q" type="search" placeholder="...or search the catalog by part number / name" aria-label="search">
+    <button type="submit">Search</button>
+  </form>
 
   <div class="row">
     <div class="preview" id="preview" hidden>
       <img id="img" alt="query">
-      <div class="actions"><button id="again">Another photo</button></div>
+      <div class="thumbs" id="thumbs"></div>
+      <div class="actions">
+        <label class="actions"><button type="button" onclick="document.getElementById('angle').click()">+ Add another angle</button><input type="file" id="angle" accept="image/*" capture="environment" hidden></label>
+        <button id="again">Start over</button>
+      </div>
     </div>
     <div class="results" id="results"></div>
   </div>
 </main>
 <script>
 const $ = id => document.getElementById(id);
-const drop = $('drop'), results = $('results'), preview = $('preview'), img = $('img');
-for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) send(e.target.files[0]); e.target.value = ''; });
+const drop = $('drop'), results = $('results'), preview = $('preview'), img = $('img'), thumbs = $('thumbs');
+let photos = [];          // File[] for the current query (several angles of one part)
+let lastResult = null;
+for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; addPhotos([...e.target.files]); } e.target.value = ''; });
+$('angle').addEventListener('change', e => { if (e.target.files[0]) addPhotos([e.target.files[0]]); e.target.value = ''; });
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) send(e.dataTransfer.files[0]); });
-window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { send(it.getAsFile()); break; } });
-$('again').addEventListener('click', () => { preview.hidden = true; results.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; addPhotos([...e.dataTransfer.files]); } });
+window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; addPhotos([it.getAsFile()]); break; } });
+$('again').addEventListener('click', () => { photos = []; lastResult = null; preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
+$('searchform').addEventListener('submit', async e => { e.preventDefault(); const q = $('q').value.trim(); if (q) await search(q); });
+
+async function addPhotos(files) {
+  photos = photos.concat(files).slice(0, 6);
+  preview.hidden = false; img.src = URL.createObjectURL(photos[0]);
+  thumbs.innerHTML = photos.length > 1 ? photos.map(f => `<img src="${URL.createObjectURL(f)}" alt="">`).join('') : '';
+  await send();
+}
+
+async function search(q) {
+  results.innerHTML = '<p><span class="spinner"></span>Searching&hellip;</p>';
+  const r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10`);
+  if (!r.ok) { results.innerHTML = `<p style="color:var(--bad)">Search failed (${r.status})</p>`; return; }
+  const parts = await r.json();
+  if (!parts.length) { results.innerHTML = '<p>No catalog entries match.</p>'; return; }
+  results.innerHTML = parts.map(p => `<div class="cand">
+      <img src="/parts/${encodeURIComponent(p.part_number)}/image" loading="lazy" onerror="this.style.visibility='hidden'">
+      <div style="flex:1;min-width:0"><div class="pn">${esc(p.part_number)} <span style="font-weight:400">&mdash; ${esc(p.name)}</span></div>
+      <div class="meta">${esc(p.category_path.join(' › '))}</div>
+      <div class="meta">${Object.entries(p.attributes).map(([k,v]) => `${esc(k)}: ${esc(v)}`).join(' · ')}</div></div></div>`).join('');
+}
+
+async function confirm(partNumber, btn) {
+  if (!lastResult) return;
+  const fd = new FormData();
+  fd.append('request_id', lastResult.request_id);
+  if (partNumber) fd.append('part_number', partNumber);
+  if (lastResult.best) fd.append('predicted', lastResult.best.part_number);
+  fd.append('tier', lastResult.tier);
+  if (photos[0]) fd.append('file', await downscale(photos[0]));
+  const r = await fetch('/feedback', { method: 'POST', body: fd });
+  if (r.ok) { document.querySelectorAll('.confirm button').forEach(b => b.disabled = true); btn.classList.add('done'); btn.textContent = partNumber ? 'Saved as ' + partNumber : 'Saved as unknown'; }
+  else btn.textContent = 'Could not save';
+}
 
 async function downscale(file, max = 1280) {
   // Phones produce 12 MP JPEGs; the model only needs a few hundred px. Resize client-side to keep uploads fast.
@@ -100,17 +156,18 @@ async function downscale(file, max = 1280) {
   } catch (_) { return file; }
 }
 
-async function send(file) {
-  preview.hidden = false; img.src = URL.createObjectURL(file);
-  results.innerHTML = '<p><span class="spinner"></span>Identifying&hellip;</p>';
-  const small = await downscale(file);
-  const fd = new FormData(); fd.append('file', small);
+async function send() {
+  if (!photos.length) return;
+  results.innerHTML = '<p><span class="spinner"></span>Identifying' + (photos.length > 1 ? ` from ${photos.length} photos` : '') + '&hellip;</p>';
+  const fd = new FormData();
+  for (const f of photos) fd.append('files', await downscale(f));
   const q = new URLSearchParams({ top_n: $('topn').value }); if ($('llm').checked) q.set('use_llm', 'true');
   let r;
   try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
   catch (e) { results.innerHTML = `<p style="color:var(--bad)">Network error: ${e}</p>`; return; }
   if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(d)}</p>`; return; }
-  render(await r.json());
+  lastResult = await r.json();
+  render(lastResult);
   results.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -123,7 +180,11 @@ function render(res) {
   else html += `<div class="name">Try another angle, closer, on a plain background &mdash; or search by text below.</div>`;
   if (res.ocr_part_numbers.length) html += `<div class="name">Part number read from the photo: ${res.ocr_part_numbers.map(esc).join(', ')}</div>`;
   if (res.extracted) { const ex = res.extracted; const bits = [ex.part_type, ex.material_guess, ex.head_type, ex.drive_style].filter(Boolean).map(esc); if (bits.length) html += `<div class="name">Seen in photo: ${bits.join(' &middot; ')}</div>`; }
-  html += '</div>';
+  html += `<div class="confirm"><button type="button" onclick="confirm(null, this)">None of these</button></div></div>`;
+  if (res.family) {
+    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<b>${esc(k)}</b>: ${v.map(esc).join(' / ')}`).join(' &middot; ');
+    html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' They differ by ' + diffs + ' &mdash; check the part and pick below.' : ''}</div>`;
+  }
   for (const c of res.candidates) {
     html += `<div class="cand">
       <img src="/parts/${encodeURIComponent(c.part_number)}/image" loading="lazy" onerror="this.style.visibility='hidden'">
@@ -134,9 +195,10 @@ function render(res) {
         <div class="bar"><i style="width:${Math.round(c.confidence*100)}%"></i></div>
         <div class="meta">confidence ${(c.confidence*100).toFixed(1)}% · similarity ${c.similarity.toFixed(3)} · <a class="link" href="https://www.mcmaster.com/${encodeURIComponent(c.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div>
         <ul class="reasons">${c.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+        <div class="confirm"><button type="button" class="yes" onclick="confirm('${esc(c.part_number)}', this)">&#10003; This is it</button></div>
       </div></div>`;
   }
-  html += `<div class="timings">model ${esc(res.model_version)} · ${Object.entries(res.timings_ms).map(([k,v]) => `${k} ${v}ms`).join(' · ')}</div>`;
+  html += `<div class="timings">${res.photos > 1 ? res.photos + ' photos · ' : ''}model ${esc(res.model_version)} · ${Object.entries(res.timings_ms).map(([k,v]) => `${k} ${v}ms`).join(' · ')}</div>`;
   results.innerHTML = html;
 }
 </script>

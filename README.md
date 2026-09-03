@@ -101,7 +101,7 @@ mcv identify photo.jpg                       # JSON result
 mcv serve                                    # http://localhost:8000  (POST /identify)
 ```
 
-## One photo, one answer
+## One photo, one answer (or several angles)
 
 `mcv serve` hosts a phone-friendly page: **Take a photo** opens the camera on a
 phone, desktop users can drop an image or paste a screenshot, the image is
@@ -110,6 +110,19 @@ downscaled client-side, and the answer comes back as a verdict card
 images, specs, evidence, and a link to the part on mcmaster.com. Open it from a
 phone on the same network (`mcv serve --host 0.0.0.0`) or behind HTTPS for
 camera access on iOS.
+
+* **Add another angle** sends up to six photos of the same part in one query;
+  every photo's views are searched and each catalog part keeps its best score.
+* **Look-alike families.** When the probability mass lands on several SKUs that
+  differ only in a non-visual spec, the answer says so and lists what tells them
+  apart (`family.distinguishing_attributes`, e.g. length 1/2" / 3/4" / 1").
+* **"This is it" / "None of these"** posts to `/feedback`, which files the photo
+  under `data/queries/<part_number>/` (or `_unknown/`). Those labelled real
+  photos are exactly what `mcv evaluate --query-dir data/queries` measures on
+  and what `mcv train --query-dir data/queries` adds as training views, so
+  accuracy on *your* parts improves with use. `/feedback/stats` reports how
+  often the top-1 was confirmed.
+* **Text search** (`/search?q=`) is the fallback when nothing matches.
 
 ### Improving accuracy
 

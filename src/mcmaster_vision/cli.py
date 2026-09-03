@@ -141,16 +141,26 @@ def serve(
 def train(
     config: Path = typer.Option(Path("configs/train_openclip.yaml"), "--config", "-c"),
     runtime_config: Path | None = typer.Option(None, help="Runtime YAML for catalog location"),
+    query_dir: Path | None = typer.Option(
+        None,
+        help="Labelled real photos (<dir>/<part_number>/*.jpg, e.g. the feedback store) to add as training views",
+    ),
 ) -> None:
     """Fine-tune a backbone on the catalog (requires the [ml] extra)."""
     from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.pipeline.feedback import FeedbackStore
     from mcmaster_vision.training.train import load_train_config
     from mcmaster_vision.training.train import train as _train
 
     s = _settings(runtime_config)
     cfg = load_train_config(config)
+    extra = FeedbackStore(query_dir or s.queries_dir).labelled_images()
+    if extra:
+        typer.echo(
+            f"adding {sum(len(v) for v in extra.values())} real photos for {len(extra)} parts as training views"
+        )
     with CatalogStore(s.catalog_db) as store:
-        ckpt = _train(store, cfg)
+        ckpt = _train(store, cfg, extra_images=extra)
     typer.echo(f"best checkpoint: {ckpt}")
 
 

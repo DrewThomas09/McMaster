@@ -96,7 +96,21 @@ def _mean_part_embeddings(backbone, parts: list[Part]) -> np.ndarray:
     return v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-8)
 
 
-def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
+def with_extra_images(parts: list[Part], extra: dict[str, list[str]] | None) -> list[Part]:
+    """Append labelled real photos (from the feedback store / ``--query-dir``) to the
+    matching parts' image lists so they become training views."""
+    if not extra:
+        return parts
+    out = []
+    for p in parts:
+        more = extra.get(p.part_number)
+        out.append(p.model_copy(update={"image_paths": p.image_paths + more}) if more else p)
+    return out
+
+
+def train(
+    store: CatalogStore, cfg: dict[str, Any], extra_images: dict[str, list[str]] | None = None
+) -> Path:
     try:
         import torch
         from torch.utils.data import DataLoader
@@ -119,6 +133,7 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
     parts = list(store.iter_parts(with_images_only=True))
     if cfg.get("max_parts"):
         parts = parts[: int(cfg["max_parts"])]
+    parts = with_extra_images(parts, extra_images)
     train_parts, val_parts = split_by_family(parts, cfg["val_frac"])
     log.info("train parts=%d val parts=%d", len(train_parts), len(val_parts))
 

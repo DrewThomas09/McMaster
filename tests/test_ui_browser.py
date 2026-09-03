@@ -25,7 +25,7 @@ def _chromium_path() -> str | None:
 
 
 @pytest.fixture(scope="module")
-def server(identifier):
+def server(identifier, tmp_path_factory):
     import uvicorn
 
     from mcmaster_vision.api import create_app
@@ -35,7 +35,7 @@ def server(identifier):
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     config = uvicorn.Config(
-        create_app(Settings(), identifier=identifier),
+        create_app(Settings(queries_dir=tmp_path_factory.mktemp("queries")), identifier=identifier),
         host="127.0.0.1",
         port=port,
         log_level="warning",
@@ -71,6 +71,20 @@ def test_take_photo_flow(server, store, tmp_path):
         assert part.part_number in verdict
         assert page.locator(".cand").count() >= 1
         page.screenshot(path=str(tmp_path / "result.png"), full_page=True)
+        # "This is it" -> /feedback files the photo under the confirmed part number
+        page.locator(".cand .confirm button.yes").first.click()
+        page.wait_for_function(
+            "document.querySelector('.cand .confirm button.yes').textContent.startsWith('Saved as')",
+            timeout=30000,
+        )
+        # text search fallback
+        page.fill("#q", part.part_number)
+        page.click("#searchform button")
+        page.wait_for_function(
+            "document.querySelectorAll('#results .cand').length >= 1 && document.body.innerText.includes('%s')"
+            % part.part_number,
+            timeout=30000,
+        )
         # paste path: clipboard image -> identify
         page.evaluate(
             """async () => {

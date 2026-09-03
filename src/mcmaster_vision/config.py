@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     catalog_db: Path = Path("./data/catalog/catalog.sqlite")
     index_dir: Path = Path("./data/index")
     model_dir: Path = Path("./data/models")
+    queries_dir: Path = Path("./data/queries")  # labelled real photos from user feedback
 
     # Embedding backbone
     backbone: BackboneName = "hash"
@@ -68,7 +69,13 @@ class Settings(BaseSettings):
         return self.index_dir / "parts"
 
     def ensure_dirs(self) -> None:
-        for p in (self.data_dir, self.catalog_db.parent, self.index_dir, self.model_dir):
+        for p in (
+            self.data_dir,
+            self.catalog_db.parent,
+            self.index_dir,
+            self.model_dir,
+            self.queries_dir,
+        ):
             p.mkdir(parents=True, exist_ok=True)
 
 
