@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     backbone_checkpoint: Path | None = None
     # ensemble: comma-separated members (each hash|tinycnn|openclip|dinov2) and weights
     ensemble_members: str = "tinycnn,hash"
-    ensemble_weights: str = "1.0,1.0"
+    ensemble_weights: str = "1.0,0.3"
     device: str = "auto"
     image_size: int = 224
 
