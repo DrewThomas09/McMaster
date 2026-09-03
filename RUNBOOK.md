@@ -68,6 +68,12 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
 
 ## 4. Sizing (700k parts, 2.1M images, 512-d)
 
+Measured on 20k parts / 60k images with 4 CPU cores: 72 img/s embedding per
+process (TinyCNN, including crop and normalisation), HNSW build 3 s per 60k
+vectors, query p50 34 ms with HNSW vs 111 ms exact. Extrapolated to 2.1M images:
+~8 h of embedding per process (2 h with 4 workers, ~35 min on a GPU with CLIP),
+HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
+
 | item | size |
 |---|---|
 | normalised images at <= 1024 px | ~150-250 GB (JPEG q92) |

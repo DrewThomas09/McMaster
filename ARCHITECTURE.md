@@ -107,6 +107,26 @@ drop (images / folder tree / JSONL / CSV / URL list)
 the test suite against the synthetic catalog; the only missing input is real
 imagery.
 
+## Scale test (20k synthetic parts, 60k images, 4 CPU cores)
+
+| stage | measured |
+|---|---|
+| render 60k images | 260 s |
+| ingest 20k parts into SQLite + FTS | 42 s; keyword query 2.5 ms |
+| embed + exact index, TinyCNN, one process | 839 s (72 img/s incl. crop/normalise) |
+| FAISS HNSW build from the vectors | 3.3 s; 48 MB on disk |
+| query latency, exact numpy (60k x 128-d) | p50 111 ms / p95 130 ms |
+| query latency, HNSW | p50 34 ms / p95 41 ms, identical Recall@K, 88% top-50 overlap |
+
+Retrieval at this size: SKU Recall@1 0.01 / @10 0.20 / @50 0.59, **family**
+Recall@1 0.33 / @10 0.58 / @50 0.89. The synthetic generator only has 495
+kind x material families, so 20k parts means ~40 visually identical renders per
+family; SKU-level recall is bounded by that ambiguity, not by the pipeline. Real
+catalogs have the same structure for length / thread variants, which is exactly
+why the result carries a family answer with the attributes that resolve it. The
+shipped model also saw only 800 parts in training; retrain on the full catalog
+(`mcv train`) before judging SKU-level numbers at scale.
+
 ## Catalog scale
 
 * SQLite store, JSON attributes, FTS5 keyword search; 700k rows ≈ 300 MB.
