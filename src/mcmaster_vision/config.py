@@ -16,7 +16,7 @@ import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BackboneName = Literal["hash", "tinycnn", "openclip", "dinov2"]
+BackboneName = Literal["hash", "tinycnn", "openclip", "dinov2", "ensemble"]
 IndexBackend = Literal["numpy", "faiss"]
 
 
@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     backbone_model: str = "ViT-B-16"
     backbone_pretrained: str | None = "laion2b_s34b_b88k"  # "none" / "" = random init
     backbone_checkpoint: Path | None = None
+    # ensemble: comma-separated members (each hash|tinycnn|openclip|dinov2) and weights
+    ensemble_members: str = "tinycnn,hash"
+    ensemble_weights: str = "1.0,0.6"
     device: str = "auto"
     image_size: int = 224
 

@@ -463,6 +463,13 @@ def load_backbone(settings: Settings) -> Backbone:
     """Instantiate the backbone named in settings (and load a fine-tuned checkpoint if set)."""
     if settings.backbone == "hash":
         return HashBackbone()
+    if settings.backbone == "ensemble":
+        from mcmaster_vision.models.ensemble import EnsembleBackbone
+
+        names = [n.strip() for n in settings.ensemble_members.split(",") if n.strip()]
+        weights = [float(w) for w in settings.ensemble_weights.split(",") if w.strip()]
+        members = [load_backbone(settings.model_copy(update={"backbone": n})) for n in names]
+        return EnsembleBackbone(members, weights or None)
     if settings.backbone == "tinycnn":
         from mcmaster_vision.models.tinycnn import TinyCNNBackbone
 

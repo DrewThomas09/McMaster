@@ -51,6 +51,38 @@ def ingest(
     typer.echo(json.dumps(stats))
 
 
+@app.command("import-web")
+def import_web(
+    items: list[str] = typer.Argument(None, help="Part numbers or product URLs"),
+    file: Path | None = typer.Option(
+        None, "--file", "-f", help="Text file with one part number / URL per line"
+    ),
+    config: Path | None = _config_opt,
+    delay: float = typer.Option(1.5, help="Seconds between requests"),
+    max_images: int = typer.Option(4),
+    no_robots: bool = typer.Option(False, help="Do not consult robots.txt"),
+) -> None:
+    """Fetch McMaster-Carr product pages, download their images, and add the parts to the store."""
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.catalog import ingest as _ingest
+    from mcmaster_vision.catalog.web import WebImporter, WebSource, read_items
+
+    s = _settings(config)
+    todo = list(items or []) + (read_items(file) if file else [])
+    if not todo:
+        raise typer.BadParameter("give part numbers / URLs or --file")
+    importer = WebImporter(
+        s.data_dir / "images" / "web",
+        delay_s=delay,
+        max_images=max_images,
+        respect_robots=not no_robots,
+    )
+    with CatalogStore(s.catalog_db) as store:
+        stats = _ingest(WebSource(importer, todo), store)
+    typer.echo(json.dumps(stats))
+    typer.echo("Now run: mcv build-index")
+
+
 @app.command("build-index")
 def build_index_cmd(
     config: Path | None = _config_opt,

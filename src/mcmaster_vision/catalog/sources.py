@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from pathlib import Path
@@ -150,6 +151,44 @@ class DirectorySource(CatalogSource):
         return sum(1 for p in self.root.iterdir() if p.is_dir())
 
 
+class FlatImageSource(CatalogSource):
+    """A folder of screenshots / photos named by part number: ``<root>/<pn>.png``,
+    ``<root>/<pn>_1.jpg`` ... Optional ``<root>/meta.jsonl`` adds names, categories
+    and attributes keyed by part number."""
+
+    _NAME_RE = re.compile(r"^([0-9]{4,5}[A-Za-z][0-9A-Za-z]{1,5})(?:[_\- ].*)?$")
+
+    def __init__(self, root: str | Path):
+        self.root = Path(root)
+
+    def _groups(self) -> dict[str, list[Path]]:
+        groups: dict[str, list[Path]] = {}
+        for f in sorted(self.root.iterdir()):
+            if f.suffix.lower() not in IMAGE_EXTS:
+                continue
+            m = self._NAME_RE.match(f.stem)
+            if m:
+                groups.setdefault(m.group(1).upper(), []).append(f)
+        return groups
+
+    def __iter__(self) -> Iterator[Part]:
+        meta: dict[str, dict[str, Any]] = {}
+        meta_path = self.root / "meta.jsonl"
+        if meta_path.exists():
+            for line in meta_path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    rec = json.loads(line)
+                    meta[str(rec["part_number"]).upper()] = rec
+        for pn, files in self._groups().items():
+            rec: dict[str, Any] = {"part_number": pn, "name": pn}
+            rec.update(meta.get(pn, {}))
+            rec["image_paths"] = [str(f.resolve()) for f in files]
+            yield part_from_record(rec)
+
+    def __len__(self) -> int:
+        return len(self._groups())
+
+
 class McMasterApiSource(CatalogSource):
     """Adapter for the McMaster-Carr Product Information API (account holders only).
 
@@ -182,7 +221,8 @@ class McMasterApiSource(CatalogSource):
 def open_source(path: str | Path) -> CatalogSource:
     p = Path(path)
     if p.is_dir():
-        return DirectorySource(p)
+        has_subdirs = any(c.is_dir() for c in p.iterdir())
+        return DirectorySource(p) if has_subdirs else FlatImageSource(p)
     if p.suffix.lower() in {".jsonl", ".ndjson"}:
         return JSONLSource(p)
     if p.suffix.lower() == ".csv":
