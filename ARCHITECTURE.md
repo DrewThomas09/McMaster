@@ -54,13 +54,21 @@ one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 | hash | 2 | 0.17 | 0.39 | 0.47 | 0.70 | 0.27 | 140 |
 | tinycnn (24 epochs) | 0 | 0.12 | 0.37 | 0.59 | 0.95 | 0.26 | 75 |
 | tinycnn (24 epochs) | 2 | 0.13 | 0.46 | 0.71 | 0.97 | 0.29 | 78 |
-| ensemble tinycnn+hash (1:1) | 2 | **0.20** | **0.57** | 0.71 | **0.98** | **0.36** | 203 |
-| ensemble + query expansion k=3 | 2 | 0.17 | 0.60 | **0.74** | 0.98 | 0.36 | 212 |
+| ensemble tinycnn(24ep)+hash (1:1) | 2 | 0.20 | 0.57 | 0.71 | 0.98 | 0.36 | 203 |
+| tinycnn (42 epochs, shipped `assets/tinycnn_synthetic.pt`) | 2 | **0.29** | **0.74** | 0.86 | **1.00** | **0.48** | 92 |
+| tinycnn (42 epochs) + query expansion k=3 | 2 | 0.28 | 0.72 | **0.87** | 1.00 | 0.47 | 92 |
+| ensemble tinycnn(42ep)+hash (1:1) | 2 | 0.27 | 0.73 | 0.87 | 1.00 | 0.47 | 200 |
 
-The learned model was trained from scratch on CPU in ~35 minutes
-(`configs/train_tinycnn.yaml`: cached views, SupCon + classification, hard
-negatives). Its loss was still falling at the end, so longer runs improve it
-further; the ensemble of both backbones and the vision-LLM reranker sit on top.
+On a *fresh* 200-part synthetic catalog (parts never seen in training, queries =
+augmented photos of every part) the shipped model reaches Recall@1 0.58,
+Recall@5 0.97, Recall@10 1.0, and the calibrated tiers are usable: `exact`
+precision 1.0, `likely` 0.94 (`mcv demo --parts 200 --backbone tinycnn`).
+
+The learned model was trained from scratch on 4 CPU cores (`configs/train_tinycnn.yaml`:
+cached views, SupCon + classification, hard negatives); 24 epochs took ~35 min,
+42 epochs ~2 h. Longer training kept improving held-out recall, so a GPU run or
+the CLIP/DINOv2 backbones are the next step for real photos. Once the learned
+model is strong the hand-crafted descriptor stops adding value in the ensemble.
 
 ## Training (`training/train.py`)
 
