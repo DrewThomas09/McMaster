@@ -106,6 +106,31 @@ McMaster-Carr's catalog is proprietary and scraping violates their terms. The
 the account-holder Product Information API. The synthetic renderer in
 `data/synthetic.py` exists so the whole system runs end to end without any of it.
 
+## Feedback loop (how accuracy improves in use)
+
+```
+photo -> /identify -> user taps "This is it" -> /feedback
+      -> data/queries/<part_number>/<request_id>.jpg  (+ feedback.jsonl)
+      -> mcv evaluate --query-dir data/queries      (real-photo Recall@K, calibration)
+      -> mcv train --query-dir data/queries         (real photos become training views)
+      -> mcv build-index                            (new checkpoint, same catalog)
+```
+
+The synthetic renderer bootstraps the model; confirmed photos are the only data
+that closes the synthetic-to-real gap, so the UI makes confirming a one-tap
+action and "None of these" photos are kept under `_unknown/` for labelling.
+`/feedback/stats` exposes the confirmed top-1 rate as the live accuracy metric.
+
+## Multi-photo queries and family answers
+
+Several photos of one part (different angles) are embedded independently and
+their TTA variants are stacked into one multi-query; a catalog part keeps its
+best similarity over every (photo, variant, catalog image) triple. When the top
+candidates are members of one family (same geometry, different length / thread
+/ size), the result carries a `family` block listing the members and the
+attributes whose values differ, so the UI can ask exactly the one question that
+resolves the SKU instead of guessing.
+
 ## Answer semantics
 
 | tier | meaning | suggested action |
