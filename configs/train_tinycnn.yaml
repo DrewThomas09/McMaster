@@ -1,5 +1,10 @@
 # Train the compact TinyCNN backbone from scratch (CPU-friendly, offline).
 # Run with: mcv train --config configs/train_tinycnn.yaml
+#
+# Recipe: pre-render 8 photo-style views per catalog image (refreshed every 8
+# epochs), supervised-contrastive loss + part-classification cross-entropy,
+# hard-negative batches, warmup + cosine schedule. ~1 min/epoch on 4 CPU cores
+# for an 800-part catalog.
 backbone: tinycnn
 backbone_pretrained: none
 image_size: 96
@@ -7,19 +12,24 @@ embedding_dim: 128
 
 loss: supcon
 temperature: 0.07
+ce_weight: 1.0
+label_smoothing: 0.1
+head_dropout: 0.0
 
-epochs: 16
+cache_views: 8
+cache_refresh_epochs: 8
+cache_workers: 4
+
+epochs: 24
 batch_size: 64
-lr: 5.0e-4          # backbone (from scratch); 2e-3 stalls at chance
-head_lr: 5.0e-4
+lr: 1.0e-3
+head_lr: 1.0e-3
 weight_decay: 0.02
-warmup_steps: 100
+warmup_steps: 200
 freeze_backbone_epochs: 0
 hard_negative_mining: true
 mining_refresh_every: 2
 augment_curriculum: true
-curriculum_epochs: 6
-views: 2
 num_workers: 3
 amp: false
 seed: 42

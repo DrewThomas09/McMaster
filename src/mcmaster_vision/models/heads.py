@@ -17,11 +17,16 @@ if nn is not None:
     class ProjectionHead(nn.Module):
         """MLP that maps backbone features into the retrieval embedding space."""
 
-        def __init__(self, in_dim: int, out_dim: int = 512, hidden: int | None = None):
+        def __init__(
+            self, in_dim: int, out_dim: int = 512, hidden: int | None = None, dropout: float = 0.0
+        ):
             super().__init__()
             hidden = hidden or in_dim
             self.net = nn.Sequential(
-                nn.Linear(in_dim, hidden), nn.GELU(), nn.Dropout(0.1), nn.Linear(hidden, out_dim)
+                nn.Linear(in_dim, hidden),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden, out_dim),
             )
 
         def forward(self, x):

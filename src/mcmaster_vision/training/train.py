@@ -64,6 +64,16 @@ DEFAULTS: dict[str, Any] = {
     "curriculum_epochs": 4,
     "views": 2,
     "val_max_parts": 500,
+    # Cached-view training (fast, CPU-friendly): pre-render ``cache_views`` augmented
+    # views per catalog image every ``cache_refresh_epochs`` epochs and train on them.
+    "cache_views": 0,
+    "cache_refresh_epochs": 8,
+    "cache_workers": 4,
+    # Auxiliary part-classification (cross-entropy) loss weight - a strong early
+    # training signal for from-scratch models. 0 disables.
+    "ce_weight": 0.0,
+    "label_smoothing": 0.1,
+    "head_dropout": 0.0,
 }
 
 
@@ -121,7 +131,9 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
     backbone = load_backbone(settings)
     device = backbone.device
     net = backbone.trainable_module()
-    head = ProjectionHead(backbone.dim, cfg["embedding_dim"]).to(device)
+    head = ProjectionHead(
+        backbone.dim, cfg["embedding_dim"], dropout=float(cfg.get("head_dropout", 0.0))
+    ).to(device)
     arc = None
     if cfg.get("arcface_labels", "family") == "part":
         fam_ids = sorted(p.part_number for p in train_parts)
@@ -141,6 +153,11 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
         arc = ArcFaceHead(
             cfg["embedding_dim"], len(fam_ids), cfg["arcface_scale"], cfg["arcface_margin"]
         ).to(device)
+
+    if int(cfg.get("cache_views", 0)) > 0:
+        return _train_cached(
+            cfg, out_dir, backbone, net, head, arc, train_parts, val_parts, fam_index, arc_label
+        )
 
     augmenter = PhotoAugmenter(seed=cfg["seed"])
     dataset, label_map = make_contrastive_dataset(
@@ -278,6 +295,161 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
             torch.save(ckpt, out_dir / "best.pt")
         (out_dir / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
 
+    return out_dir / "best.pt"
+
+
+def _train_cached(
+    cfg, out_dir, backbone, net, head, arc, train_parts, val_parts, fam_index, arc_label
+) -> Path:
+    """Fast path: train on pre-augmented cached views (see training/cached.py)."""
+    import torch
+    import torch.nn.functional as F
+
+    from mcmaster_vision.models.losses import arcface_loss, supcon_loss
+    from mcmaster_vision.training.cached import build_view_cache, to_tensor
+    from mcmaster_vision.training.mining import hard_batch_sampler, mine_hard_negatives
+
+    device = backbone.device
+    k = int(cfg["cache_views"])
+    bs = int(cfg["batch_size"])
+    epochs = int(cfg["epochs"])
+    n_parts = len(train_parts)
+    clf = (
+        torch.nn.Linear(cfg["embedding_dim"], n_parts).to(device)
+        if float(cfg.get("ce_weight", 0)) > 0
+        else None
+    )
+    params = [
+        {"params": head.parameters(), "lr": cfg["head_lr"]},
+        {"params": net.parameters(), "lr": cfg["lr"]},
+    ]
+    if arc is not None:
+        params.append({"params": arc.parameters(), "lr": cfg["head_lr"]})
+    if clf is not None:
+        params.append({"params": clf.parameters(), "lr": cfg["head_lr"]})
+    opt = torch.optim.AdamW(params, weight_decay=cfg["weight_decay"])
+    n_images = sum(len(p.image_paths) for p in train_parts)
+    steps_per_epoch = max(1, (n_images * k) // (bs * 2))
+    total_steps = steps_per_epoch * epochs
+    sched = torch.optim.lr_scheduler.LambdaLR(
+        opt,
+        lambda st: (
+            min(1.0, (st + 1) / cfg["warmup_steps"])
+            * 0.5
+            * (1 + math.cos(math.pi * min(1.0, st / max(1, total_steps))))
+        ),
+    )
+    eval_augmenter = PhotoAugmenter(AugmentConfig.evaluation(), seed=cfg["seed"] + 1)
+    rng = np.random.default_rng(cfg["seed"])
+    part_labels = torch.arange(n_parts)
+    arc_labels_all = torch.tensor([arc_label(p) for p in train_parts])
+
+    x_cache = None
+    by_part: list[np.ndarray] = []
+    hard: dict[str, list[str]] = {}
+    history: list[dict[str, Any]] = []
+    best_val = -1.0
+    step = 0
+    for epoch in range(epochs):
+        if x_cache is None or epoch % int(cfg["cache_refresh_epochs"]) == 0:
+            t_cache = time.time()
+            mild = cfg["augment_curriculum"] and epoch == 0 and epochs > 1
+            aug_cfg = (
+                AugmentConfig.interpolate(AugmentConfig.evaluation(), AugmentConfig(), 0.5)
+                if mild
+                else AugmentConfig()
+            )
+            x_u8, owners = build_view_cache(
+                train_parts,
+                k,
+                cfg["image_size"],
+                cfg=aug_cfg,
+                seed=cfg["seed"] + 7919 * epoch,
+                workers=int(cfg["cache_workers"]),
+            )
+            x_cache = to_tensor(x_u8)
+            by_part = [np.nonzero(owners == i)[0] for i in range(n_parts)]
+            log.info(
+                "view cache: %d views (%.0fs, %s)",
+                len(x_cache),
+                time.time() - t_cache,
+                "mild" if mild else "full",
+            )
+        if cfg["hard_negative_mining"] and epoch > 0 and epoch % cfg["mining_refresh_every"] == 0:
+            backbone.projection = head
+            hard = mine_hard_negatives(train_parts, _mean_part_embeddings(backbone, train_parts))
+            backbone.projection = None
+        sampler = (
+            hard_batch_sampler(train_parts, hard, bs, seed=cfg["seed"] + epoch) if hard else None
+        )
+
+        net.train()
+        head.train()
+        t0 = time.time()
+        running = 0.0
+        for _ in range(steps_per_epoch):
+            sel = (
+                np.array(next(sampler))
+                if sampler is not None
+                else rng.choice(n_parts, bs, replace=False)
+            )
+            idx = np.array(
+                [rng.choice(by_part[p], 2, replace=len(by_part[p]) < 2) for p in sel]
+            ).reshape(-1)
+            x = x_cache[torch.from_numpy(idx)].to(device)
+            labels = part_labels[sel].to(device)
+            feats = backbone._forward(x)
+            emb = head(feats).reshape(bs, 2, -1)
+            loss = supcon_loss(emb, labels, cfg["temperature"])
+            if clf is not None:
+                loss = loss + float(cfg["ce_weight"]) * F.cross_entropy(
+                    clf(emb.flatten(0, 1)),
+                    labels.repeat_interleave(2),
+                    label_smoothing=float(cfg["label_smoothing"]),
+                )
+            if arc is not None:
+                al = arc_labels_all[sel].to(device).repeat_interleave(2)
+                loss = loss + float(cfg.get("arcface_weight", 1.0)) * arcface_loss(
+                    arc(emb.flatten(0, 1), al), al
+                )
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(list(net.parameters()) + list(head.parameters()), 5.0)
+            opt.step()
+            sched.step()
+            running += float(loss.detach())
+            step += 1
+
+        backbone.projection = head
+        val_r1 = (
+            _validate(backbone, val_parts, eval_augmenter, int(cfg["val_max_parts"]))
+            if val_parts
+            else float("nan")
+        )
+        backbone.projection = None
+        rec = {
+            "epoch": epoch,
+            "loss": running / steps_per_epoch,
+            "val_recall@1": val_r1,
+            "seconds": round(time.time() - t0, 1),
+            "steps": step,
+        }
+        history.append(rec)
+        log.info("%s", rec)
+        ckpt = {
+            "backbone": net.state_dict(),
+            "projection": head.state_dict(),
+            "projection_in": backbone.dim,
+            "projection_out": cfg["embedding_dim"],
+            "config": cfg,
+            "epoch": epoch,
+            "val_recall@1": val_r1,
+        }
+        torch.save(ckpt, out_dir / "last.pt")
+        if val_r1 != val_r1 or val_r1 >= best_val:
+            best_val = val_r1 if val_r1 == val_r1 else best_val
+            torch.save(ckpt, out_dir / "best.pt")
+        (out_dir / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
     return out_dir / "best.pt"
 
 

@@ -374,7 +374,6 @@ class TorchBackbone(Backbone):
 
         if not images:
             return np.zeros((0, self.dim), dtype=np.float32)
-        outs: list[np.ndarray] = []
         # Always embed in eval mode: BatchNorm must use running statistics even when
         # the trainer calls embed() for validation / hard-negative mining mid-epoch.
         was_training = self.model.training
