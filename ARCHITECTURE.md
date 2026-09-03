@@ -90,6 +90,23 @@ model is strong the hand-crafted descriptor only helps at a small weight (1:0.3)
 * **Split** (`data/splits.py`): by family hash, so near-duplicates never leak.
 * **Validation**: Recall@1 with augmented queries against a held-out gallery.
 
+## Intake and operations
+
+```
+drop (images / folder tree / JSONL / CSV / URL list)
+  -> mcv validate      (report: missing, corrupt, duplicate, tiny, coverage)
+  -> mcv bootstrap     ingest + normalise (EXIF, RGB, <=1024 px, de-dupe)
+                       -> embed (N worker processes) -> index (numpy | FAISS auto)
+                       -> evaluate + calibrate -> data/manifest.json
+  -> mcv serve         GET /status, POST /admin/reload after rebuilds
+  -> mcv enrich        names / categories / specs from McMaster pages (image-only drops)
+  -> mcv build-index --only-new   incremental additions
+```
+
+`RUNBOOK.md` is the operator's guide. Everything in this diagram is exercised by
+the test suite against the synthetic catalog; the only missing input is real
+imagery.
+
 ## Catalog scale
 
 * SQLite store, JSON attributes, FTS5 keyword search; 700k rows ≈ 300 MB.

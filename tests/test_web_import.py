@@ -127,3 +127,52 @@ def test_read_items_and_flat_image_source(tmp_path):
         "Fastening & Joining",
         "Nuts",
     ]
+
+
+def test_enrich_command_fills_metadata(tmp_path, monkeypatch):
+    """`mcv enrich` fetches names/categories/specs for image-only parts."""
+    from typer.testing import CliRunner
+
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.catalog import web as web_mod
+    from mcmaster_vision.cli import app
+    from mcmaster_vision.schemas import Part
+
+    calls: list[str] = []
+    real_init = web_mod.WebImporter.__init__
+
+    def patched_init(self, *a, **kw):
+        kw["client"] = _mock_client(calls)
+        real_init(self, *a, **kw)
+
+    monkeypatch.setattr(web_mod.WebImporter, "__init__", patched_init)
+    db = tmp_path / "catalog.sqlite"
+    with CatalogStore(db) as store:
+        store.upsert(
+            [
+                Part(part_number="91251A537", name="91251A537"),
+                Part(
+                    part_number="9452K21",
+                    name="Hex Nut",
+                    category_path=["Fastening & Joining", "Nuts"],
+                ),
+            ]
+        )
+    env = {
+        "MCV_DATA_DIR": str(tmp_path),
+        "MCV_CATALOG_DB": str(db),
+        "MCV_INDEX_DIR": str(tmp_path / "i"),
+        "MCV_MODEL_DIR": str(tmp_path / "m"),
+        "MCV_QUERIES_DIR": str(tmp_path / "q"),
+    }
+    r = CliRunner().invoke(app, ["enrich", "--delay", "0"], env=env)
+    assert r.exit_code == 0, r.output
+    assert "enriched 1 of 1" in r.output
+    with CatalogStore(db) as store:
+        p = store.get("91251A537")
+        assert (
+            p.name == "Alloy Steel Socket Head Screw"
+            and p.category_path[-1] == "Socket Head Screws"
+        )
+        assert p.attributes["Thread Size"] == '1/4"-20' and p.url
+        assert store.get("9452K21").name == "Hex Nut"  # untouched: already had metadata
