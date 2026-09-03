@@ -216,6 +216,11 @@ def demo(
     from mcmaster_vision.pipeline import Identifier
     from mcmaster_vision.training import evaluate_retrieval
 
+    if checkpoint is None and train_epochs == 0 and backbone in ("tinycnn", "ensemble"):
+        shipped = Path(__file__).resolve().parents[2] / "assets" / "tinycnn_synthetic.pt"
+        if shipped.exists():
+            checkpoint = shipped
+            typer.echo(f"using shipped checkpoint {shipped}")
     s = Settings(
         data_dir=data_dir,
         catalog_db=data_dir / "catalog.sqlite",
