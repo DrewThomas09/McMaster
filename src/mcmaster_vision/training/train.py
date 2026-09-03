@@ -92,7 +92,7 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
         raise ImportError("Training needs torch: pip install 'mcmaster-vision[ml]'") from e
 
     from mcmaster_vision.config import Settings
-    from mcmaster_vision.data.dataset import make_contrastive_dataset
+    from mcmaster_vision.data.dataset import make_contrastive_dataset, worker_init_fn
     from mcmaster_vision.models.backbone import load_backbone
     from mcmaster_vision.models.heads import ArcFaceHead, ProjectionHead
     from mcmaster_vision.models.losses import arcface_loss, supcon_loss
@@ -166,6 +166,7 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
 
     for epoch in range(cfg["epochs"]):
         freeze = epoch < cfg["freeze_backbone_epochs"]
+        augmenter.reseed(cfg["seed"] + 1000 * (epoch + 1))
         if cfg["augment_curriculum"]:
             t_cur = min(1.0, epoch / max(1, int(cfg["curriculum_epochs"])))
             augmenter.cfg = AugmentConfig.interpolate(
@@ -184,7 +185,12 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
             batches = _hard_batches(
                 train_parts, hard, cfg["batch_size"], steps_per_epoch, cfg["seed"] + epoch
             )
-            loader = DataLoader(dataset, batch_sampler=batches, num_workers=cfg["num_workers"])
+            loader = DataLoader(
+                dataset,
+                batch_sampler=batches,
+                num_workers=cfg["num_workers"],
+                worker_init_fn=worker_init_fn,
+            )
         else:
             loader = DataLoader(
                 dataset,
@@ -192,6 +198,7 @@ def train(store: CatalogStore, cfg: dict[str, Any]) -> Path:
                 shuffle=True,
                 drop_last=True,
                 num_workers=cfg["num_workers"],
+                worker_init_fn=worker_init_fn,
             )
 
         net.train(not freeze or cfg["freeze_backbone_epochs"] == 0)

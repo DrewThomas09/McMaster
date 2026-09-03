@@ -43,6 +43,9 @@ class Settings(BaseSettings):
         default=0, ge=0, le=8, description="Extra photo-style variants indexed per catalog image"
     )
     index_top_k: int = Field(default=50, ge=1, le=1000)
+    query_expansion_k: int = Field(
+        default=0, ge=0, le=50, description="alpha-QE neighbours (0 = off)"
+    )
 
     # Reranking
     rerank_llm_enabled: bool = False

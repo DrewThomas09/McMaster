@@ -31,9 +31,15 @@ class Retriever:
         top_k: int = 50,
         category_weight: float = 0.15,
         category_temp: float = 0.05,
+        qe_k: int = 0,
+        qe_alpha: float = 3.0,
     ):
         self.index = index
         self.top_k = top_k
+        # alpha-weighted query expansion: re-query with the mean of the query and
+        # its top-``qe_k`` gallery neighbours (weights = similarity ** alpha).
+        self.qe_k = qe_k
+        self.qe_alpha = qe_alpha
         self.category_weight = category_weight
         self.category_temp = category_temp
         self.category_depth = int(index.meta.get("category_depth", 2))
@@ -58,6 +64,8 @@ class Retriever:
         q = np.asarray(query, dtype=np.float32)
         if q.ndim == 1:
             q = q[None, :]
+        if self.qe_k > 0:
+            q = self.expand_queries(q)
         scores, rows = self.index.search(q, min(k * oversample, len(self.index)))
         best: dict[str, Hit] = {}
         for v in range(q.shape[0]):
@@ -75,6 +83,23 @@ class Retriever:
                         h.hits += 1
                 seen_this_variant.add(pn)
         return sorted(best.values(), key=lambda h: -h.similarity)[:k]
+
+    def expand_queries(self, q: np.ndarray) -> np.ndarray:
+        """Alpha query expansion (Radenovic et al.): each variant is replaced by a
+        similarity-weighted average of itself and its nearest gallery vectors.
+        Requires a backend that exposes vectors (numpy index); others are left as is."""
+        vectors = getattr(self.index, "matrix", None)
+        if vectors is None or len(vectors) == 0:
+            return q
+        scores, rows = self.index.search(q, min(self.qe_k, len(self.index)))
+        out = []
+        for v in range(q.shape[0]):
+            valid = rows[v] >= 0
+            neigh = vectors[rows[v][valid]]
+            w = np.clip(scores[v][valid], 0, None) ** self.qe_alpha
+            expanded = q[v] + (w[:, None] * neigh).sum(axis=0)
+            out.append(expanded / (np.linalg.norm(expanded) + 1e-8))
+        return np.stack(out).astype(np.float32)
 
     def apply_category_prior(
         self, hits: list[Hit], query: np.ndarray, categories: dict[str, list[str]]

@@ -37,11 +37,12 @@ class Identifier:
         llm_reranker: ClaudeVisionReranker | None = None,
         image_size: int = 224,
         segment: bool = False,
+        qe_k: int = 0,
     ):
         self.store = store
         self.index = index
         self.embedder = embedder
-        self.retriever = Retriever(index, top_k=top_k)
+        self.retriever = Retriever(index, top_k=top_k, qe_k=qe_k)
         self.fusion = FusionReranker()
         self.calibration = calibration or Calibration()
         self.ocr = ocr
@@ -177,6 +178,7 @@ def load_identifier(settings: Settings) -> Identifier:
         index,
         embedder,
         top_k=settings.index_top_k,
+        qe_k=settings.query_expansion_k,
         calibration=calibration,
         ocr=ocr,
         llm_reranker=llm,

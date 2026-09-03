@@ -107,6 +107,10 @@ class PhotoAugmenter:
         self.rng = random.Random(seed)
         self.np_rng = np.random.default_rng(seed)
 
+    def reseed(self, seed: int | None) -> None:
+        self.rng = random.Random(seed)
+        self.np_rng = np.random.default_rng(seed)
+
     # ------------------------------------------------------------ helpers
     def _white_to_alpha(self, img: Image.Image, threshold: int = 248) -> Image.Image:
         """Turn the white studio background transparent so we can composite it."""

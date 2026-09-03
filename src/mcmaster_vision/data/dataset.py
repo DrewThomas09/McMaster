@@ -24,6 +24,22 @@ def build_label_map(parts: Sequence[Part]) -> dict[str, int]:
     return {p.part_number: i for i, p in enumerate(sorted(parts, key=lambda p: p.part_number))}
 
 
+def worker_init_fn(worker_id: int) -> None:
+    """Reseed the dataset's augmenter inside each DataLoader worker.
+
+    Forked workers inherit identical RNG state, so without this every worker (and
+    every epoch) would replay the same augmentations."""
+    import torch
+
+    info = torch.utils.data.get_worker_info()
+    if info is None:
+        return
+    ds = info.dataset
+    aug = getattr(ds, "augmenter", None)
+    if aug is not None:
+        aug.reseed(int(torch.initial_seed()) % (2**31) + worker_id)
+
+
 def make_contrastive_dataset(
     parts: Sequence[Part],
     transform: Callable[[Image.Image], Any],
@@ -43,6 +59,9 @@ def make_contrastive_dataset(
     items = [(p, path) for p in parts for path in p.image_paths]
 
     class ContrastiveDataset(Dataset):  # type: ignore[misc,valid-type]
+        def __init__(self) -> None:
+            self.augmenter = augmenter
+
         def __len__(self) -> int:
             return len(items)
 

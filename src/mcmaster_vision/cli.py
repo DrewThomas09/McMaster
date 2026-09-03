@@ -162,6 +162,7 @@ def demo(
     data_dir: Path = typer.Option(Path("./data/demo")),
     serve_: bool = typer.Option(True, "--serve/--no-serve", help="Start the API afterwards"),
     port: int = typer.Option(8000),
+    gallery_augment: int = typer.Option(2, help="Photo-style variants indexed per catalog image"),
 ) -> None:
     """Generate a synthetic catalog, index it, evaluate, and (optionally) serve it."""
     from PIL import Image
@@ -193,8 +194,10 @@ def demo(
 
     typer.echo("3/4 embedding + indexing ...")
     embedder = PartEmbedder(load_backbone(s))
-    index = build_index(store, embedder, "numpy", out_path=s.index_path)
-    ident = Identifier(store, index, embedder)
+    index = build_index(
+        store, embedder, "numpy", out_path=s.index_path, gallery_augment=gallery_augment
+    )
+    ident = Identifier(store, index, embedder, qe_k=s.query_expansion_k)
 
     typer.echo("4/4 evaluating on photo-style augmented queries ...")
     report = evaluate_retrieval(ident, store, max_queries=min(parts, 200))
