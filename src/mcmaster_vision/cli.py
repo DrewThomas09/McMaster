@@ -812,6 +812,16 @@ def demo(
     from mcmaster_vision.pipeline import Identifier
     from mcmaster_vision.training import evaluate_retrieval
 
+    if backbone == "hash" and checkpoint is None:
+        try:
+            import torch  # noqa: F401
+
+            if (Path(__file__).resolve().parents[2] / "assets" / "tinycnn_synthetic.pt").exists():
+                typer.echo(
+                    "hint: torch is installed; --backbone ensemble uses the shipped learned model (much higher recall)"
+                )
+        except ImportError:
+            pass
     if checkpoint is None and train_epochs == 0 and backbone in ("tinycnn", "ensemble"):
         shipped = Path(__file__).resolve().parents[2] / "assets" / "tinycnn_synthetic.pt"
         if shipped.exists():

@@ -16,6 +16,21 @@ classifier: every catalog image is embedded once into a vector index, a query ph
 is embedded with the same model, nearest neighbours become candidates, and a
 reranking stage resolves the look-alikes. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Status
+
+Everything except the real imagery is built and tested (74 tests, including a
+real-browser run of the phone UI):
+
+| area | state |
+|---|---|
+| intake | validate, normalise, de-duplicate, fetch from URL lists, import from McMaster pages, screenshots |
+| models | hash (no deps), TinyCNN (shipped checkpoint), CLIP / DINOv2 (needs weights + GPU), ensemble |
+| retrieval | TTA multi-query, gallery augmentation, query expansion, category prior, FAISS above 50k vectors, parallel + incremental builds |
+| answers | calibrated tiers with precision-targeted thresholds, family answers with distinguishing attributes, constraints, category guess |
+| interface | camera-first PWA, several angles per query, one-tap confirmation, text search, batch endpoint and CLI |
+| operations | bootstrap, doctor, status, metrics, retrain (cron), hot reload, rate limit, request log, runbook |
+| needs you | McMaster images (any of the intake paths), a GPU for CLIP/DINOv2, real photos via the feedback loop |
+
 ## Quick start (no GPU, no proprietary data)
 
 ```bash
@@ -118,6 +133,8 @@ mcv serve                                    # http://localhost:8000  (POST /ide
 ```
 
 ## One photo, one answer (or several angles)
+
+<img src="docs/ui-phone.png" alt="phone UI: photo, verdict card, candidates" width="300" align="right">
 
 `mcv serve` hosts a phone-friendly page: **Take a photo** opens the camera on a
 phone, desktop users can drop an image or paste a screenshot, the image is
