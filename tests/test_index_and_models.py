@@ -64,3 +64,16 @@ def test_built_index_has_category_centroids(index, store):
     assert st.parts == store.count()
     assert st.vectors == 80
     assert index.category_centroids is not None and len(index.category_names) >= 2
+
+
+def test_index_save_is_atomic_swap(tmp_path):
+    rng = np.random.default_rng(0)
+    idx = NumpyIndex(4)
+    idx.add(["a", "b"], l2_normalize(rng.normal(size=(2, 4))))
+    target = tmp_path / "parts"
+    idx.save(target)
+    assert (target / "meta.json").exists()
+    idx.add(["c"], l2_normalize(rng.normal(size=(1, 4))))
+    idx.save(target)  # overwrite via swap
+    assert len(load_index(target)) == 3
+    assert not list(tmp_path.glob("parts.tmp-*")) and not (tmp_path / "parts.old").exists()

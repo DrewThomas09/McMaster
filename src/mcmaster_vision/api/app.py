@@ -83,7 +83,15 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     @app.get("/health")
     def health() -> dict:
-        return {"status": "ok", "version": __version__, "ready": app.state.identifier is not None}
+        ident = app.state.identifier
+        return {
+            "status": "ok",
+            "version": __version__,
+            "ready": ident is not None,
+            "model": ident.embedder.version if ident else None,
+            "index_built_at": ident.index.meta.get("built_at") if ident else None,
+            "parts": len(set(ident.index.ids)) if ident else None,
+        }
 
     @app.get("/status")
     def status_view() -> dict:

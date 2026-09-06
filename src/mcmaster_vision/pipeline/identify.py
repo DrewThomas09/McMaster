@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from pathlib import Path
@@ -193,7 +194,7 @@ class Identifier:
 
             def _ok(part) -> bool:
                 return all(
-                    str(part.attributes.get(k, "")).strip().lower() == v.strip().lower()
+                    _norm_attr(part.attributes.get(k, "")) == _norm_attr(v)
                     for k, v in constraints.items()
                 )
 
@@ -240,6 +241,16 @@ class Identifier:
             timings_ms=timings,
             model_version=self.embedder.version,
         )
+
+
+def _norm_attr(value) -> str:
+    """Loose attribute equality: case, whitespace, quote marks and unit words ignored,
+    so ``1/4"-20`` == ``1/4-20`` == ``1/4 in - 20``."""
+    v = str(value).lower().strip()
+    v = v.replace("\u201d", "").replace("\u2033", "").replace('"', "").replace("'", "")
+    v = re.sub(r"\b(inch|inches|in\.?)\b", "", v)
+    v = re.sub(r"\s+", "", v)
+    return v.replace("–", "-").replace("—", "-")
 
 
 def load_identifier(settings: Settings) -> Identifier:

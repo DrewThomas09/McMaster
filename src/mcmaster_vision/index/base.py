@@ -81,7 +81,30 @@ class VectorIndex(ABC):
         )
 
     def save(self, path: str | Path) -> None:
-        p = Path(path)
+        """Write the index atomically: build in a sibling temp directory, then swap it
+        into place, so a server reloading mid-write never sees a partial index."""
+        import shutil
+        import tempfile
+
+        final = Path(path)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix=final.name + ".tmp-", dir=final.parent))
+        try:
+            self._write_all(tmp)
+            if final.exists():
+                old = final.with_name(final.name + ".old")
+                if old.exists():
+                    shutil.rmtree(old)
+                final.rename(old)
+                tmp.rename(final)
+                shutil.rmtree(old, ignore_errors=True)
+            else:
+                tmp.rename(final)
+        finally:
+            if tmp.exists():
+                shutil.rmtree(tmp, ignore_errors=True)
+
+    def _write_all(self, p: Path) -> None:
         p.mkdir(parents=True, exist_ok=True)
         self.meta.update(
             {

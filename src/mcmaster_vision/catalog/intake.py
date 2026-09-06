@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from mcmaster_vision.catalog.sources import CatalogSource, open_source
@@ -201,8 +202,6 @@ def fetch_image_urls(
     files into ``<images_dir>/<part_number>/`` and yield records with ``image_paths``.
     Already-downloaded files are skipped, so the call is resumable."""
     import time
-
-    import httpx
 
     images_dir = Path(images_dir)
     own_client = client is None

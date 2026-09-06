@@ -101,3 +101,10 @@ def test_batch_rejects_oversized_and_empty_files(identifier, tmp_path):
     assert r.status_code == 200
     errs = [row["error"] for row in r.json()]
     assert any("exceeds" in e for e in errs) and any("empty" in e for e in errs)
+
+
+def test_constraint_matching_is_loose():
+    from mcmaster_vision.pipeline.identify import _norm_attr
+
+    assert _norm_attr('1/4"-20') == _norm_attr("1/4-20") == _norm_attr(" 1/4 in - 20 ")
+    assert _norm_attr("M6") == _norm_attr("m6") and _norm_attr("Brass") != _norm_attr("Bronze")

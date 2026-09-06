@@ -183,3 +183,57 @@ def test_parser_tolerates_valueless_class_attribute():
     assert (
         McMasterParser().parse("https://www.mcmaster.com/9452K21/", html).part_number == "9452K21"
     )
+
+
+def test_import_web_and_fetch_images_cli(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.catalog import intake as intake_mod
+    from mcmaster_vision.catalog import web as web_mod
+    from mcmaster_vision.cli import app
+
+    calls: list[str] = []
+    real_init = web_mod.WebImporter.__init__
+
+    def patched_init(self, *a, **kw):
+        kw["client"] = _mock_client(calls)
+        real_init(self, *a, **kw)
+
+    monkeypatch.setattr(web_mod.WebImporter, "__init__", patched_init)
+    env = {
+        "MCV_DATA_DIR": str(tmp_path),
+        "MCV_CATALOG_DB": str(tmp_path / "c.sqlite"),
+        "MCV_INDEX_DIR": str(tmp_path / "i"),
+        "MCV_MODEL_DIR": str(tmp_path / "m"),
+        "MCV_QUERIES_DIR": str(tmp_path / "q"),
+    }
+    lst = tmp_path / "parts.txt"
+    lst.write_text("91251A537\nNOPE1234\n")
+    r = CliRunner().invoke(app, ["import-web", "--file", str(lst), "--delay", "0"], env=env)
+    assert r.exit_code == 0, r.output
+    with CatalogStore(tmp_path / "c.sqlite") as st:
+        assert st.count() == 1 and len(st.get("91251A537").image_paths) == 2
+
+    # fetch-images: patch the httpx client used by intake
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_png_bytes(), headers={"content-type": "image/png"})
+
+    monkeypatch.setattr(
+        intake_mod.httpx,
+        "Client",
+        lambda **kw: httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    src = tmp_path / "urls.csv"
+    src.write_text("part_number,name,image_urls\n9452K21,Hex Nut,https://x/a.png;https://x/b.png\n")
+    out = tmp_path / "with_images.jsonl"
+    r = CliRunner().invoke(
+        app, ["fetch-images", str(src), "--out", str(out), "--delay", "0"], env=env
+    )
+    assert r.exit_code == 0, r.output
+    import json
+
+    rec = json.loads(out.read_text().splitlines()[0])
+    assert rec["part_number"] == "9452K21" and len(rec["image_paths"]) == 2
