@@ -158,6 +158,10 @@ def restore_backup(
                 ):
                     side.unlink(missing_ok=True)
             shutil.move(str(src), str(dest))
+            if name == "index":  # a fresh mtime so a running API notices the swap
+                meta = dest / "meta.json"
+                if meta.exists():
+                    meta.touch()
             if old is not None:
                 shutil.rmtree(old) if old.is_dir() else old.unlink()
             restored[name] = str(dest)

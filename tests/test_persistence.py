@@ -183,9 +183,19 @@ def test_api_auto_reloads_rebuilt_index(store, embedder, tmp_path, monkeypatch):
         # rebuild with gallery augmentation -> more vectors, newer meta.json
         build_index(store, embedder, "numpy", out_path=idx_dir / "parts", gallery_augment=1)
         meta = idx_dir / "parts" / "meta.json"
-        os.utime(meta, (time.time() + 5, time.time() + 5))
+        # a restore puts back an *older* file: any mtime change must trigger the reload
+        os.utime(meta, (time.time() - 3600, time.time() - 3600))
         c.app.state.last_index_check = 0.0
         assert c.get("/stats").json()["vectors"] > first
+        # a restore over the live index is picked up too
+        settings2 = Settings(data_dir=tmp_path / "d2", index_dir=idx_dir, catalog_db=store.path)
+        archive = create_backup(settings2, tmp_path / "bk")
+        build_index(store, embedder, "numpy", out_path=idx_dir / "parts", gallery_augment=2)
+        c.app.state.last_index_check = 0.0
+        bigger = c.get("/stats").json()["vectors"]
+        restore_backup(settings2, archive, components=["index"])
+        c.app.state.last_index_check = 0.0
+        assert c.get("/stats").json()["vectors"] < bigger
 
 
 def test_decode_guards():

@@ -95,7 +95,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             mtime = index_meta.stat().st_mtime if index_meta.exists() else None
         except OSError:
             return
-        if mtime and app.state.index_mtime and mtime > app.state.index_mtime:
+        # any change counts (a restore puts back files with *older* mtimes)
+        if mtime and app.state.index_mtime and mtime != app.state.index_mtime:
             try:
                 app.state.identifier = _load()
                 log.info("index changed on disk; reloaded")

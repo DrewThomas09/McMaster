@@ -12,6 +12,7 @@ At 700k parts x 3 images, TinyCNN on one CPU core embeds ~100 img/s (6 h) and
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
@@ -226,6 +227,18 @@ def build_index(
     photos from the feedback store): they are embedded next to the catalog renders, so
     a part photographed once is found again from the same angle."""
     parts = list(store.iter_parts(with_images_only=True))
+    if not only_new and out_path and (Path(out_path) / "meta.json").exists():
+        try:
+            prev = json.loads((Path(out_path) / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            prev = {}
+        if int(prev.get("gallery_augment", 0)) != gallery_augment:
+            log.warning(
+                "rebuilding with gallery_augment=%d (previous index used %s); pass "
+                "--gallery-augment or set MCV_INDEX_GALLERY_AUGMENT to keep it",
+                gallery_augment,
+                prev.get("gallery_augment", 0),
+            )
     n_extra = 0
     if extra_images:
         known = {p.part_number for p in parts}
