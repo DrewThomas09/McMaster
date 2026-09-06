@@ -33,6 +33,8 @@ real-browser run of the phone UI):
 
 ## Demo in 60 seconds
 
+(`DEMO.md` is the five-minute stage script.)
+
 ```bash
 pip install -e ".[dev,phone]"        # add ,ml for the learned model (torch)
 mcv up                               # builds a synthetic demo catalog once, then serves it

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- `mcv up`: one-command demo/serve with QR code; demo mode (sample parts identified live, printable sheet, `/connect`); install button; CORS setting; DEMO.md.
+- Query-embedding cache; `mcv up` defaults to TinyCNN for a sub-minute first build.
+
 ## 0.2.1
 
 - Shipped checkpoint retrained on 8,000 synthetic parts (held-out Recall@1 0.33 vs 0.29).
