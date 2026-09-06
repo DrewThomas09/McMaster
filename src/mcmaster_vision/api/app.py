@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -34,6 +35,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     settings = settings or Settings()
     _recent: dict[str, bytes] = {}  # request_id -> first photo (bounded, in-memory)
     app = FastAPI(title="McMaster-Vision", version=__version__, description=__doc__)
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.state.settings = settings
     app.state.identifier = identifier
     app.state.feedback = FeedbackStore(settings.queries_dir)
@@ -133,6 +135,11 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         constraints: str | None = Query(
             None, description='JSON object of known attributes, e.g. {"thread_size": "M6"}'
         ),
+        tta: str = Query(
+            "full",
+            pattern="^(full|fast|none)$",
+            description="Test-time augmentation: full (8 views), fast (2), none",
+        ),
         ident: Identifier = Depends(get_identifier),
     ) -> IdentificationResult:
         try:
@@ -158,7 +165,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             blobs.append(data)
         try:
             result = await run_in_threadpool(
-                ident.identify_many_bytes, blobs, top_n=top_n, use_llm=use_llm, constraints=cons
+                ident.identify_many_bytes,
+                blobs,
+                top_n=top_n,
+                use_llm=use_llm,
+                constraints=cons,
+                tta=tta,
             )
         except OSError as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
@@ -250,11 +262,56 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         return part
 
     @app.get("/parts/{part_number}/image", include_in_schema=False)
-    def get_part_image(part_number: str, ident: Identifier = Depends(get_identifier)):
+    def get_part_image(
+        part_number: str, i: int = Query(0, ge=0), ident: Identifier = Depends(get_identifier)
+    ):
         part = ident.store.get(part_number)
-        if part is None or not part.image_paths or not Path(part.image_paths[0]).exists():
+        if part is None or i >= len(part.image_paths) or not Path(part.image_paths[i]).exists():
             raise HTTPException(404, "no image")
-        return FileResponse(part.image_paths[0])
+        return FileResponse(part.image_paths[i], headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.get("/parts/{part_number}/thumb", include_in_schema=False)
+    def get_part_thumb(
+        part_number: str,
+        i: int = Query(0, ge=0),
+        size: int = Query(200, ge=48, le=512),
+        ident: Identifier = Depends(get_identifier),
+    ):
+        """Small JPEG thumbnails (cached on disk) keep the phone UI fast on cellular."""
+        part = ident.store.get(part_number)
+        if part is None or i >= len(part.image_paths):
+            raise HTTPException(404, "no image")
+        src = Path(part.image_paths[i])
+        if not src.exists():
+            raise HTTPException(404, "no image")
+        cache = settings.data_dir / "cache" / "thumbs"
+        cache.mkdir(parents=True, exist_ok=True)
+        out = cache / f"{part.part_number}_{i}_{size}.jpg"
+        if not out.exists() or out.stat().st_mtime < src.stat().st_mtime:
+            from PIL import Image, ImageOps
+
+            with Image.open(src) as im:
+                im = ImageOps.exif_transpose(im).convert("RGB")
+                im.thumbnail((size, size))
+                canvas = Image.new("RGB", (size, size), (255, 255, 255))
+                canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2))
+                canvas.save(out, format="JPEG", quality=85, optimize=True)
+        return FileResponse(
+            out, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"}
+        )
+
+    @app.get("/parts/{part_number}/images")
+    def list_part_images(part_number: str, ident: Identifier = Depends(get_identifier)) -> dict:
+        part = ident.store.get(part_number)
+        if part is None:
+            raise HTTPException(404, "unknown part number")
+        n = sum(1 for p in part.image_paths if Path(p).exists())
+        return {
+            "part_number": part.part_number,
+            "count": n,
+            "thumbs": [f"/parts/{part.part_number}/thumb?i={i}" for i in range(n)],
+            "images": [f"/parts/{part.part_number}/image?i={i}" for i in range(n)],
+        }
 
     @app.get("/search", response_model=list[Part])
     def search(
@@ -277,25 +334,106 @@ def get_app() -> FastAPI:
     return create_app(Settings())
 
 
+def lan_urls(port: int, scheme: str = "http") -> list[str]:
+    """URLs a phone on the same network can open."""
+    import socket
+
+    ips: list[str] = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127.") and ip not in ips:
+                ips.append(ip)
+    except socket.gaierror:
+        pass
+    try:  # the interface that routes to the internet is usually the Wi-Fi one
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("10.255.255.255", 1))
+            ip = sock.getsockname()[0]
+            if ip not in ips and not ip.startswith("127."):
+                ips.insert(0, ip)
+    except OSError:
+        pass
+    return [f"{scheme}://{ip}:{port}/" for ip in ips] or [f"{scheme}://localhost:{port}/"]
+
+
+def self_signed_cert(cert_dir: Path, hosts: list[str]) -> tuple[Path, Path]:
+    """Create (once) a self-signed certificate with `openssl`, valid for the LAN IPs."""
+    import subprocess
+
+    cert_dir.mkdir(parents=True, exist_ok=True)
+    crt, key = cert_dir / "mcv.crt", cert_dir / "mcv.key"
+    if crt.exists() and key.exists():
+        return crt, key
+    san = ",".join(["DNS:localhost", *[f"IP:{h}" for h in hosts]])
+    cmd = [
+        "openssl",
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-sha256",
+        "-nodes",
+        "-days",
+        "825",
+        "-keyout",
+        str(key),
+        "-out",
+        str(crt),
+        "-subj",
+        "/CN=mcmaster-vision",
+        "-addext",
+        f"subjectAltName={san}",
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return crt, key
+
+
+def print_qr(url: str) -> None:
+    try:
+        import qrcode  # type: ignore
+    except ImportError:
+        print("(pip install qrcode for a scannable QR code)")
+        return
+    qr = qrcode.QRCode(border=1)
+    qr.add_data(url)
+    qr.print_ascii(invert=True)
+
+
 def run(
     settings: Settings | None = None,
     host: str | None = None,
     port: int | None = None,
     workers: int = 1,
+    https: bool = False,
+    qr: bool = False,
 ) -> None:
     import uvicorn
 
     settings = settings or Settings()
+    host = host or settings.api_host
+    port = port or settings.api_port
+    ssl: dict = {}
+    if https:
+        urls = lan_urls(port, "https")
+        crt, key = self_signed_cert(
+            settings.data_dir / "certs", [u.split("//")[1].split(":")[0] for u in urls]
+        )
+        ssl = {"ssl_certfile": str(crt), "ssl_keyfile": str(key)}
+    if host in ("0.0.0.0", "::"):
+        urls = lan_urls(port, "https" if https else "http")
+        print("Open on your phone (same network): " + "  ".join(urls))
+        if qr:
+            print_qr(urls[0])
     if workers > 1:
         # Each worker process loads its own copy of the index; size RAM accordingly.
         uvicorn.run(
             "mcmaster_vision.api.app:get_app",
             factory=True,
-            host=host or settings.api_host,
-            port=port or settings.api_port,
+            host=host,
+            port=port,
             workers=workers,
+            **ssl,
         )
     else:
-        uvicorn.run(
-            create_app(settings), host=host or settings.api_host, port=port or settings.api_port
-        )
+        uvicorn.run(create_app(settings), host=host, port=port, **ssl)

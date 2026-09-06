@@ -230,6 +230,20 @@ src/mcmaster_vision/
   cli.py           mcv ingest | build-index | identify | serve | train | evaluate | demo
 ```
 
+## Use it on your phone
+
+```bash
+mcv serve --host 0.0.0.0 --qr            # scan the QR code on the same Wi-Fi
+mcv serve --host 0.0.0.0 --https --qr    # self-signed HTTPS: install as an app, live camera
+```
+
+`deploy/README.md` covers the four ways to reach it from a phone: same Wi-Fi,
+self-signed HTTPS, a Tailscale / Cloudflare tunnel, or a real domain with
+`deploy/docker-compose.prod.yml` (Caddy issues the certificate). On the phone:
+"Add to Home Screen" gives a full-screen camera-first app; the **Fast /
+Accurate** toggle trades 8-view test-time augmentation for 2 views; tap any
+image to compare it with your photo; recent identifications stay on the device.
+
 ## Operating it
 
 `RUNBOOK.md` covers the whole lifecycle: `mcv validate` a drop, `mcv bootstrap`

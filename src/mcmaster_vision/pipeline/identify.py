@@ -132,6 +132,7 @@ class Identifier:
         top_n: int = 5,
         use_llm: bool | None = None,
         constraints: dict[str, str] | None = None,
+        tta: str = "full",
     ) -> IdentificationResult:
         """Identify one photo, or several photos of the *same* part (different angles):
         every photo's TTA variants are searched and each catalog part keeps its best score.
@@ -160,7 +161,7 @@ class Identifier:
             t = self._timer(timings, "ocr", t)
 
         # 3. embed + retrieve (all photos' TTA variants stacked into one multi-query)
-        qvec = np.concatenate([self.embedder.embed_query(q) for q in query_imgs], axis=0)
+        qvec = np.concatenate([self.embedder.embed_query(q, tta=tta) for q in query_imgs], axis=0)
         t = self._timer(timings, "embed", t)
         hits = self.retriever.retrieve(qvec)
         for pn in ocr_pns:  # make sure OCR'd parts are in the candidate pool

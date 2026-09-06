@@ -39,17 +39,21 @@ class PartEmbedder:
         """Gallery side: no TTA (catalog images are canonical)."""
         return self.backbone.embed(images)
 
-    def query_variants(self, image: Image.Image) -> list[Image.Image]:
-        variants = [image.rotate(r, expand=True) for r in self.tta_rotations]
-        if self.tta_flip:
+    def query_variants(self, image: Image.Image, mode: str = "full") -> list[Image.Image]:
+        """``full``: all rotations x flip (8 views); ``fast``: 0/90 degrees, no flip (2 views);
+        ``none``: the image as is."""
+        if mode == "none":
+            return [image]
+        rotations = self.tta_rotations if mode == "full" else tuple(self.tta_rotations[:2])
+        variants = [image.rotate(r, expand=True) for r in rotations]
+        if self.tta_flip and mode == "full":
             variants += [v.transpose(Image.Transpose.FLIP_LEFT_RIGHT) for v in variants]
         return variants
 
-    def embed_query(self, image: Image.Image, tta: bool = True) -> np.ndarray:
+    def embed_query(self, image: Image.Image, tta: bool | str = True) -> np.ndarray:
         """Return an (V, D) matrix of L2-normalised query vectors (V = 1 without TTA)."""
-        if not tta:
-            return self.backbone.embed([image])
-        return l2_normalize(self.backbone.embed(self.query_variants(image)))
+        mode = tta if isinstance(tta, str) else ("full" if tta else "none")
+        return l2_normalize(self.backbone.embed(self.query_variants(image, mode)))
 
     @staticmethod
     def pooled(query: np.ndarray) -> np.ndarray:

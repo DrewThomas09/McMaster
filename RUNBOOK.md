@@ -44,6 +44,10 @@ Stages, all resumable by re-running the individual commands:
 
 ## 2. Serve
 
+Phones: `mcv serve --host 0.0.0.0 --qr` on the same network, `--https` for the
+installable app and live camera, or `deploy/` for tunnels and a real domain
+(see `deploy/README.md`).
+
 ```bash
 mcv serve --host 0.0.0.0 --port 8000       # or: docker compose up api
 ```

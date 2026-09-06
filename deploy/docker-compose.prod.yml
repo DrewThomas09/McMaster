@@ -1,0 +1,41 @@
+# Production-style stack: the API behind Caddy, which obtains and renews a real
+# TLS certificate automatically. HTTPS is what lets phones install the PWA and
+# use the live camera from anywhere.
+#
+#   DOMAIN=parts.example.com docker compose -f deploy/docker-compose.prod.yml up -d
+#
+# Point the domain's A/AAAA record at this host and open ports 80/443 first.
+services:
+  api:
+    build:
+      context: ..
+      args:
+        EXTRAS: faiss,llm,heic
+    env_file: ../.env
+    environment:
+      MCV_DATA_DIR: /data
+      MCV_CATALOG_DB: /data/catalog/catalog.sqlite
+      MCV_INDEX_DIR: /data/index
+      MCV_MODEL_DIR: /data/models
+      MCV_QUERIES_DIR: /data/queries
+      MCV_RATE_LIMIT_PER_MINUTE: "120"
+    volumes:
+      - ../data:/data
+    expose: ["8000"]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN=your.host.name}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -745,11 +745,16 @@ def serve(
     host: str | None = typer.Option(None),
     port: int | None = typer.Option(None),
     workers: int = typer.Option(1, help="Uvicorn worker processes (each loads the index)"),
+    https: bool = typer.Option(
+        False,
+        help="Serve HTTPS with a self-signed certificate (PWA install + live camera on phones)",
+    ),
+    qr: bool = typer.Option(False, help="Print a QR code of the LAN URL to scan with a phone"),
 ) -> None:
-    """Run the HTTP API + upload UI."""
+    """Run the HTTP API + phone UI. Use --host 0.0.0.0 --qr to open it on a phone on the same network."""
     from mcmaster_vision.api.app import run
 
-    run(_settings(config), host=host, port=port, workers=workers)
+    run(_settings(config), host=host, port=port, workers=workers, https=https, qr=qr)
 
 
 @app.command()

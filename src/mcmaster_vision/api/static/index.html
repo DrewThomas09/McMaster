@@ -10,65 +10,95 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>McMaster-Vision</title>
 <style>
-  :root { --bg:#f4f5f7; --card:#fff; --ink:#1c1e21; --muted:#6b7280; --accent:#0b5fff; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --line:#e5e7eb; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111317; --card:#1b1e24; --ink:#e7e9ee; --muted:#9aa3b2; --line:#2a2f38; } }
-  * { box-sizing:border-box; }
-  html, body { max-width:100%; overflow-x:hidden; }
-  body { margin:0; font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
-  header { padding:16px 20px 0; display:flex; align-items:baseline; gap:12px; }
-  header h1 { font-size:20px; margin:0; }
-  header span { color:var(--muted); font-size:13px; }
-  main { max-width:900px; margin:0 auto; padding:16px 16px 48px; width:100%; }
-  .capture { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
-  @media (max-width:640px) { .capture { grid-template-columns:minmax(0,1fr); } }
-  .btn { display:flex; flex-wrap:wrap; min-width:0; text-align:center; align-items:center; justify-content:center; gap:10px; padding:22px 16px; border-radius:14px; font-weight:700; font-size:18px; cursor:pointer; border:2px solid transparent; user-select:none; }
+  :root { --bg:#f4f5f7; --card:#fff; --ink:#1c1e21; --muted:#6b7280; --accent:#0b5fff; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --line:#e5e7eb; --shadow:0 1px 2px rgba(0,0,0,.06); }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b21; --ink:#e7e9ee; --muted:#9aa3b2; --line:#2a2f38; --shadow:none; } }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--bg); padding:calc(10px + env(safe-area-inset-top)) 16px 8px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  .pill { font-size:12px; padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted); background:var(--card); white-space:nowrap; }
+  .pill.ok { color:var(--ok); border-color:var(--ok); }
+  main { max-width:920px; margin:0 auto; padding:14px 14px calc(40px + env(safe-area-inset-bottom)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+  .capture { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:560px) { .capture { grid-template-columns:1fr; } }
+  .btn { display:flex; align-items:center; justify-content:center; gap:10px; padding:20px 14px; border-radius:14px; font-weight:700; font-size:17px; cursor:pointer; border:2px solid transparent; user-select:none; min-width:0; }
   .btn.primary { background:var(--accent); color:#fff; }
   .btn.secondary { background:var(--card); color:var(--ink); border-color:var(--line); }
   .btn input { display:none; }
-  .hint { color:var(--muted); font-size:13px; margin:10px 8px 0; text-align:center; overflow-wrap:anywhere; }
+  .hint { color:var(--muted); font-size:13px; margin:10px 4px 0; text-align:center; }
   .drop.over { outline:3px dashed var(--accent); outline-offset:-6px; border-radius:14px; }
-  .opts { display:flex; gap:16px; justify-content:center; margin-top:10px; font-size:14px; color:var(--muted); flex-wrap:wrap; }
-  .row { display:flex; gap:16px; margin-top:20px; flex-wrap:wrap; }
-  .preview { flex:0 0 240px; }
-  .preview img { width:100%; border-radius:12px; background:#fff; border:1px solid var(--line); }
+  .opts { display:flex; gap:14px; justify-content:center; margin-top:10px; font-size:13px; color:var(--muted); flex-wrap:wrap; align-items:center; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden; }
+  .seg button { border:none; background:var(--card); color:var(--muted); padding:6px 12px; font-size:13px; cursor:pointer; }
+  .seg button.on { background:var(--accent); color:#fff; }
+  .search { display:flex; gap:8px; margin-top:12px; }
+  .search input { flex:1; padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:16px; }
+  .search button, .ghost { padding:10px 14px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; font-size:14px; }
+  /* live camera */
+  #cam { display:none; margin-top:10px; padding:10px; }
+  #cam.on { display:block; }
+  #cam video { width:100%; max-height:52vh; object-fit:cover; border-radius:10px; background:#000; }
+  .camrow { display:flex; gap:10px; align-items:center; justify-content:center; margin-top:10px; }
+  .shutter { width:68px; height:68px; border-radius:50%; border:5px solid var(--card); outline:2px solid var(--accent); background:var(--accent); cursor:pointer; }
+  /* query + results */
+  .row { display:flex; gap:14px; margin-top:16px; flex-wrap:wrap; }
+  .preview { flex:0 0 220px; }
+  .preview img { width:100%; aspect-ratio:1; object-fit:contain; border-radius:12px; background:#fff; border:1px solid var(--line); cursor:zoom-in; }
+  .thumbs { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .thumbs img { width:52px; height:52px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
+  .actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
   .results { flex:1; min-width:280px; }
-  .verdict { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px; }
+  .verdict { padding:14px 16px; margin-bottom:12px; }
   .tier { display:inline-block; padding:4px 12px; border-radius:999px; font-weight:700; font-size:13px; color:#fff; letter-spacing:.02em; }
   .tier.exact { background:var(--ok);} .tier.likely{ background:var(--accent);} .tier.candidate{ background:var(--warn);} .tier.unknown{ background:var(--bad);}
-  .verdict .pn { font-size:26px; font-weight:800; margin-top:6px; }
+  .verdict .pn { font-size:28px; font-weight:800; margin-top:6px; letter-spacing:.01em; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .verdict .name { color:var(--muted); }
-  .cand { display:flex; gap:14px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px; }
-  .cand img { width:84px; height:84px; object-fit:contain; border-radius:8px; background:#fff; border:1px solid var(--line); flex:0 0 84px; }
-  .cand .pn { font-weight:700; font-size:16px; }
-  .cand .meta { color:var(--muted); font-size:13px; }
-  .bar { height:6px; background:var(--line); border-radius:3px; margin-top:6px; overflow:hidden; }
-  .bar i { display:block; height:100%; background:var(--accent); }
-  ul.reasons { margin:6px 0 0; padding-left:18px; font-size:12px; color:var(--muted); }
-  .timings { font-size:12px; color:var(--muted); margin-top:8px; }
-  .spinner { display:inline-block; width:18px; height:18px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:8px; }
-  @keyframes spin { to { transform:rotate(360deg);} }
-  .actions { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
-  .actions button { padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
-  a.link { color:var(--accent); text-decoration:none; }
-  .search { display:flex; gap:8px; margin-top:14px; }
-  .search input { flex:1; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:15px; }
-  .search button { padding:12px 16px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
-  .family { background:var(--card); border:1px dashed var(--accent); border-radius:12px; padding:12px 16px; margin-bottom:12px; }
+  .iconbtn { border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:10px; padding:6px 10px; font-size:13px; cursor:pointer; }
+  table.spec { width:100%; border-collapse:collapse; margin-top:10px; font-size:14px; }
+  table.spec td { padding:5px 0; border-top:1px solid var(--line); }
+  table.spec td:first-child { color:var(--muted); width:42%; text-transform:capitalize; }
+  .family { border:1px dashed var(--accent); border-radius:12px; padding:12px 16px; margin-bottom:12px; background:var(--card); }
   .family b { color:var(--accent); }
-  .confirm { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
-  .confirm button { padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink); cursor:pointer; font-size:13px; }
-  .confirm button.yes { border-color:var(--ok); color:var(--ok); }
-  .confirm button.done { background:var(--ok); color:#fff; border-color:var(--ok); }
-  .thumbs { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
-  .thumbs img { width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
   .chips { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-size:13px; }
   .chips span { color:var(--muted); }
   .chips button { padding:6px 10px; border-radius:999px; border:1px solid var(--accent); background:var(--card); color:var(--accent); cursor:pointer; font-size:13px; }
   .linkbtn { border:none; background:none; color:var(--accent); cursor:pointer; padding:0; font-size:inherit; }
+  .cand { display:flex; gap:12px; padding:12px; margin-bottom:10px; }
+  .cand .main { width:96px; height:96px; object-fit:contain; border-radius:10px; background:#fff; border:1px solid var(--line); flex:0 0 96px; cursor:zoom-in; }
+  .cand .pn { font-weight:700; font-size:16px; }
+  .cand .meta { color:var(--muted); font-size:13px; }
+  .strip { display:flex; gap:6px; margin-top:8px; overflow-x:auto; }
+  .strip img { width:56px; height:56px; object-fit:contain; border-radius:6px; background:#fff; border:1px solid var(--line); cursor:zoom-in; flex:0 0 auto; }
+  .bar { height:6px; background:var(--line); border-radius:3px; margin-top:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--accent); }
+  ul.reasons { margin:6px 0 0; padding-left:18px; font-size:12px; color:var(--muted); }
+  .confirm { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+  .confirm button { padding:7px 11px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink); cursor:pointer; font-size:13px; }
+  .confirm button.yes { border-color:var(--ok); color:var(--ok); }
+  .confirm button.done { background:var(--ok); color:#fff; border-color:var(--ok); }
+  details.timings { font-size:12px; color:var(--muted); margin-top:8px; }
+  .spinner { display:inline-block; width:18px; height:18px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:8px; }
+  @keyframes spin { to { transform:rotate(360deg);} }
+  a.link { color:var(--accent); text-decoration:none; }
+  /* history */
+  #history { margin-top:22px; }
+  #history h2 { font-size:14px; color:var(--muted); margin:0 0 8px; }
+  .hist { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+  .hist button { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:4px; border:1px solid var(--line); background:var(--card); border-radius:10px; padding:6px; cursor:pointer; color:var(--ink); font-size:11px; width:84px; }
+  .hist img { width:64px; height:64px; object-fit:cover; border-radius:6px; }
+  /* lightbox */
+  #lb { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; z-index:50; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:16px; }
+  #lb.on { display:flex; }
+  #lb .pair { display:flex; gap:12px; width:100%; max-width:900px; align-items:center; justify-content:center; }
+  #lb img { max-width:100%; max-height:70vh; background:#fff; border-radius:10px; object-fit:contain; flex:1 1 0; min-width:0; }
+  #lb .cap { color:#fff; font-size:14px; text-align:center; }
+  .toast { position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--ink); color:var(--bg); padding:10px 16px; border-radius:10px; font-size:14px; z-index:60; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.on { opacity:1; }
 </style>
 </head>
 <body>
-<header><h1>McMaster-Vision</h1><span>one photo &rarr; part number</span></header>
+<header><h1>McMaster-Vision</h1><span class="pill" id="status">connecting…</span></header>
 <main>
   <div class="drop" id="drop">
     <div class="capture">
@@ -78,70 +108,225 @@
       </label>
       <label class="btn secondary">
         &#128193; Choose an image or screenshot
-        <input type="file" id="file" accept="image/*">
+        <input type="file" id="file" accept="image/*" multiple>
       </label>
     </div>
-    <p class="hint">On a phone, "Take a photo" opens the camera. On a desktop you can also drag an image here or paste a screenshot (Ctrl/Cmd+V).</p>
     <div class="opts">
-      <label><input type="checkbox" id="llm"> use vision-LLM reranker</label>
-      <label>show top <select id="topn"><option>3</option><option selected>5</option><option>10</option></select></label>
+      <button type="button" class="ghost" id="livebtn" hidden>&#127909; Live camera</button>
+      <span class="seg" title="Speed vs accuracy"><button type="button" data-tta="fast">Fast</button><button type="button" data-tta="full" class="on">Accurate</button></span>
+      <label>top <select id="topn"><option>3</option><option selected>5</option><option>10</option></select></label>
+      <label><input type="checkbox" id="llm"> vision-LLM rerank</label>
+    </div>
+    <p class="hint">Plain background, part filling the frame. Desktop: drop an image or paste a screenshot (Ctrl/Cmd+V).</p>
+    <div class="card" id="cam">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="camrow">
+        <button type="button" class="ghost" id="flip">&#8635; Flip</button>
+        <button type="button" class="shutter" id="shutter" aria-label="Take photo"></button>
+        <button type="button" class="ghost" id="camclose">Close</button>
+      </div>
     </div>
   </div>
   <form class="search" id="searchform" autocomplete="off">
-    <input id="q" type="search" placeholder="...or search the catalog by part number / name" aria-label="search">
+    <input id="q" type="search" placeholder="…or search the catalog by part number / name" aria-label="search">
     <button type="submit">Search</button>
   </form>
 
   <div class="row">
     <div class="preview" id="preview" hidden>
-      <img id="img" alt="query">
+      <img id="img" alt="query" onclick="lightbox(this.src, null, 'Your photo')">
       <div class="thumbs" id="thumbs"></div>
       <div class="actions">
-        <label class="actions"><button type="button" onclick="document.getElementById('angle').click()">+ Add another angle</button><input type="file" id="angle" accept="image/*" capture="environment" hidden></label>
-        <button id="again">Start over</button>
+        <button type="button" class="ghost" onclick="document.getElementById('angle').click()">+ Add another angle</button><input type="file" id="angle" accept="image/*" capture="environment" hidden>
+        <button type="button" class="ghost" id="again">Start over</button>
       </div>
     </div>
     <div class="results" id="results"></div>
   </div>
+
+  <section id="history" hidden><h2>Recent</h2><div class="hist" id="hist"></div></section>
 </main>
+
+<div id="lb" onclick="this.classList.remove('on')"><div class="pair"><img id="lb1" alt=""><img id="lb2" alt="" hidden></div><div class="cap" id="lbcap"></div></div>
+<div class="toast" id="toast"></div>
+
 <script>
 const $ = id => document.getElementById(id);
 const drop = $('drop'), results = $('results'), preview = $('preview'), img = $('img'), thumbs = $('thumbs');
 let photos = [];          // File[] for the current query (several angles of one part)
 let lastResult = null;
 let constraints = {};     // attribute filters chosen from family chips
-function refine(k, v) { constraints[k] = v; send(); }
-function clearConstraints() { constraints = {}; send(); }
+let tta = 'full';
+let queryDataUrl = null;  // small preview of the first photo (history, lightbox compare)
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = x => (x * 100).toFixed(0) + '%';
+const toast = (msg) => { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2200); };
+
+// ---- status pill -----------------------------------------------------------
+fetch('/health').then(r => r.json()).then(h => { const p = $('status'); p.textContent = h.ready ? `${h.parts} parts · ${(h.model || '').split(':')[0]}` : 'index not built'; p.classList.toggle('ok', !!h.ready); }).catch(() => $('status').textContent = 'offline');
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
-for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; addPhotos([...e.target.files]); } e.target.value = ''; });
+
+// ---- inputs ----------------------------------------------------------------
+for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; constraints = {}; addPhotos([...e.target.files]); } e.target.value = ''; });
 $('angle').addEventListener('change', e => { if (e.target.files[0]) addPhotos([e.target.files[0]]); e.target.value = ''; });
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; addPhotos([...e.dataTransfer.files]); } });
-window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; addPhotos([it.getAsFile()]); break; } });
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; constraints = {}; addPhotos([...e.dataTransfer.files]); } });
+window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; constraints = {}; addPhotos([it.getAsFile()]); break; } });
 $('again').addEventListener('click', () => { photos = []; lastResult = null; constraints = {}; preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
 $('searchform').addEventListener('submit', async e => { e.preventDefault(); const q = $('q').value.trim(); if (q) await search(q); });
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on'); tta = b.dataset.tta; if (photos.length) send(); }));
+function refine(k, v) { constraints[k] = v; send(); }
+function clearConstraints() { constraints = {}; send(); }
 
+// ---- live camera (needs HTTPS or localhost) --------------------------------
+let stream = null, facing = 'environment';
+if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSecureContext) $('livebtn').hidden = false;
+$('livebtn').addEventListener('click', openCam);
+$('camclose').addEventListener('click', closeCam);
+$('flip').addEventListener('click', () => { facing = facing === 'environment' ? 'user' : 'environment'; openCam(); });
+async function openCam() {
+  closeCam();
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }); }
+  catch (e) { toast('Camera not available: ' + e.message); return; }
+  $('video').srcObject = stream; $('cam').classList.add('on');
+}
+function closeCam() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } $('cam').classList.remove('on'); }
+$('shutter').addEventListener('click', async () => {
+  const v = $('video'); if (!v.videoWidth) return;
+  const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+  if (navigator.vibrate) navigator.vibrate(30);
+  const f = new File([blob], 'live.jpg', { type: 'image/jpeg' });
+  if (photos.length && lastResult) addPhotos([f]); else { photos = []; constraints = {}; addPhotos([f]); }
+});
+
+// ---- query -----------------------------------------------------------------
+async function downscale(file, max = 1280) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    if (s === 1 && file.size < 1.5e6) return file;
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
+    return new File([blob], 'query.jpg', { type: 'image/jpeg' });
+  } catch (_) { return file; }
+}
+async function tinyDataUrl(file, side = 96) {
+  try { const bmp = await createImageBitmap(file); const c = document.createElement('canvas'); const s = side / Math.max(bmp.width, bmp.height); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.7); } catch (_) { return null; }
+}
 async function addPhotos(files) {
   photos = photos.concat(files).slice(0, 6);
   preview.hidden = false; img.src = URL.createObjectURL(photos[0]);
   thumbs.innerHTML = photos.length > 1 ? photos.map(f => `<img src="${URL.createObjectURL(f)}" alt="">`).join('') : '';
+  queryDataUrl = await tinyDataUrl(photos[0]);
   await send();
 }
+async function send() {
+  if (!photos.length) return;
+  const t0 = performance.now();
+  results.innerHTML = '<p><span class="spinner"></span>Identifying' + (photos.length > 1 ? ` from ${photos.length} photos` : '') + '&hellip;</p>';
+  const fd = new FormData();
+  for (const f of photos) fd.append('files', await downscale(f));
+  const q = new URLSearchParams({ top_n: $('topn').value, tta }); if ($('llm').checked) q.set('use_llm', 'true');
+  if (Object.keys(constraints).length) q.set('constraints', JSON.stringify(constraints));
+  let r;
+  try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
+  catch (e) { results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
+  if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(d)}</p>`; return; }
+  lastResult = await r.json();
+  lastResult._roundtrip = Math.round(performance.now() - t0);
+  render(lastResult);
+  remember(lastResult);
+  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
+// ---- rendering -------------------------------------------------------------
+function specTable(attrs) {
+  const rows = Object.entries(attrs || {});
+  if (!rows.length) return '';
+  return `<table class="spec">${rows.map(([k, v]) => `<tr><td>${esc(k.replace(/_/g, ' '))}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
+}
+function render(res) {
+  const tierText = { exact: 'Exact match', likely: 'Likely match', candidate: 'Possible matches', unknown: 'No confident match' }[res.tier] || res.tier;
+  let html = `<div class="card verdict"><span class="tier ${res.tier}">${esc(tierText)}</span>`;
+  if (res.best) {
+    html += `<div class="pn">${esc(res.best.part_number)}
+      <button type="button" class="iconbtn" onclick="copyText('${esc(res.best.part_number)}')">Copy</button>
+      ${navigator.share ? `<button type="button" class="iconbtn" onclick="shareResult()">Share</button>` : ''}
+      <a class="iconbtn" href="https://www.mcmaster.com/${encodeURIComponent(res.best.part_number)}/" target="_blank" rel="noopener">mcmaster.com &nearr;</a></div>
+      <div class="name">${esc(res.best.name)} &middot; ${pct(res.best.confidence)} confidence</div>
+      <div class="name">${esc(res.best.category_path.join(' › '))}</div>${specTable(res.best.attributes)}`;
+  } else {
+    html += `<div class="name">Try another angle, closer, on a plain background &mdash; or search by text.</div>`;
+  }
+  if (res.category_guess && res.category_guess.length) html += `<div class="name" style="margin-top:8px">Looks like: ${res.category_guess.slice(0, 2).map(([c, p]) => `<b>${esc(c)}</b> ${pct(p)}`).join(' &middot; ')}</div>`;
+  if (res.ocr_part_numbers.length) html += `<div class="name">Part number read from the photo: ${res.ocr_part_numbers.map(esc).join(', ')}</div>`;
+  if (res.extracted) { const ex = res.extracted; const bits = [ex.part_type, ex.material_guess, ex.head_type, ex.drive_style].filter(Boolean).map(esc); if (bits.length) html += `<div class="name">Seen in photo: ${bits.join(' &middot; ')}</div>`; }
+  html += `<div class="confirm"><button type="button" onclick="confirm(null, this)">None of these</button></div></div>`;
+  for (const n of (res.notes || [])) html += `<div class="family">${esc(n)} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear filters</button></div>`;
+  if (res.family) {
+    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(k.replace(/_/g, ' '))}:</span> ${v.map(val => `<button type="button" onclick='refine(${JSON.stringify(k)}, ${JSON.stringify(val)})'>${esc(val)}</button>`).join('')}</div>`).join('');
+    html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' Tap what you can read off the part:' + diffs : ''}</div>`;
+  }
+  if (Object.keys(res.constraints || {}).length) html += `<div class="family">Filtered by ${Object.entries(res.constraints).map(([k, v]) => `<b>${esc(k)}</b> = ${esc(v)}`).join(', ')} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear</button></div>`;
+  for (const c of res.candidates) {
+    const pn = encodeURIComponent(c.part_number);
+    html += `<div class="card cand" data-pn="${esc(c.part_number)}">
+      <img class="main" src="/parts/${pn}/thumb?size=200" loading="lazy" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${pn}/image', queryDataUrl && document.getElementById('img').src, '${esc(c.part_number)} vs your photo')">
+      <div style="flex:1;min-width:0">
+        <div class="pn">${esc(c.part_number)} <span style="font-weight:400">&mdash; ${esc(c.name)}</span></div>
+        <div class="meta">${esc(c.category_path.join(' › '))}</div>
+        <div class="meta">${Object.entries(c.attributes).map(([k,v]) => `${esc(k.replace(/_/g, ' '))}: ${esc(v)}`).join(' · ')}</div>
+        <div class="bar"><i style="width:${Math.round(c.confidence*100)}%"></i></div>
+        <div class="meta">confidence ${(c.confidence*100).toFixed(1)}% · similarity ${c.similarity.toFixed(3)} · <a class="link" href="https://www.mcmaster.com/${pn}/" target="_blank" rel="noopener">open on mcmaster.com</a></div>
+        <div class="strip" data-strip="${esc(c.part_number)}"></div>
+        <ul class="reasons">${c.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+        <div class="confirm"><button type="button" class="yes" onclick="confirm('${esc(c.part_number)}', this)">&#10003; This is it</button></div>
+      </div></div>`;
+  }
+  const t = res.timings_ms || {};
+  html += `<details class="timings"><summary>${res.photos > 1 ? res.photos + ' photos · ' : ''}${t.total ? t.total + ' ms on server' : ''}${res._roundtrip ? ' · ' + res._roundtrip + ' ms round trip' : ''} · ${esc(res.model_version)}</summary>${Object.entries(t).map(([k,v]) => `${esc(k)} ${v} ms`).join(' · ')}</details>`;
+  results.innerHTML = html;
+  loadStrips(res.candidates.slice(0, 5));
+}
+async function loadStrips(cands) {
+  for (const c of cands) {
+    try {
+      const r = await fetch(`/parts/${encodeURIComponent(c.part_number)}/images`); if (!r.ok) continue;
+      const d = await r.json(); if (d.count < 2) continue;
+      const el = document.querySelector(`.strip[data-strip="${CSS.escape(c.part_number)}"]`); if (!el) continue;
+      el.innerHTML = d.thumbs.map((t, i) => `<img src="${t}&size=96" loading="lazy" alt="" onclick="lightbox('${d.images[i]}', document.getElementById('img').src, '${esc(c.part_number)} view ${i + 1} vs your photo')">`).join('');
+    } catch (_) {}
+  }
+}
+function lightbox(src, compareSrc, caption) {
+  $('lb1').src = src; const l2 = $('lb2'); if (compareSrc) { l2.src = compareSrc; l2.hidden = false; } else l2.hidden = true;
+  $('lbcap').textContent = caption || ''; $('lb').classList.add('on');
+}
+async function copyText(t) { try { await navigator.clipboard.writeText(t); toast('Copied ' + t); } catch (_) { toast(t); } }
+async function shareResult() {
+  if (!lastResult || !lastResult.best) return;
+  const b = lastResult.best;
+  try { await navigator.share({ title: `McMaster ${b.part_number}`, text: `${b.part_number} — ${b.name} (${pct(b.confidence)})`, url: `https://www.mcmaster.com/${encodeURIComponent(b.part_number)}/` }); } catch (_) {}
+}
+
+// ---- search ----------------------------------------------------------------
 async function search(q) {
   results.innerHTML = '<p><span class="spinner"></span>Searching&hellip;</p>';
   const r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10`);
   if (!r.ok) { results.innerHTML = `<p style="color:var(--bad)">Search failed (${r.status})</p>`; return; }
   const parts = await r.json();
   if (!parts.length) { results.innerHTML = '<p>No catalog entries match.</p>'; return; }
-  results.innerHTML = parts.map(p => `<div class="cand">
-      <img src="/parts/${encodeURIComponent(p.part_number)}/image" loading="lazy" onerror="this.style.visibility='hidden'">
+  results.innerHTML = parts.map(p => `<div class="card cand">
+      <img class="main" src="/parts/${encodeURIComponent(p.part_number)}/thumb?size=200" loading="lazy" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${encodeURIComponent(p.part_number)}/image', null, '${esc(p.part_number)}')">
       <div style="flex:1;min-width:0"><div class="pn">${esc(p.part_number)} <span style="font-weight:400">&mdash; ${esc(p.name)}</span></div>
-      <div class="meta">${esc(p.category_path.join(' › '))}</div>
-      <div class="meta">${Object.entries(p.attributes).map(([k,v]) => `${esc(k)}: ${esc(v)}`).join(' · ')}</div></div></div>`).join('');
+      <div class="meta">${esc(p.category_path.join(' › '))}</div>${specTable(p.attributes)}
+      <div class="meta" style="margin-top:6px"><a class="link" href="https://www.mcmaster.com/${encodeURIComponent(p.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div></div></div>`).join('');
 }
 
+// ---- feedback --------------------------------------------------------------
 async function confirm(partNumber, btn) {
   if (!lastResult) return;
   const fd = new FormData();
@@ -151,76 +336,27 @@ async function confirm(partNumber, btn) {
   fd.append('tier', lastResult.tier);
   if (photos[0]) fd.append('file', await downscale(photos[0]));
   const r = await fetch('/feedback', { method: 'POST', body: fd });
-  if (r.ok) { document.querySelectorAll('.confirm button').forEach(b => b.disabled = true); btn.classList.add('done'); btn.textContent = partNumber ? 'Saved as ' + partNumber : 'Saved as unknown'; }
+  if (r.ok) { document.querySelectorAll('.confirm button').forEach(b => b.disabled = true); btn.classList.add('done'); btn.textContent = partNumber ? 'Saved as ' + partNumber : 'Saved as unknown'; toast('Thanks — this photo now trains the model'); }
   else btn.textContent = 'Could not save';
 }
 
-async function downscale(file, max = 1280) {
-  // Phones produce 12 MP JPEGs; the model only needs a few hundred px. Resize client-side to keep uploads fast.
+// ---- history (local to this browser) ----------------------------------------
+function remember(res) {
   try {
-    const bmp = await createImageBitmap(file);
-    const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
-    if (s === 1) return file;
-    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
-    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9));
-    return new File([blob], 'query.jpg', { type: 'image/jpeg' });
-  } catch (_) { return file; }
+    const h = JSON.parse(localStorage.getItem('mcv.history') || '[]');
+    h.unshift({ t: Date.now(), pn: res.best ? res.best.part_number : null, name: res.best ? res.best.name : null, tier: res.tier, img: queryDataUrl });
+    localStorage.setItem('mcv.history', JSON.stringify(h.slice(0, 12)));
+    renderHistory();
+  } catch (_) {}
 }
-
-async function send() {
-  if (!photos.length) return;
-  results.innerHTML = '<p><span class="spinner"></span>Identifying' + (photos.length > 1 ? ` from ${photos.length} photos` : '') + '&hellip;</p>';
-  const fd = new FormData();
-  for (const f of photos) fd.append('files', await downscale(f));
-  const q = new URLSearchParams({ top_n: $('topn').value }); if ($('llm').checked) q.set('use_llm', 'true');
-  if (Object.keys(constraints).length) q.set('constraints', JSON.stringify(constraints));
-  let r;
-  try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
-  catch (e) { results.innerHTML = `<p style="color:var(--bad)">Network error: ${e}</p>`; return; }
-  if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(d)}</p>`; return; }
-  lastResult = await r.json();
-  render(lastResult);
-  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+function renderHistory() {
+  try {
+    const h = JSON.parse(localStorage.getItem('mcv.history') || '[]');
+    $('history').hidden = !h.length;
+    $('hist').innerHTML = h.map(e => `<button type="button" onclick="${e.pn ? `search('${esc(e.pn)}')` : 'void 0'}"><img src="${e.img || '/static/icon.svg'}" alt=""><span>${esc(e.pn || e.tier)}</span></button>`).join('');
+  } catch (_) {}
 }
-
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const pct = x => (x * 100).toFixed(0) + '%';
-function render(res) {
-  const tierText = { exact: 'Exact match', likely: 'Likely match', candidate: 'Possible matches', unknown: 'No confident match' }[res.tier] || res.tier;
-  let html = `<div class="verdict"><span class="tier ${res.tier}">${esc(tierText)}</span>`;
-  if (res.best) html += `<div class="pn">${esc(res.best.part_number)}</div><div class="name">${esc(res.best.name)} &middot; ${pct(res.best.confidence)} confidence</div>`;
-  else html += `<div class="name">Try another angle, closer, on a plain background &mdash; or search by text below.</div>`;
-  if (res.ocr_part_numbers.length) html += `<div class="name">Part number read from the photo: ${res.ocr_part_numbers.map(esc).join(', ')}</div>`;
-  if (res.extracted) { const ex = res.extracted; const bits = [ex.part_type, ex.material_guess, ex.head_type, ex.drive_style].filter(Boolean).map(esc); if (bits.length) html += `<div class="name">Seen in photo: ${bits.join(' &middot; ')}</div>`; }
-  html += `<div class="confirm"><button type="button" onclick="confirm(null, this)">None of these</button></div></div>`;
-  if (res.category_guess && res.category_guess.length && !res.best) {
-    html += `<div class="family">Category guess: ${res.category_guess.map(([c, p]) => `<b>${esc(c)}</b> ${pct(p)}`).join(' &middot; ')}</div>`;
-  }
-  if (res.family) {
-    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(k)}:</span> ${v.map(val => `<button type="button" onclick='refine(${JSON.stringify(k)}, ${JSON.stringify(val)})'>${esc(val)}</button>`).join('')}</div>`).join('');
-    html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' Tap what you can read off the part:' + diffs : ''}</div>`;
-  }
-  for (const n of (res.notes || [])) html += `<div class="family">${esc(n)} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear filters</button></div>`;
-  if (Object.keys(res.constraints || {}).length) {
-    html += `<div class="family">Filtered by ${Object.entries(res.constraints).map(([k, v]) => `<b>${esc(k)}</b> = ${esc(v)}`).join(', ')} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear</button></div>`;
-  }
-  for (const c of res.candidates) {
-    html += `<div class="cand">
-      <img src="/parts/${encodeURIComponent(c.part_number)}/image" loading="lazy" onerror="this.style.visibility='hidden'">
-      <div style="flex:1;min-width:0">
-        <div class="pn">${esc(c.part_number)} <span style="font-weight:400">&mdash; ${esc(c.name)}</span></div>
-        <div class="meta">${esc(c.category_path.join(' › '))}</div>
-        <div class="meta">${Object.entries(c.attributes).map(([k,v]) => `${esc(k)}: ${esc(v)}`).join(' · ')}</div>
-        <div class="bar"><i style="width:${Math.round(c.confidence*100)}%"></i></div>
-        <div class="meta">confidence ${(c.confidence*100).toFixed(1)}% · similarity ${c.similarity.toFixed(3)} · <a class="link" href="https://www.mcmaster.com/${encodeURIComponent(c.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div>
-        <ul class="reasons">${c.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
-        <div class="confirm"><button type="button" class="yes" onclick="confirm('${esc(c.part_number)}', this)">&#10003; This is it</button></div>
-      </div></div>`;
-  }
-  html += `<div class="timings">${res.photos > 1 ? res.photos + ' photos · ' : ''}model ${esc(res.model_version)} · ${Object.entries(res.timings_ms).map(([k,v]) => `${k} ${v}ms`).join(' · ')}</div>`;
-  results.innerHTML = html;
-}
+renderHistory();
 </script>
 </body>
 </html>
