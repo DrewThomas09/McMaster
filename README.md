@@ -18,8 +18,8 @@ reranking stage resolves the look-alikes. See [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## Status
 
-Everything except the real imagery is built and tested (74 tests, including a
-real-browser run of the phone UI):
+Everything except the real imagery is built and tested (108 tests, including
+real-browser runs of the phone UI):
 
 | area | state |
 |---|---|
@@ -28,7 +28,8 @@ real-browser run of the phone UI):
 | retrieval | TTA multi-query, gallery augmentation, query expansion, category prior, FAISS above 50k vectors, parallel + incremental builds |
 | answers | calibrated tiers with precision-targeted thresholds, family answers with distinguishing attributes, constraints, category guess |
 | interface | camera-first PWA, several angles per query, one-tap confirmation, text search, batch endpoint and CLI |
-| operations | bootstrap, doctor, status, metrics, retrain (cron), hot reload, rate limit, request log, runbook |
+| operations | bootstrap, doctor, status, metrics, retrain (cron), auto reload, rate limit, request log, runbook |
+| durability | every confirmation, photo, log and index is on disk; `mcv backup` / `mcv restore`; offline outbox on the phone; usage prior from confirmations |
 | needs you | McMaster images (any of the intake paths), a GPU for CLIP/DINOv2, real photos via the feedback loop |
 
 ## Demo in 60 seconds
@@ -280,7 +281,9 @@ build information.
 `RUNBOOK.md` covers the whole lifecycle: `mcv validate` a drop, `mcv bootstrap`
 it, `mcv doctor` the environment, `mcv serve`, then `mcv retrain` on a schedule
 so confirmed photos keep improving accuracy, with `GET /metrics` as the live
-scorecard.
+scorecard. Nothing learned at run time is lost: `mcv backup` writes one archive
+of catalog, index, calibration, confirmed photos, logs and manifest, and
+`mcv restore` puts it back (the API picks a restored index up by itself).
 
 ## Development
 

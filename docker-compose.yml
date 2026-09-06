@@ -12,6 +12,7 @@ services:
       MCV_CATALOG_DB: /data/catalog/catalog.sqlite
       MCV_INDEX_DIR: /data/index
       MCV_MODEL_DIR: /data/models
+      MCV_QUERIES_DIR: /data/queries
     volumes:
       - ./data:/data
     command: ["mcv", "serve", "--host", "0.0.0.0", "--port", "8000"]
@@ -32,3 +33,18 @@ services:
       - ./data:/data
     profiles: ["jobs"]
     command: ["sh", "-c", "mcv ingest /data/catalog/parts.jsonl && mcv build-index"]
+
+  # One-shot job: archive everything learned at run time to /data/backups.
+  backup:
+    build:
+      context: .
+    environment:
+      MCV_DATA_DIR: /data
+      MCV_CATALOG_DB: /data/catalog/catalog.sqlite
+      MCV_INDEX_DIR: /data/index
+      MCV_MODEL_DIR: /data/models
+      MCV_QUERIES_DIR: /data/queries
+    volumes:
+      - ./data:/data
+    profiles: ["jobs"]
+    command: ["mcv", "backup"]

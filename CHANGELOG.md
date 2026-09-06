@@ -9,6 +9,11 @@
 - `mcv build-index --with-feedback` and `mcv retrain` embed confirmed photos as gallery
   entries, so a part photographed once is found again from that angle without training.
 - The API picks up a rebuilt or restored index automatically (`MCV_AUTO_RELOAD`).
+- Phone UI: confirmations made offline wait in an outbox and sync when the network is back.
+- Reranker: a small usage prior from confirmation counts breaks ties toward parts people
+  actually confirm (log-scaled; never overrides visual evidence).
+- Dashboard: storage panel with sizes, ages, last backup and a "Back up now" button;
+  `mcv doctor` flags a missing or stale backup.
 - Uploads: decompression-bomb guard and reduced-scale JPEG decoding (faster for 12 MP photos);
   `/health` reports uptime, requests served and index/backbone mismatch.
 
