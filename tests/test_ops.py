@@ -52,6 +52,10 @@ def test_doctor_and_review_unknowns(tmp_path, index, demo_dir):
     r = CliRunner().invoke(app, ["doctor"], env=env)
     assert r.exit_code == 0, r.output
     assert "index/backbone match" in r.output and "ready" in r.output
+    import json as _json
+
+    r = CliRunner().invoke(app, ["doctor", "--json"], env=env)
+    assert r.exit_code == 0 and _json.loads(r.output)["ready"] is True
     r = CliRunner().invoke(app, ["review-unknowns", "--out", str(tmp_path / "rev.html")], env=env)
     assert r.exit_code == 0 and "no unknown photos" in r.output
     unk = tmp_path / "q" / "_unknown"

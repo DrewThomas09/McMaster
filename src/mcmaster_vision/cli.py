@@ -251,7 +251,10 @@ def status(config: Path | None = _config_opt) -> None:
 
 
 @app.command()
-def doctor(config: Path | None = _config_opt) -> None:
+def doctor(
+    config: Path | None = _config_opt,
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
+) -> None:
     """Check the environment: optional dependencies, checkpoint, index/backbone match, disk, GPU."""
     import importlib
     import shutil
@@ -355,6 +358,17 @@ def doctor(config: Path | None = _config_opt) -> None:
                 "needed for the vision reranker",
             )
         )
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks],
+                    "ready": all(ok for n, ok, _ in checks if n in ("catalog", "index")),
+                },
+                indent=2,
+            )
+        )
+        return
     width = max(len(c[0]) for c in checks)
     for name, ok, detail in checks:
         typer.echo(f"{'OK  ' if ok else 'MISS'} {name.ljust(width)}  {detail}")

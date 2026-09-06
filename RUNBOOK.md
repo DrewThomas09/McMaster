@@ -60,6 +60,9 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   Train on them: `mcv train -c configs/train_tinycnn.yaml --query-dir data/queries`
   (or `configs/train_openclip.yaml` on a GPU), then `mcv build-index` and `POST /admin/reload`.
 * **New SKUs**: `mcv ingest new_parts.jsonl && mcv build-index --only-new` embeds only the additions.
+  `GET /status` reports `index_stale: true` whenever the catalog changed after the
+  index was built. Index writes are atomic (temp dir + swap), so rebuilding while
+  serving and then `POST /admin/reload` is safe.
 * **Removed or changed SKUs**: `mcv build-index` (full rebuild, same command).
 * **Better model**: set `MCV_BACKBONE=openclip` (or `dinov2`), `MCV_BACKBONE_CHECKPOINT=...`, rebuild the index.
 * **Hard cases**: `MCV_RERANK_LLM_ENABLED=true` sends the top candidates and the
@@ -87,7 +90,7 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 
 | command | purpose |
 |---|---|
-| `mcv doctor` | optional deps, GPU, checkpoint, index/backbone match, calibration, disk |
+| `mcv doctor` (`--json`) | optional deps, GPU, checkpoint, index/backbone match, index freshness, calibration, disk |
 | `mcv status` / `GET /status` | what is built, from what, and how well it measured |
 | `GET /metrics` | request volume, tier mix, latency p50/p95, confirmed top-1 rate |
 | `mcv review-unknowns` | HTML contact sheet of "none of these" photos + current candidates, for labelling |
@@ -107,5 +110,5 @@ Nightly refresh (cron):
 mcv status                                  # ready: true, index backbone == settings backbone
 mcv evaluate --max-queries 500              # synthetic-photo recall on the real gallery
 mcv identify some_real_photo.jpg            # end-to-end on one photo
-pytest                                      # 50+ tests incl. a real browser run of the UI
+pytest                                      # 79 tests incl. a real browser run of the UI
 ```
