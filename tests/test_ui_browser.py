@@ -35,7 +35,10 @@ def server(identifier, tmp_path_factory):
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     config = uvicorn.Config(
-        create_app(Settings(queries_dir=tmp_path_factory.mktemp("queries")), identifier=identifier),
+        create_app(
+            Settings(queries_dir=tmp_path_factory.mktemp("queries"), demo_mode=True),
+            identifier=identifier,
+        ),
         host="127.0.0.1",
         port=port,
         log_level="warning",
@@ -98,3 +101,27 @@ def test_take_photo_flow(server, store, tmp_path):
         browser.close()
     assert (tmp_path / "result.png").stat().st_size > 1000
     (tmp_path / "result.png").replace(os.environ.get("MCV_UI_SHOT", str(tmp_path / "result.png")))
+
+
+def test_demo_sample_flow(server, tmp_path):
+    """Demo mode: tap a sample part -> a photo-style render is identified and badged."""
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.goto(server + "/")
+        page.wait_for_selector("#samplestrip img", timeout=30_000)
+        page.locator("#samplestrip img").first.click()
+        page.wait_for_selector(".verdict .badge", timeout=60_000)
+        badge = page.locator(".verdict .badge").inner_text()
+        assert badge == "correct" or "ranked" in badge or badge == "missed"
+        assert page.locator("#preview img").get_attribute("src").startswith("/demo/query/")
+        page.screenshot(path=str(tmp_path / "demo.png"), full_page=True)
+        (tmp_path / "demo.png").replace(
+            os.environ.get("MCV_UI_SHOT_DEMO", str(tmp_path / "demo.png"))
+        )
+        page.goto(server + "/demo/sheet?n=6")
+        assert page.locator("figure").count() == 6
+        browser.close()
