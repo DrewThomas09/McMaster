@@ -375,9 +375,18 @@ def retrain(
     if epochs:
         cfg["epochs"] = epochs
     cfg["output_dir"] = str(s.model_dir / "retrain")
-    extra = FeedbackStore(s.queries_dir).labelled_images()
+    labelled = FeedbackStore(s.queries_dir).labelled_images()
+    # hold out every 5th confirmed photo per part: evaluation/calibration must not see training data
+    extra: dict[str, list[str]] = {}
+    held_out: list[tuple[str, str]] = []
+    for pn, paths in labelled.items():
+        keep = [p for i, p in enumerate(paths) if i % 5 != 4 or len(paths) == 1]
+        held_out += [(pn, p) for p in paths if p not in keep]
+        if keep:
+            extra[pn] = keep
+    n_train_photos = sum(len(v) for v in extra.values())
     typer.echo(
-        f"1/3 training on catalog + {sum(len(v) for v in extra.values())} confirmed photos ..."
+        f"1/3 training on catalog + {n_train_photos} confirmed photos ({len(held_out)} held out) ..."
     )
     with CatalogStore(s.catalog_db) as store:
         ckpt = _train(store, cfg, extra_images=extra)
@@ -399,10 +408,15 @@ def retrain(
             gallery_augment=s.index_gallery_augment,
         )
         typer.echo("3/3 evaluating + calibrating ...")
-        ident = Identifier(store, idx, embedder, top_k=s.index_top_k, image_size=s.image_size)
-        rep = evaluate_retrieval(
-            ident, store, query_dir=s.queries_dir if extra else None, max_queries=500
+        ident = Identifier(
+            store,
+            idx,
+            embedder,
+            top_k=s.index_top_k,
+            qe_k=s.query_expansion_k,
+            image_size=s.image_size,
         )
+        rep = evaluate_retrieval(ident, store, query_items=held_out or None, max_queries=500)
         cal = Calibration.fit_temperature(rep.score_lists, rep.correct_idx).fit_thresholds(
             rep.score_lists, rep.correct_idx
         )

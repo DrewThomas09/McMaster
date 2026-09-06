@@ -66,6 +66,7 @@ def evaluate_retrieval(
     ks: Sequence[int] = (1, 5, 10, 50),
     per_part: int = 1,
     query_dir: str | Path | None = None,
+    query_items: Sequence[tuple[str, str | Path]] | None = None,
     max_queries: int | None = None,
     use_llm: bool = False,
 ) -> EvalReport:
@@ -79,7 +80,9 @@ def evaluate_retrieval(
     tier_correct: dict[str, int] = {}
     report = EvalReport()
 
-    if query_dir:
+    if query_items:
+        stream = ((store.get(pn), Image.open(path)) for pn, path in query_items)
+    elif query_dir:
         stream = ((store.get(pn), img) for pn, img in real_queries(query_dir))
     else:
         parts = list(parts if parts is not None else store.iter_parts(with_images_only=True))
@@ -93,9 +96,10 @@ def evaluate_retrieval(
             break
         res = identifier.identify(img, top_n=top_n, use_llm=use_llm)
         ranked = [c.part_number for c in res.candidates]
+        looked = store.get_many(ranked[: max(ks)])
         rank = ranked.index(part.part_number) + 1 if part.part_number in ranked else 0
         fam_ranked = [
-            (store.get(pn).family_id if store.get(pn) else None) for pn in ranked[: max(ks)]
+            (looked.get(pn).family_id if looked.get(pn) else None) for pn in ranked[: max(ks)]
         ]
         fam_rank = (
             (fam_ranked.index(part.family_id) + 1)

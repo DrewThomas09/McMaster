@@ -229,7 +229,11 @@ def train(
 
         if hard:
             batches = _hard_batches(
-                train_parts, hard, cfg["batch_size"], steps_per_epoch, cfg["seed"] + epoch
+                train_parts,
+                hard,
+                min(int(cfg["batch_size"]), len(train_parts)),
+                steps_per_epoch,
+                cfg["seed"] + epoch,
             )
             loader = DataLoader(
                 dataset,

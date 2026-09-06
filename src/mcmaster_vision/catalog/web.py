@@ -85,7 +85,7 @@ class _Extractor(HTMLParser):
         elif tag == "img":
             self.images.append({k: v for k, v in a.items() if v})
         elif tag == "a" and a.get("href"):
-            self._link = (a["href"], a.get("class", ""))
+            self._link = (a["href"], a.get("class") or "")
             self._link_text = []
         elif tag == "tr":
             self._row = []

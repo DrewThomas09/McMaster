@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mcmaster_vision.data import split_by_family
 from mcmaster_vision.models.backbone import l2_normalize
@@ -45,3 +46,23 @@ def test_train_config_defaults(tmp_path):
         and cfg["loss"] == "arcface"
         and cfg["batch_size"] == DEFAULTS["batch_size"]
     )
+
+
+def test_hard_negatives_chunked_matches_dense_and_sampler_yields_tail():
+    parts = _parts(50)
+    emb = l2_normalize(np.random.default_rng(3).normal(size=(50, 16)))
+    a = mine_hard_negatives(parts, emb, per_part=3, chunk=7)
+    b = mine_hard_negatives(parts, emb, per_part=3, chunk=1000)
+    assert a == b and all(len(v) == 3 for v in a.values())
+    # fewer parts than the batch size: the sampler must still yield (the trailing batch)
+    batches = hard_batch_sampler(parts[:5], {}, batch_parts=64)
+    assert len(next(batches)) == 5
+
+
+def test_supcon_loss_is_fp16_safe():
+    torch = pytest.importorskip("torch")
+    from mcmaster_vision.models.losses import supcon_loss
+
+    feats = torch.nn.functional.normalize(torch.randn(8, 2, 16), dim=-1).half()
+    loss = supcon_loss(feats, torch.arange(8), 0.07)
+    assert torch.isfinite(loss)

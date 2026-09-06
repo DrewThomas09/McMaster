@@ -440,12 +440,16 @@ class DINOv2Backbone(TorchBackbone):
 
     name = "dinov2"
 
-    def __init__(self, model_name: str = "vit_base_patch14_dinov2.lvd142m", **kw):
+    def __init__(
+        self, model_name: str = "vit_base_patch14_dinov2.lvd142m", pretrained: bool = True, **kw
+    ):
         super().__init__(**kw)
         import timm
 
         self.model = (
-            timm.create_model(model_name, pretrained=True, num_classes=0).to(self.device).eval()
+            timm.create_model(model_name, pretrained=pretrained, num_classes=0)
+            .to(self.device)
+            .eval()
         )
         cfg = timm.data.resolve_data_config({}, model=self.model)
         self.preprocess = timm.data.create_transform(**cfg)

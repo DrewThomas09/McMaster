@@ -17,9 +17,9 @@ def supcon_loss(features, labels, temperature: float = 0.07):
     b, v, _ = features.shape
     feats = features.reshape(b * v, -1)
     labels = labels.repeat_interleave(v)
-    sim = feats @ feats.T / temperature
+    sim = (feats.float() @ feats.float().T) / temperature
     self_mask = torch.eye(b * v, device=feats.device, dtype=torch.bool)
-    sim = sim.masked_fill(self_mask, -1e9)
+    sim = sim.float().masked_fill(self_mask, torch.finfo(torch.float32).min / 2)
     pos_mask = (labels[:, None] == labels[None, :]) & ~self_mask
     log_prob = sim - torch.logsumexp(sim, dim=1, keepdim=True)
     mean_log_prob_pos = (log_prob * pos_mask).sum(1) / pos_mask.sum(1).clamp(min=1)

@@ -176,3 +176,10 @@ def test_enrich_command_fills_metadata(tmp_path, monkeypatch):
         )
         assert p.attributes["Thread Size"] == '1/4"-20' and p.url
         assert store.get("9452K21").name == "Hex Nut"  # untouched: already had metadata
+
+
+def test_parser_tolerates_valueless_class_attribute():
+    html = '<html><head><title>9452K21 | Hex Nut | McMaster-Carr</title></head><body><a href="/x" class>Home</a></body></html>'
+    assert (
+        McMasterParser().parse("https://www.mcmaster.com/9452K21/", html).part_number == "9452K21"
+    )
