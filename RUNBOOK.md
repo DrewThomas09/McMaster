@@ -83,6 +83,24 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 | FAISS IVF-PQ (`FaissIndex(kind="ivfpq")`) | ~0.5 GB, small recall loss |
 | API container | index size + ~1 GB |
 
+## 4b. Operator commands
+
+| command | purpose |
+|---|---|
+| `mcv doctor` | optional deps, GPU, checkpoint, index/backbone match, calibration, disk |
+| `mcv status` / `GET /status` | what is built, from what, and how well it measured |
+| `GET /metrics` | request volume, tier mix, latency p50/p95, confirmed top-1 rate |
+| `mcv review-unknowns` | HTML contact sheet of "none of these" photos + current candidates, for labelling |
+| `mcv retrain --reload-url http://localhost:8000` | train on catalog + confirmed photos, rebuild, refit, hot-reload |
+| `mcv identify-dir photos/ --out results.csv` | batch identification of a bin / drawer / BOM shoot |
+| `MCV_RATE_LIMIT_PER_MINUTE=60` | per-client cap on `/identify`; `MCV_API_TOKEN` protects `/admin/*` |
+
+Nightly refresh (cron):
+
+```
+0 3 * * *  cd /srv/mcmaster-vision && mcv retrain --epochs 8 --reload-url http://localhost:8000 >> data/logs/retrain.log 2>&1
+```
+
 ## 5. Checks before going live
 
 ```bash

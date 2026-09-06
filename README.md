@@ -213,6 +213,13 @@ src/mcmaster_vision/
   cli.py           mcv ingest | build-index | identify | serve | train | evaluate | demo
 ```
 
+## Operating it
+
+`RUNBOOK.md` covers the whole lifecycle: `mcv validate` a drop, `mcv bootstrap`
+it, `mcv doctor` the environment, `mcv serve`, then `mcv retrain` on a schedule
+so confirmed photos keep improving accuracy, with `GET /metrics` as the live
+scorecard.
+
 ## Development
 
 ```bash

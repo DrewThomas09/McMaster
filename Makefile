@@ -24,6 +24,16 @@ demo:
 serve:
 	mcv serve
 
+# One command from a catalog drop to a served, calibrated system.
+bootstrap:
+	mcv bootstrap $(SOURCE) --workers 4
+
+doctor:
+	mcv doctor
+
+retrain:
+	mcv retrain --reload-url http://localhost:8000
+
 clean:
 	rm -rf build dist .pytest_cache .ruff_cache .mypy_cache
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

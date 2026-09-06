@@ -22,3 +22,9 @@ jobs:
       - run: pytest --cov=mcmaster_vision --cov-report=term-missing
       - name: End-to-end smoke (synthetic catalog)
         run: mcv demo --parts 40 --images-per-part 2 --no-serve
+      - name: Bootstrap pipeline smoke (validate -> ingest -> index -> calibrate -> doctor)
+        run: |
+          python -c "from mcmaster_vision.data import SyntheticCatalog; SyntheticCatalog(30, 2, seed=1).write_jsonl('/tmp/drop/img', '/tmp/drop/parts.jsonl')"
+          mcv validate /tmp/drop/parts.jsonl
+          MCV_DATA_DIR=/tmp/mcv mcv bootstrap /tmp/drop/parts.jsonl --max-eval-queries 10
+          MCV_DATA_DIR=/tmp/mcv mcv doctor
