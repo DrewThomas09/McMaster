@@ -92,7 +92,7 @@
 </style>
 </head>
 <body>
-<header class="mc-header"><a class="brand" href="/">McMaster-Vision<small>unofficial part identifier</small></a><span class="pill" id="status">connecting…</span><nav><a href="/" class="on">Identify</a><a href="/browse">Browse</a><a href="/dashboard">Dashboard</a></nav></header>
+<header class="mc-header"><a class="brand" href="/">McMaster-Vision<small>unofficial part identifier</small></a><span class="pill" id="status">connecting…</span><span class="pill warn" id="outbox" hidden></span><nav><a href="/" class="on">Identify</a><a href="/browse">Browse</a><a href="/dashboard">Dashboard</a></nav></header>
 <main class="mc">
   <div class="notice" id="notready" hidden>Nothing is built yet: run <code>mcv up</code> for a demo catalog or <code>mcv bootstrap &lt;images&gt;</code>, then reload.</div>
   <div class="drop" id="drop">
@@ -419,11 +419,55 @@ async function confirm(partNumber, btn) {
   if (partNumber) fd.append('part_number', partNumber);
   if (lastResult.best) fd.append('predicted', lastResult.best.part_number);
   fd.append('tier', lastResult.tier);
-  if (photos[0]) fd.append('file', await downscale(photos[0]));
-  const r = await fetch('/feedback', { method: 'POST', body: fd });
-  if (r.ok) { document.querySelectorAll('.confirm button').forEach(b => b.disabled = true); btn.classList.add('done'); btn.textContent = partNumber ? 'Saved as ' + partNumber : 'Saved as unknown'; toast('Thanks — this photo now trains the model'); }
-  else btn.textContent = 'Could not save';
+  const blob = photos[0] ? await downscale(photos[0]) : null;
+  if (blob) fd.append('file', blob);
+  document.querySelectorAll('.confirm button').forEach(b => b.disabled = true); btn.classList.add('done');
+  let r = null;
+  try { r = await fetch('/feedback', { method: 'POST', body: fd }); } catch (_) { r = null; }
+  if (r && r.ok) { btn.textContent = partNumber ? 'Saved as ' + partNumber : 'Saved as unknown'; toast('Thanks — this photo now trains the model'); return; }
+  if (r && r.status === 404 && !blob) { btn.textContent = 'Could not save'; return; }  // photo gone server-side and none to resend
+  if (r && r.status >= 400 && r.status < 500 && r.status !== 404 && r.status !== 429) { btn.textContent = 'Could not save'; return; }
+  // offline or server down: keep it in an outbox and sync when we are back
+  await queueFeedback({ request_id: lastResult.request_id, part_number: partNumber || null, predicted: lastResult.best ? lastResult.best.part_number : null, tier: lastResult.tier, image: blob ? await blobToDataUrl(blob) : null });
+  btn.textContent = (partNumber ? 'Saved as ' + partNumber : 'Saved as unknown') + ' (will sync)';
+  toast('No connection — saved on this phone, syncs automatically');
 }
+
+// ---- feedback outbox (survives offline, reloads, closed tabs) ----------------
+function blobToDataUrl(blob) { return new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); }); }
+async function dataUrlToBlob(u) { return (await fetch(u)).blob(); }
+function outbox() { try { return JSON.parse(localStorage.getItem('mcv.outbox') || '[]'); } catch (_) { return []; } }
+async function queueFeedback(item) {
+  const q = outbox(); q.push(Object.assign({ t: Date.now() }, item));
+  try { localStorage.setItem('mcv.outbox', JSON.stringify(q.slice(-20))); } catch (_) { toast('Could not store offline (storage full)'); }
+  updateOutboxBadge();
+}
+function updateOutboxBadge() { const n = outbox().length; const el = $('outbox'); if (el) { el.hidden = !n; el.textContent = n + ' to sync'; } }
+let syncing = false;
+async function syncOutbox() {
+  if (syncing) return; const q = outbox(); if (!q.length) return; syncing = true;
+  const left = [];
+  for (const item of q) {
+    const fd = new FormData();
+    fd.append('request_id', item.request_id);
+    if (item.part_number) fd.append('part_number', item.part_number);
+    if (item.predicted) fd.append('predicted', item.predicted);
+    if (item.tier) fd.append('tier', item.tier);
+    if (item.image) fd.append('file', await dataUrlToBlob(item.image), 'photo.jpg');
+    try {
+      const r = await fetch('/feedback', { method: 'POST', body: fd });
+      if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 429)) continue;  // done, or permanently rejected
+    } catch (_) {}
+    left.push(item);
+  }
+  try { localStorage.setItem('mcv.outbox', JSON.stringify(left)); } catch (_) {}
+  syncing = false; updateOutboxBadge();
+  if (left.length < q.length) toast((q.length - left.length) + ' confirmation' + (q.length - left.length === 1 ? '' : 's') + ' synced');
+}
+window.addEventListener('online', syncOutbox);
+setTimeout(syncOutbox, 1500);
+setInterval(syncOutbox, 60000);
+updateOutboxBadge();
 
 // ---- history (local to this browser) ----------------------------------------
 function remember(res) {

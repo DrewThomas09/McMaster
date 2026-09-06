@@ -29,6 +29,7 @@ main.mc { max-width: 980px; margin: 0 auto; padding: 14px 14px 40px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,.35); color: #fff; white-space: nowrap; }
 .pill.ok { background: var(--yellow); color: var(--yellow-ink); border-color: var(--yellow); }
+.pill.warn { background: #b45309; border-color: #b45309; }
 /* buttons */
 .btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px 14px; border-radius: var(--radius); font-weight: 700; font-size: 17px; cursor: pointer; border: 2px solid transparent; user-select: none; min-width: 0; text-decoration: none; }
 .btn.primary { background: var(--green); color: #fff; }

@@ -126,3 +126,19 @@ def test_api_multi_file_and_feedback(identifier, store, tmp_path):
         files={"file": ("q.png", _png(part), "image/png")},
     )
     assert r.status_code == 200 and r.json()["part_number"] is None
+
+
+def test_identifier_reads_confirmations_as_a_prior(store, index, embedder, tmp_path):
+    from mcmaster_vision.pipeline.feedback import FeedbackStore
+
+    fs = FeedbackStore(tmp_path / "q")
+    ident = Identifier(store, index, embedder, top_k=20, feedback=fs)
+    part = next(store.iter_parts(with_images_only=True))
+    res = ident.identify(Image.open(part.image_paths[0]).convert("RGB"), tta="none")
+    assert not any("confirmed" in r for c in res.candidates for r in c.reasons)
+    other = res.candidates[1].part_number
+    for i in range(3):
+        fs.record(b"x", f"r{i}", other)
+    res2 = ident.identify(Image.open(part.image_paths[0]).convert("RGB"), tta="none")
+    boosted = [c for c in res2.candidates if c.part_number == other]
+    assert boosted and any("confirmed 3x" in r for r in boosted[0].reasons)

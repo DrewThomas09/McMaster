@@ -87,6 +87,20 @@ class FeedbackStore:
             "parts_with_photos": len({x.part_number for x in confirmed}),
         }
 
+    def confirmation_counts(self) -> dict[str, int]:
+        """part_number -> how many times users confirmed it (a usage prior for reranking)."""
+        counts: dict[str, int] = {}
+        for x in self.entries():
+            if x.part_number:
+                counts[x.part_number] = counts.get(x.part_number, 0) + 1
+        return counts
+
+    def mtime(self) -> float:
+        try:
+            return self.log.stat().st_mtime
+        except OSError:
+            return 0.0
+
     def labelled_images(self) -> dict[str, list[str]]:
         """part_number -> real photo paths (for evaluation and extra training views)."""
         out: dict[str, list[str]] = {}

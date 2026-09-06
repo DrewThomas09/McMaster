@@ -215,3 +215,17 @@ def test_fit_thresholds_meets_precision_targets():
     assert above and sum(above) / len(above) >= 0.9
     # with no data, defaults are kept
     assert Calibration().fit_thresholds([], []).exact_threshold == Calibration().exact_threshold
+
+
+def test_fusion_usage_prior_is_a_tie_breaker():
+    parts = {
+        "A": Part(part_number="A", name="a", category_path=["x", "y"]),
+        "B": Part(part_number="B", name="b", category_path=["x", "z"]),
+    }
+    tied = [Hit("A", 0.80, 1, 0.1), Hit("B", 0.80, 1, 0.1)]
+    out = FusionReranker().rerank(tied, parts, popularity={"B": 5})
+    assert out[0].part.part_number == "B" and "confirmed 5x" in " ".join(out[0].reasons)
+    # clear visual evidence is never overturned by popularity
+    clear = [Hit("A", 0.80, 1, 0.1), Hit("B", 0.60, 1, 0.1)]
+    out = FusionReranker().rerank(clear, parts, popularity={"B": 1000})
+    assert out[0].part.part_number == "A"

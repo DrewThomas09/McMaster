@@ -80,6 +80,26 @@ def test_take_photo_flow(server, store, tmp_path):
             "document.querySelector('.cand .confirm button.yes').textContent.startsWith('Saved as')",
             timeout=30000,
         )
+        # offline confirmation: /feedback unreachable -> outbox, synced once the network is back
+        page.evaluate(
+            "() => { lastResult = Object.assign({}, lastResult, {request_id: 'offline0001'}); "
+            "document.querySelectorAll('.cand .confirm button').forEach(b => { b.disabled = false; "
+            "b.classList.remove('done'); }); }"
+        )
+        page.route("**/feedback", lambda route: route.abort())
+        page.locator(".cand .confirm button.yes").first.click()
+        page.wait_for_function(
+            "document.querySelector('.cand .confirm button.yes').textContent.includes('will sync')",
+            timeout=30000,
+        )
+        assert page.evaluate("JSON.parse(localStorage.getItem('mcv.outbox')).length") == 1
+        assert not page.locator("#outbox").is_hidden()
+        page.unroute("**/feedback")
+        page.evaluate("window.dispatchEvent(new Event('online'))")
+        page.wait_for_function(
+            "JSON.parse(localStorage.getItem('mcv.outbox') || '[]').length === 0", timeout=30000
+        )
+        assert page.locator("#outbox").is_hidden()
         # text search fallback
         page.fill("#q", part.part_number)
         page.click("#searchform button")

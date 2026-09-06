@@ -19,6 +19,7 @@ from mcmaster_vision.index.base import VectorIndex, load_index
 from mcmaster_vision.models.backbone import load_backbone
 from mcmaster_vision.models.embedder import PartEmbedder
 from mcmaster_vision.pipeline.calibration import Calibration
+from mcmaster_vision.pipeline.feedback import FeedbackStore
 from mcmaster_vision.pipeline.ocr import OCREngine
 from mcmaster_vision.pipeline.preprocess import decode_image, preprocess
 from mcmaster_vision.pipeline.rerank import ClaudeVisionReranker, FusionReranker, Scored
@@ -48,8 +49,12 @@ class Identifier:
         image_size: int = 224,
         segment: bool = False,
         qe_k: int = 0,
+        feedback: FeedbackStore | None = None,
     ):
         self.store = store
+        self.feedback = feedback
+        self._pop: dict[str, int] = {}
+        self._pop_mtime = -1.0
         self.index = index
         self.embedder = embedder
         self.retriever = Retriever(index, top_k=top_k, qe_k=qe_k)
@@ -65,6 +70,16 @@ class Identifier:
         self._qcache_max = 256
 
     # ------------------------------------------------------------ helpers
+    def _popularity(self) -> dict[str, int]:
+        """Confirmation counts from the feedback store, re-read when the log changes."""
+        if self.feedback is None:
+            return {}
+        m = self.feedback.mtime()
+        if m != self._pop_mtime:
+            self._pop = self.feedback.confirmation_counts()
+            self._pop_mtime = m
+        return self._pop
+
     def _timer(self, timings: dict[str, float], key: str, start: float) -> float:
         timings[key] = round((time.perf_counter() - start) * 1000, 2)
         return time.perf_counter()
@@ -206,7 +221,8 @@ class Identifier:
         t = self._timer(timings, "retrieve", t)
 
         # 4. fuse (first pass)
-        scored = self.fusion.rerank(hits, parts, ocr_part_numbers=ocr_pns)
+        pop = self._popularity()
+        scored = self.fusion.rerank(hits, parts, ocr_part_numbers=ocr_pns, popularity=pop)
 
         # 5. optional vision-LLM rerank on the short list
         extracted: ExtractedAttributes | None = None
@@ -215,7 +231,12 @@ class Identifier:
         if run_llm and scored:
             ranking, extracted, none_match = self.llm.rerank(query_img, scored)
             scored = self.fusion.rerank(
-                hits, parts, extracted=extracted, ocr_part_numbers=ocr_pns, llm_ranking=ranking
+                hits,
+                parts,
+                extracted=extracted,
+                ocr_part_numbers=ocr_pns,
+                llm_ranking=ranking,
+                popularity=pop,
             )
             t = self._timer(timings, "llm_rerank", t)
 
@@ -314,4 +335,5 @@ def load_identifier(settings: Settings) -> Identifier:
         ocr=ocr,
         llm_reranker=llm,
         image_size=settings.image_size,
+        feedback=FeedbackStore(settings.queries_dir),
     )
