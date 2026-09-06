@@ -827,6 +827,9 @@ def up(
     ),
     parts: int = typer.Option(300, help="Synthetic parts to generate when nothing is built yet"),
     demo_dir: Path = typer.Option(Path("./data/demo")),
+    backbone: str = typer.Option(
+        "auto", help="auto | hash | tinycnn | ensemble (demo catalog only)"
+    ),
 ) -> None:
     """Serve on the network with a QR code. Uses your built catalog if there is one, otherwise
     builds (and reuses) a synthetic demo catalog with the shipped model. The seamless demo entry point."""
@@ -840,9 +843,8 @@ def up(
         typer.echo(
             "no catalog built yet -> using a synthetic demo catalog (built once, then reused)"
         )
-        s = _demo_settings(
-            demo_dir, backbone=_best_offline_backbone(), checkpoint=None, train_epochs=0
-        )
+        chosen = _best_offline_backbone() if backbone == "auto" else backbone
+        s = _demo_settings(demo_dir, backbone=chosen, checkpoint=None, train_epochs=0)
         s = s.model_copy(update={"demo_mode": True})
         if not (s.index_path / "meta.json").exists():
             _build_demo(s, parts=parts, images_per_part=3, gallery_augment=2)
@@ -850,11 +852,13 @@ def up(
 
 
 def _best_offline_backbone() -> str:
+    """TinyCNN when torch and the shipped checkpoint are available (fast to index and query),
+    otherwise the dependency-free hash descriptor."""
     try:
         import torch  # noqa: F401
 
         if (Path(__file__).resolve().parents[2] / "assets" / "tinycnn_synthetic.pt").exists():
-            return "ensemble"
+            return "tinycnn"
     except ImportError:
         pass
     return "hash"
