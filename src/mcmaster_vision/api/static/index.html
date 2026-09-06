@@ -201,6 +201,7 @@ function render(res) {
     const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(k)}:</span> ${v.map(val => `<button type="button" onclick='refine(${JSON.stringify(k)}, ${JSON.stringify(val)})'>${esc(val)}</button>`).join('')}</div>`).join('');
     html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' Tap what you can read off the part:' + diffs : ''}</div>`;
   }
+  for (const n of (res.notes || [])) html += `<div class="family">${esc(n)} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear filters</button></div>`;
   if (Object.keys(res.constraints || {}).length) {
     html += `<div class="family">Filtered by ${Object.entries(res.constraints).map(([k, v]) => `<b>${esc(k)}</b> = ${esc(v)}`).join(', ')} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear</button></div>`;
   }

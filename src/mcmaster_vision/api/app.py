@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -137,8 +138,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 raise HTTPException(400, "empty upload")
             blobs.append(data)
         try:
-            result = ident.identify_many_bytes(
-                blobs, top_n=top_n, use_llm=use_llm, constraints=cons
+            result = await run_in_threadpool(
+                ident.identify_many_bytes, blobs, top_n=top_n, use_llm=use_llm, constraints=cons
             )
         except OSError as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
@@ -196,10 +197,15 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             raise HTTPException(400, "at most 200 photos per batch")
         check_rate(request)
         rows = []
+        limit = settings.max_upload_mb * 1024 * 1024
         for u in files:
             data = await u.read()
+            if not data or len(data) > limit:
+                msg = "empty upload" if not data else f"exceeds {settings.max_upload_mb} MB"
+                rows.append({"file": u.filename, "error": msg})
+                continue
             try:
-                res = ident.identify_bytes(data, top_n=top_n)
+                res = await run_in_threadpool(ident.identify_bytes, data, top_n=top_n)
             except OSError:
                 rows.append({"file": u.filename, "error": "could not decode image"})
                 continue

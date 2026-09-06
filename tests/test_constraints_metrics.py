@@ -74,3 +74,30 @@ def test_metrics_batch_and_request_log(identifier, store, tmp_path):
     )
     log = (tmp_path / "logs" / "requests.jsonl").read_text().strip().splitlines()
     assert len(log) == 4 and json.loads(log[0])["request_id"]
+
+
+def test_unsatisfiable_constraints_are_reported_not_claimed(identifier, store):
+    part = next(store.iter_parts(with_images_only=True))
+    res = identifier.identify(
+        Image.open(part.image_paths[0]), top_n=3, constraints={"material": "Unobtainium"}
+    )
+    assert res.constraints == {} and res.notes and "Unobtainium" in res.notes[0]
+
+
+def test_batch_rejects_oversized_and_empty_files(identifier, tmp_path):
+    client = TestClient(
+        create_app(
+            Settings(data_dir=tmp_path, queries_dir=tmp_path / "q", max_upload_mb=1),
+            identifier=identifier,
+        )
+    )
+    r = client.post(
+        "/identify/batch",
+        files=[
+            ("files", ("big.png", b"x" * (2 * 1024 * 1024), "image/png")),
+            ("files", ("empty.png", b"", "image/png")),
+        ],
+    )
+    assert r.status_code == 200
+    errs = [row["error"] for row in r.json()]
+    assert any("exceeds" in e for e in errs) and any("empty" in e for e in errs)

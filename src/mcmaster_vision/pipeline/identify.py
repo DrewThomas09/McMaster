@@ -144,6 +144,7 @@ class Identifier:
         timings: dict[str, float] = {}
         t = time.perf_counter()
         request_id = uuid.uuid4().hex[:12]
+        notes: list[str] = []
 
         # 1. preprocess
         query_imgs = [preprocess(im, size=self.image_size, segment=self.segment) for im in images]
@@ -199,6 +200,13 @@ class Identifier:
             filtered = [s for s in scored if _ok(s.part)]
             if filtered:
                 scored = filtered
+            else:
+                notes.append(
+                    "no retrieved candidate matches "
+                    + ", ".join(f"{k}={v}" for k, v in constraints.items())
+                    + "; showing unfiltered results"
+                )
+                constraints = {}
 
         # 6. calibrate
         top = scored[:top_n]
@@ -225,6 +233,7 @@ class Identifier:
                 self.retriever.category_prior(qvec).items(), key=lambda kv: -kv[1]
             )[:3],
             constraints=constraints,
+            notes=notes,
             photos=len(images),
             ocr_part_numbers=ocr_pns,
             extracted=extracted,

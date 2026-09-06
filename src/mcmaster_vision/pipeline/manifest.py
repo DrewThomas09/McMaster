@@ -57,9 +57,7 @@ def status(settings: Settings) -> dict[str, Any]:
     if settings.catalog_db.exists():
         with CatalogStore(settings.catalog_db) as store:
             n = store.count()
-            with_images = (
-                sum(1 for _ in store.iter_parts(with_images_only=True)) if n <= 200_000 else None
-            )
+            with_images = store.count(with_images_only=True)
             out["catalog"] = {
                 "parts": n,
                 "parts_with_images": with_images,

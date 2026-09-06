@@ -52,7 +52,7 @@ def attribute_consistency(
     if m is not None:
         votes.append(m)
         reasons.append(
-            f"material {'matches' if m else 'conflicts'}: photo={extracted.material_guess}, catalog={attrs.get('material', part.name)}"
+            f"material {'matches' if m > 0 else 'conflicts'}: photo={extracted.material_guess}, catalog={attrs.get('material', part.name)}"
         )
 
     for field in ("head_type", "drive_style", "part_type"):

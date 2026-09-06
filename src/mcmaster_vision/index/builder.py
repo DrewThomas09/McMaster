@@ -132,12 +132,15 @@ _WORKER_EMBEDDER: PartEmbedder | None = None
 
 def _worker_init(settings_dump: dict) -> None:
     global _WORKER_EMBEDDER
-    import torch
-
     from mcmaster_vision.config import Settings
     from mcmaster_vision.models.backbone import load_backbone
 
-    torch.set_num_threads(1)
+    try:  # torch is an optional extra; the hash backbone needs none of it
+        import torch
+
+        torch.set_num_threads(1)
+    except ImportError:
+        pass
     _WORKER_EMBEDDER = PartEmbedder(load_backbone(Settings(**settings_dump)))
 
 
@@ -178,15 +181,28 @@ def embed_parts_parallel(
 # ---------------------------------------------------------------------------
 # build
 # ---------------------------------------------------------------------------
-def _centroids(index: VectorIndex, vectors: np.ndarray, cats: list[str]) -> None:
+def _centroids(
+    index: VectorIndex, vectors: np.ndarray, cats: list[str], *, merge: bool = False
+) -> None:
+    """(Re)compute per-category centroids. With ``merge=True`` the new rows are blended
+    into the existing centroids weighted by the per-category counts kept in
+    ``index.meta['category_counts']``, so an incremental build of 5 screws does not
+    replace a centroid that summarised 10,000."""
     sums: dict[str, np.ndarray] = {}
     counts: dict[str, int] = {}
     for c, v in zip(cats, vectors, strict=True):
         sums[c] = sums.get(c, 0) + v
         counts[c] = counts.get(c, 0) + 1
+    if merge and index.category_centroids is not None:
+        old_counts: dict[str, int] = dict(index.meta.get("category_counts", {}))
+        for name, cen in zip(index.category_names, index.category_centroids, strict=True):
+            n_old = int(old_counts.get(name, 1))
+            sums[name] = sums.get(name, 0) + cen * n_old
+            counts[name] = counts.get(name, 0) + n_old
     if sums:
         names = sorted(sums)
         index.set_categories(names, l2_normalize(np.stack([sums[n] / counts[n] for n in names])))
+        index.meta["category_counts"] = {n: int(counts[n]) for n in names}
 
 
 def build_index(
@@ -213,6 +229,8 @@ def build_index(
         if (
             existing.meta.get("backbone") != embedder.version
             or int(existing.meta.get("gallery_augment", 0)) != gallery_augment
+            or int(existing.meta.get("image_size", image_size)) != image_size
+            or int(existing.meta.get("category_depth", category_depth)) != category_depth
         ):
             log.warning("existing index was built differently; rebuilding from scratch")
             existing = None
@@ -239,16 +257,8 @@ def build_index(
         index = existing
         if len(ids):
             index.add(ids, vectors)
-        # recompute centroids over everything we can see (new rows + old centroids as prior)
-        if index.category_centroids is not None and len(ids):
-            old = dict(zip(index.category_names, index.category_centroids, strict=True))
-            _centroids(index, vectors, cats)
-            for name, vec in old.items():
-                if name not in index.category_names:
-                    index.set_categories(
-                        list(index.category_names) + [name],
-                        np.vstack([index.category_centroids, vec[None]]),
-                    )
+        if len(ids):
+            _centroids(index, vectors, cats, merge=True)
     else:
         backend = choose_backend(len(ids), backend)
         index = open_index(backend, embedder.dim)

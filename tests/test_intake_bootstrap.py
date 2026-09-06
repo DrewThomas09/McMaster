@@ -166,3 +166,40 @@ def test_bootstrap_status_and_incremental_index(tmp_path, jsonl_path):
     assert r.exit_code == 0, r.output
     idx = load_index(tmp_path / "index" / "parts")
     assert len(idx) == before + 1 and "NEW1" in idx.ids
+
+
+def test_incremental_centroids_are_count_weighted(store, embedder, tmp_path):
+    from mcmaster_vision.index import build_index
+    from mcmaster_vision.schemas import Part
+
+    idx = build_index(store, embedder, "numpy", out_path=tmp_path / "idx")
+    counts_before = dict(idx.meta["category_counts"])
+    cen_before = dict(zip(idx.category_names, idx.category_centroids, strict=True))
+    # add one part in an existing category and rebuild incrementally
+    some = next(store.iter_parts(with_images_only=True))
+    from mcmaster_vision.catalog import CatalogStore
+
+    st2 = CatalogStore(tmp_path / "c2.sqlite")
+    st2.upsert(list(store.iter_parts()))
+    st2.upsert(
+        [
+            Part(
+                part_number="ZZ1",
+                name="z",
+                category_path=some.category_path,
+                image_paths=[some.image_paths[0]],
+            )
+        ]
+    )
+    idx2 = build_index(st2, embedder, "numpy", out_path=tmp_path / "idx", only_new=True)
+    key = " > ".join(some.category_path[:2])
+    assert idx2.meta["category_counts"][key] == counts_before[key] + 1
+    cos = float(
+        cen_before[key] @ dict(zip(idx2.category_names, idx2.category_centroids, strict=True))[key]
+    )
+    assert cos > 0.95  # one extra image barely moves a centroid built from many
+    # a different recipe forces a full rebuild instead of mixing vectors
+    idx3 = build_index(
+        st2, embedder, "numpy", out_path=tmp_path / "idx", only_new=True, image_size=160
+    )
+    assert idx3.meta["image_size"] == 160 and len(idx3) == len(idx2)

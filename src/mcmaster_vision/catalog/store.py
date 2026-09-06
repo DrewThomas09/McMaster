@@ -199,8 +199,11 @@ class CatalogStore:
         parts = self.get_many(ordered[:limit])
         return [parts[pn] for pn in ordered[:limit] if pn in parts]
 
-    def count(self) -> int:
-        return int(self._conn.execute("SELECT COUNT(*) FROM parts").fetchone()[0])
+    def count(self, with_images_only: bool = False) -> int:
+        q = "SELECT COUNT(*) FROM parts" + (
+            " WHERE image_paths != '[]'" if with_images_only else ""
+        )
+        return int(self._conn.execute(q).fetchone()[0])
 
     def taxonomy(self) -> Taxonomy:
         tax = Taxonomy()

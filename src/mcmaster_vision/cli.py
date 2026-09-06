@@ -474,6 +474,88 @@ def review_unknowns(
     typer.echo(f"{len(photos)} photos -> {out}")
 
 
+@app.command("export-dataset")
+def export_dataset(
+    out: Path = typer.Argument(..., help="Destination folder"),
+    config: Path | None = _config_opt,
+    include_feedback: bool = typer.Option(True, help="Add confirmed real photos as extra images"),
+    query_set: int = typer.Option(
+        0, help="Also write N photo-style augmented queries per part under queries/"
+    ),
+    image_size: int = typer.Option(0, help="Resize exported images to this side (0 = keep)"),
+) -> None:
+    """Export the catalog as a plain image-folder dataset (images/<part>/..., labels.csv, parts.jsonl)
+    for training on another machine or service."""
+    import csv
+    import shutil
+
+    from PIL import Image
+
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.data.augment import AugmentConfig, PhotoAugmenter
+    from mcmaster_vision.pipeline.feedback import FeedbackStore
+
+    s = _settings(config)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "images").mkdir(exist_ok=True)
+    extra = FeedbackStore(s.queries_dir).labelled_images() if include_feedback else {}
+    aug = PhotoAugmenter(AugmentConfig.evaluation(), seed=0) if query_set else None
+    n_img = n_parts = 0
+    with (
+        CatalogStore(s.catalog_db) as store,
+        open(out / "labels.csv", "w", newline="", encoding="utf-8") as lf,
+        open(out / "parts.jsonl", "w", encoding="utf-8") as pf,
+    ):
+        w = csv.writer(lf)
+        w.writerow(["path", "part_number", "family_id", "category", "source"])
+        for part in store.iter_parts(with_images_only=True):
+            n_parts += 1
+            folder = out / "images" / part.part_number
+            folder.mkdir(exist_ok=True)
+            sources = [(p, "catalog") for p in part.image_paths] + [
+                (p, "photo") for p in extra.get(part.part_number, [])
+            ]
+            rel_paths = []
+            for i, (src, kind) in enumerate(sources):
+                dst = folder / f"{part.part_number}_{kind}_{i}.jpg"
+                try:
+                    if image_size:
+                        im = Image.open(src).convert("RGB")
+                        im.thumbnail((image_size, image_size))
+                        im.save(dst, quality=92)
+                    else:
+                        shutil.copyfile(src, dst)
+                except OSError:
+                    continue
+                rel = dst.relative_to(out).as_posix()
+                rel_paths.append(rel)
+                w.writerow(
+                    [
+                        rel,
+                        part.part_number,
+                        part.family_id or "",
+                        " > ".join(part.category_path),
+                        kind,
+                    ]
+                )
+                n_img += 1
+            if aug is not None and part.image_paths:
+                qdir = out / "queries" / part.part_number
+                qdir.mkdir(parents=True, exist_ok=True)
+                for q in range(query_set):
+                    try:
+                        aug(
+                            Image.open(part.image_paths[q % len(part.image_paths)]),
+                            out_size=image_size or 224,
+                        ).save(qdir / f"q{q}.jpg", quality=90)
+                    except OSError:
+                        pass
+            pf.write(part.model_copy(update={"image_paths": rel_paths}).model_dump_json() + "\n")
+    typer.echo(
+        f"{n_parts} parts, {n_img} images -> {out} (labels.csv, parts.jsonl{', queries/' if query_set else ''})"
+    )
+
+
 @app.command("import-web")
 def import_web(
     items: list[str] = typer.Argument(None, help="Part numbers or product URLs"),

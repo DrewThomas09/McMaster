@@ -103,6 +103,9 @@ class IdentificationResult(BaseModel):
     constraints: dict[str, str] = Field(
         default_factory=dict, description="Attribute filters that were applied"
     )
+    notes: list[str] = Field(
+        default_factory=list, description="Caveats about how the answer was produced"
+    )
     photos: int = 1
     ocr_part_numbers: list[str] = Field(default_factory=list)
     extracted: ExtractedAttributes | None = None
