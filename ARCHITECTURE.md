@@ -156,12 +156,33 @@ photo -> /identify -> user taps "This is it" -> /feedback
       -> mcv evaluate --query-dir data/queries      (real-photo Recall@K, calibration)
       -> mcv train --query-dir data/queries         (real photos become training views)
       -> mcv build-index                            (new checkpoint, same catalog)
+      -> mcv build-index --with-feedback            (no training: the photo itself joins the gallery)
 ```
+
+Three things use a confirmation, in order of cost: the reranker's usage prior
+(log-scaled confirmation count, a tie-breaker, immediate), the gallery
+(`--with-feedback` / `retrain` embed the real photo next to the renders, so the
+same part photographed again from that angle is a near-exact hit), and
+training (`mcv train --query-dir`, `mcv retrain`).
 
 The synthetic renderer bootstraps the model; confirmed photos are the only data
 that closes the synthetic-to-real gap, so the UI makes confirming a one-tap
 action and "None of these" photos are kept under `_unknown/` for labelling.
 `/feedback/stats` exposes the confirmed top-1 rate as the live accuracy metric.
+
+## Durability (nothing learned at run time is lost)
+
+Every run-time artefact is a file under `data/` and is written before the
+response goes out: the query photo to `cache/recent/` (so `/feedback` works
+after a restart or on another worker), the feedback line and labelled photo,
+the request-log line (reloaded into the `/metrics` window at boot). Index
+writes are atomic (temp dir + swap) and the API polls the index `meta.json`
+mtime every 15 s, so `build-index`, `retrain` and `restore` need neither a
+restart nor a token. `mcv backup` folds the SQLite WAL, tars catalog, index,
+calibration, photos, logs, manifest (and optionally the checkpoint) with a
+`BACKUP.json` inventory; `mcv restore` extracts to a temp dir and swaps each
+component in. On the phone, a confirmation made without a connection waits in
+a localStorage outbox and syncs on `online` and every minute.
 
 ## Multi-photo queries and family answers
 
