@@ -13,8 +13,25 @@ import io
 import numpy as np
 from PIL import Image, ImageOps
 
+_HEIF_READY = False
+
+
+def _enable_heif() -> None:
+    """Register HEIC/HEIF decoding when pillow-heif is installed (iPhone photos)."""
+    global _HEIF_READY
+    if _HEIF_READY:
+        return
+    try:
+        from pillow_heif import register_heif_opener  # type: ignore
+
+        register_heif_opener()
+    except ImportError:
+        pass
+    _HEIF_READY = True
+
 
 def decode_image(data: bytes) -> Image.Image:
+    _enable_heif()
     img = Image.open(io.BytesIO(data))
     img.load()
     return ImageOps.exif_transpose(img).convert("RGB")

@@ -219,7 +219,9 @@ def bootstrap(
             image_size=s.image_size,
         )
         report = evaluate_retrieval(ident, store, max_queries=max_eval_queries)
-        cal = Calibration.fit_temperature(report.score_lists, report.correct_idx)
+        cal = Calibration.fit_temperature(report.score_lists, report.correct_idx).fit_thresholds(
+            report.score_lists, report.correct_idx
+        )
         cal.save(s.model_dir / "calibration.json")
         typer.echo(
             f"  Recall@1 {report.recall_at.get(1)}  Recall@10 {report.recall_at.get(10)}  MRR {report.mrr}  calibration T={cal.temperature}"
@@ -451,6 +453,7 @@ def evaluate(
     typer.echo(report.to_json())
     if fit_calibration:
         cal = Calibration.fit_temperature(report.score_lists, report.correct_idx)
+        cal = cal.fit_thresholds(report.score_lists, report.correct_idx)
         cal.save(s.model_dir / "calibration.json")
         typer.echo(
             f"calibration temperature={cal.temperature} saved to {s.model_dir / 'calibration.json'}"

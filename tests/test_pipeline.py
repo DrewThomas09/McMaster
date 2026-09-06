@@ -184,3 +184,32 @@ def test_claude_reranker_degrades_on_garbage():
     scored = [Scored(Part(part_number="A", name="a"), 0.5, 0.5)]
     assert rr.rerank(Image.new("RGB", (8, 8)), scored) == ({}, None, False)
     assert rr.rerank(Image.new("RGB", (8, 8)), []) == ({}, None, False)
+
+
+def test_fit_thresholds_meets_precision_targets():
+    import random
+
+    rng = random.Random(0)
+    scores, correct = [], []
+    # confident-and-right queries, confident-but-wrong queries, and unsure ones
+    for _ in range(60):
+        scores.append([1.0, 0.5, 0.4])
+        correct.append(0)
+    for _ in range(3):
+        scores.append([1.0, 0.5, 0.4])
+        correct.append(1)
+    for _ in range(40):
+        s = [0.6 + rng.random() * 0.05, 0.6, 0.59]
+        scores.append(s)
+        correct.append(rng.choice([0, 1, 2]))
+    cal = Calibration(temperature=0.05).fit_thresholds(
+        scores, correct, exact_precision=0.9, likely_precision=0.8
+    )
+    assert cal.likely_threshold <= cal.exact_threshold
+    # answers above the exact threshold are >= 90% correct on this set
+    above = [
+        c == 0 for s, c in zip(scores, correct) if cal.probabilities(s)[0] >= cal.exact_threshold
+    ]
+    assert above and sum(above) / len(above) >= 0.9
+    # with no data, defaults are kept
+    assert Calibration().fit_thresholds([], []).exact_threshold == Calibration().exact_threshold

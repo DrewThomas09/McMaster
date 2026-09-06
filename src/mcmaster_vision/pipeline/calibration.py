@@ -55,6 +55,52 @@ class Calibration:
             return cls()
         return cls(**json.loads(p.read_text(encoding="utf-8")))
 
+    def fit_thresholds(
+        self,
+        score_lists: list[list[float]],
+        correct_idx: list[int],
+        *,
+        exact_precision: float = 0.98,
+        likely_precision: float = 0.90,
+        min_support: int = 10,
+    ) -> Calibration:
+        """Choose ``exact_threshold`` / ``likely_threshold`` (on the calibrated top-1
+        probability) so that answers in each tier meet a *precision target* on the
+        validation queries. Returns a new Calibration; thresholds stay at their
+        defaults when no threshold reaches the target with ``min_support`` answers."""
+        rows = []
+        for scores, ci in zip(score_lists, correct_idx, strict=True):
+            if not scores:
+                continue
+            probs = self.probabilities(scores)
+            margin = probs[0] - (probs[1] if len(probs) > 1 else 0.0)
+            rows.append((probs[0], margin, ci == 0))
+        if not rows:
+            return Calibration(**self.__dict__)
+
+        def best_threshold(target: float, need_margin: bool) -> float | None:
+            cands = sorted({round(p, 3) for p, _, _ in rows})
+            chosen = None
+            for thr in cands:  # lowest threshold that still meets the target = most coverage
+                sel = [
+                    ok
+                    for p, m, ok in rows
+                    if p >= thr and (m >= self.min_margin if need_margin else True)
+                ]
+                if len(sel) >= min_support and sum(sel) / len(sel) >= target:
+                    chosen = thr
+                    break
+            return chosen
+
+        exact = best_threshold(exact_precision, need_margin=True)
+        likely = best_threshold(likely_precision, need_margin=False)
+        new = Calibration(**self.__dict__)
+        if exact is not None:
+            new.exact_threshold = float(exact)
+        if likely is not None:
+            new.likely_threshold = float(min(likely, new.exact_threshold))
+        return new
+
     @classmethod
     def fit_temperature(
         cls, score_lists: list[list[float]], correct_idx: list[int], grid=None
