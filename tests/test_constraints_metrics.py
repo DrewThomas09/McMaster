@@ -108,3 +108,22 @@ def test_constraint_matching_is_loose():
 
     assert _norm_attr('1/4"-20') == _norm_attr("1/4-20") == _norm_attr(" 1/4 in - 20 ")
     assert _norm_attr("M6") == _norm_attr("m6") and _norm_attr("Brass") != _norm_attr("Bronze")
+
+
+def test_query_embedding_cache_speeds_refinement(identifier, store):
+    import time
+
+    part = next(store.iter_parts(with_images_only=True))
+    blob = _png(part)
+    identifier._qcache.clear()
+    t = time.perf_counter()
+    r1 = identifier.identify_many_bytes([blob], top_n=3)
+    t1 = time.perf_counter() - t
+    t = time.perf_counter()
+    r2 = identifier.identify_many_bytes(
+        [blob], top_n=3, constraints={"material": part.attributes["material"]}
+    )
+    t2 = time.perf_counter() - t
+    assert r1.candidates[0].part_number == r2.candidates[0].part_number == part.part_number
+    assert "embed" in r2.timings_ms and r2.timings_ms["embed"] <= r1.timings_ms["embed"]
+    assert len(identifier._qcache) == 1 and t2 <= t1 * 1.5

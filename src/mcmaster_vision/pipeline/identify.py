@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -57,6 +59,10 @@ class Identifier:
         self.llm = llm_reranker
         self.image_size = image_size
         self.segment = segment
+        # query-embedding cache keyed by (photo hash, tta mode): constraint refinements and
+        # "add another angle" re-send the same photos, so their vectors are reused
+        self._qcache: OrderedDict[tuple[str, str], np.ndarray] = OrderedDict()
+        self._qcache_max = 256
 
     # ------------------------------------------------------------ helpers
     def _timer(self, timings: dict[str, float], key: str, start: float) -> float:
@@ -78,6 +84,20 @@ class Identifier:
             )
             for s, p in zip(scored, probs, strict=True)
         ]
+
+    def _embed_cached(self, image: Image.Image, tta: str, key: str | None) -> np.ndarray:
+        if key is None:
+            return self.embedder.embed_query(image, tta=tta)
+        k = (key, tta)
+        hit = self._qcache.get(k)
+        if hit is not None:
+            self._qcache.move_to_end(k)
+            return hit
+        vec = self.embedder.embed_query(image, tta=tta)
+        self._qcache[k] = vec
+        if len(self._qcache) > self._qcache_max:
+            self._qcache.popitem(last=False)
+        return vec
 
     @staticmethod
     def _family_hint(
@@ -123,7 +143,8 @@ class Identifier:
         return self.identify_bytes(Path(path).read_bytes(), **kw)
 
     def identify_many_bytes(self, blobs: list[bytes], **kw) -> IdentificationResult:
-        return self.identify([decode_image(b) for b in blobs], **kw)
+        keys = [hashlib.sha1(b).hexdigest() for b in blobs]
+        return self.identify([decode_image(b) for b in blobs], cache_keys=keys, **kw)
 
     def identify(
         self,
@@ -133,6 +154,7 @@ class Identifier:
         use_llm: bool | None = None,
         constraints: dict[str, str] | None = None,
         tta: str = "full",
+        cache_keys: list[str] | None = None,
     ) -> IdentificationResult:
         """Identify one photo, or several photos of the *same* part (different angles):
         every photo's TTA variants are searched and each catalog part keeps its best score.
@@ -161,7 +183,15 @@ class Identifier:
             t = self._timer(timings, "ocr", t)
 
         # 3. embed + retrieve (all photos' TTA variants stacked into one multi-query)
-        qvec = np.concatenate([self.embedder.embed_query(q, tta=tta) for q in query_imgs], axis=0)
+        qvec = np.concatenate(
+            [
+                self._embed_cached(
+                    q, tta, cache_keys[i] if cache_keys and i < len(cache_keys) else None
+                )
+                for i, q in enumerate(query_imgs)
+            ],
+            axis=0,
+        )
         t = self._timer(timings, "embed", t)
         hits = self.retriever.retrieve(qvec)
         for pn in ocr_pns:  # make sure OCR'd parts are in the candidate pool
