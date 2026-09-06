@@ -53,6 +53,16 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     from mcmaster_vision.api.ratelimit import RateLimiter
 
     limiter = RateLimiter(settings.rate_limit_per_minute)
+    import os
+    import threading
+
+    # CPU-bound identifications are serialised to the core count: more threads than cores
+    # only adds contention, and a phone's live preview must not starve a real photo.
+    gate = threading.BoundedSemaphore(settings.max_concurrency or max(1, os.cpu_count() or 1))
+
+    def identify_gated(fn, *args, **kwargs):
+        with gate:
+            return fn(*args, **kwargs)
 
     def check_rate(request: Request) -> None:
         client = request.client.host if request.client else "unknown"
@@ -151,6 +161,10 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             pattern="^(full|fast|none)$",
             description="Test-time augmentation: full (8 views), fast (2), none",
         ),
+        log: bool = Query(
+            True,
+            description="false for live-preview frames: not written to the request log or metrics",
+        ),
         ident: Identifier = Depends(get_identifier),
     ) -> IdentificationResult:
         try:
@@ -176,6 +190,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             blobs.append(data)
         try:
             result = await run_in_threadpool(
+                identify_gated,
                 ident.identify_many_bytes,
                 blobs,
                 top_n=top_n,
@@ -185,7 +200,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             )
         except OSError as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
-        app.state.requests.log(result)
+        if log:
+            app.state.requests.log(result)
         # keep the first photo briefly so /feedback can file it under the confirmed part
         _recent[result.request_id] = blobs[0]
         if len(_recent) > 200:
@@ -247,7 +263,9 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 rows.append({"file": u.filename, "error": msg})
                 continue
             try:
-                res = await run_in_threadpool(ident.identify_bytes, data, top_n=top_n)
+                res = await run_in_threadpool(
+                    identify_gated, ident.identify_bytes, data, top_n=top_n
+                )
             except OSError:
                 rows.append({"file": u.filename, "error": "could not decode image"})
                 continue
@@ -323,6 +341,25 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             "thumbs": [f"/parts/{part.part_number}/thumb?i={i}" for i in range(n)],
             "images": [f"/parts/{part.part_number}/image?i={i}" for i in range(n)],
         }
+
+    @app.get("/categories")
+    def categories(
+        depth: int = Query(2, ge=1, le=4), ident: Identifier = Depends(get_identifier)
+    ) -> list[dict]:
+        """Catalog taxonomy with part counts, to the requested depth."""
+        tax = ident.store.taxonomy()
+
+        def walk(prefix: tuple[str, ...]) -> list[dict]:
+            out = []
+            for child in tax.children(prefix):
+                path = (*prefix, child)
+                node = {"name": child, "path": list(path), "parts": tax.count(path)}
+                if len(path) < depth:
+                    node["children"] = walk(path)
+                out.append(node)
+            return out
+
+        return walk(())
 
     @app.get("/search", response_model=list[Part])
     def search(

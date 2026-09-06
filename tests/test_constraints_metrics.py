@@ -127,3 +127,25 @@ def test_query_embedding_cache_speeds_refinement(identifier, store):
     assert r1.candidates[0].part_number == r2.candidates[0].part_number == part.part_number
     assert "embed" in r2.timings_ms and r2.timings_ms["embed"] <= r1.timings_ms["embed"]
     assert len(identifier._qcache) == 1 and t2 <= t1 * 1.5
+
+
+def test_live_frames_are_not_logged_and_categories(identifier, store, tmp_path):
+    client = TestClient(
+        create_app(Settings(data_dir=tmp_path, queries_dir=tmp_path / "q"), identifier=identifier)
+    )
+    part = next(store.iter_parts(with_images_only=True))
+    r = client.post(
+        "/identify?top_n=1&tta=fast&log=false",
+        files={"file": ("live.jpg", _png(part), "image/png")},
+    )
+    assert r.status_code == 200 and r.json()["candidates"]
+    assert client.get("/metrics").json()["requests_total"] == 0
+    client.post("/identify?top_n=1", files={"file": ("a.png", _png(part), "image/png")})
+    assert client.get("/metrics").json()["requests_total"] == 1
+    cats = client.get("/categories?depth=2").json()
+    assert (
+        cats
+        and all(c["parts"] > 0 for c in cats)
+        and sum(c["parts"] for c in cats) == store.count()
+    )
+    assert any("children" in c and c["children"] for c in cats)

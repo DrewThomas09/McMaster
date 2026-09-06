@@ -160,6 +160,9 @@ images, specs, evidence, and a link to the part on mcmaster.com. Open it from a
 phone on the same network (`mcv serve --host 0.0.0.0`) or behind HTTPS for
 camera access on iOS.
 
+* **Live ID** (with the live camera): frames are identified continuously in
+  fast mode and the running best guess is overlaid on the viewfinder; press the
+  shutter to capture the full-quality photo. Preview frames are not logged.
 * **Add another angle** sends up to six photos of the same part in one query;
   every photo's views are searched and each catalog part keeps its best score.
 * **Look-alike families.** When the probability mass lands on several SKUs that
@@ -224,6 +227,7 @@ POST /admin/reload                       header X-API-Token when MCV_API_TOKEN i
 GET  /parts/{part_number}                                    -> Part
 GET  /parts/{part_number}/image
 GET  /search?q=socket+head+screw
+GET  /categories?depth=2                 taxonomy with part counts
 GET  /stats  /health  /docs
 ```
 

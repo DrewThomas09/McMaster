@@ -18,16 +18,20 @@ accept the certificate warning once on the phone.
 2. **No part at hand?** Tap a sample in the strip: a photo-style render of a
    catalog part is identified live and badged *correct / ranked #n / missed*;
    the true part is outlined in the list. Tap **shuffle** for another set.
-3. **Real photo:** tap **Take a photo**, shoot any part on a plain background.
+3. **Point and see** (HTTPS or localhost): open **Live camera**, tap **Live
+   ID**, and pan across a few parts; the overlay updates every second with the
+   best guess, tier colour, confidence, and server time. Press the shutter for
+   the full result.
+4. **Real photo:** tap **Take a photo**, shoot any part on a plain background.
    Show the verdict card (tier, part number, specs, confidence), tap a
    candidate image to compare it side by side with the photo.
-4. **Look-alikes:** when the answer is a family ("Looks like Socket Head
+5. **Look-alikes:** when the answer is a family ("Looks like Socket Head
    Screw across 3 look-alike SKUs"), tap a length/thread chip to resolve it in
    one step.
-5. **Learning loop:** tap **This is it** on the right candidate. Then open
+6. **Learning loop:** tap **This is it** on the right candidate. Then open
    `/metrics` on the laptop: the confirmed top-1 rate is the live scorecard,
    and `mcv retrain` folds those photos into the next model.
-6. **Paper demo:** tap **print a sheet**, print it, and photograph the paper
+7. **Paper demo:** tap **print a sheet**, print it, and photograph the paper
    with the phone: the same pipeline, real camera, real lighting.
 
 ## What to say

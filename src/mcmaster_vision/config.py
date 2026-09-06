@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = Field(
         default=0, ge=0, description="Per-client cap on /identify calls (0 = off)"
     )
+    max_concurrency: int = Field(
+        default=0, ge=0, description="Simultaneous identifications (0 = CPU count)"
+    )
 
     @property
     def index_path(self) -> Path:

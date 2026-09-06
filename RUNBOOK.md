@@ -105,6 +105,7 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 | `mcv retrain --reload-url http://localhost:8000` | train on catalog + confirmed photos, rebuild, refit, hot-reload |
 | `mcv identify-dir photos/ --out results.csv` | batch identification of a bin / drawer / BOM shoot |
 | `MCV_RATE_LIMIT_PER_MINUTE=60` | per-client cap on `/identify`; `MCV_API_TOKEN` protects `/admin/*` |
+| `MCV_MAX_CONCURRENCY=4` | simultaneous identifications (default: CPU count); live previews queue behind real photos |
 
 Nightly refresh (cron):
 

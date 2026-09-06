@@ -125,3 +125,42 @@ def test_demo_sample_flow(server, tmp_path):
         page.goto(server + "/demo/sheet?n=6")
         assert page.locator("figure").count() == 6
         browser.close()
+
+
+def test_live_id_overlay_with_fake_camera(server, tmp_path):
+    """Live ID: Chromium's fake camera feeds frames; the overlay must show a running guess."""
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(
+            executable_path=exe,
+            args=[
+                "--no-sandbox",
+                "--use-fake-ui-for-media-stream",
+                "--use-fake-device-for-media-stream",
+            ],
+        )
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, permissions=["camera"])
+        page = ctx.new_page()
+        page.goto(server + "/")  # 127.0.0.1 is a secure context, so the live camera button appears
+        page.wait_for_selector("#livebtn:not([hidden])", timeout=15_000)
+        page.click("#livebtn")
+        page.wait_for_function("document.getElementById('video').videoWidth > 0", timeout=30_000)
+        page.click("#livetoggle")
+        page.wait_for_function(
+            "(() => { const o = document.getElementById('overlay'); return !o.hidden && /ms|No match/.test(o.innerText); })()",
+            timeout=60_000,
+        )
+        page.screenshot(path=str(tmp_path / "live.png"))
+        (tmp_path / "live.png").replace(
+            os.environ.get("MCV_UI_SHOT_LIVE", str(tmp_path / "live.png"))
+        )
+        page.click("#shutter")
+        page.wait_for_selector(".verdict", timeout=60_000)
+        assert page.locator("#livetoggle").get_attribute("class") in (
+            None,
+            "ghost",
+            "ghost ",
+        )  # live stops on capture
+        browser.close()

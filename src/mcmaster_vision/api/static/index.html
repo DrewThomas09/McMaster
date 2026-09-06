@@ -39,7 +39,15 @@
   #cam { display:none; margin-top:10px; padding:10px; }
   #cam.on { display:block; }
   #cam video { width:100%; max-height:52vh; object-fit:cover; border-radius:10px; background:#000; }
-  .camrow { display:flex; gap:10px; align-items:center; justify-content:center; margin-top:10px; }
+  .viewfinder { position:relative; }
+  .overlay { position:absolute; left:10px; right:10px; bottom:10px; background:rgba(0,0,0,.62); color:#fff; border-radius:10px; padding:8px 12px; font-size:15px; display:flex; align-items:center; gap:10px; backdrop-filter:blur(4px); }
+  .overlay img { width:44px; height:44px; border-radius:6px; background:#fff; object-fit:contain; }
+  .overlay b { font-size:17px; }
+  .overlay .dot { width:10px; height:10px; border-radius:50%; background:var(--warn); flex:0 0 auto; }
+  .overlay .dot.exact, .overlay .dot.likely { background:var(--ok); }
+  .overlay .dot.unknown { background:var(--bad); }
+  #livetoggle.on { border-color:var(--ok); color:var(--ok); }
+  .camrow { display:flex; gap:10px; align-items:center; justify-content:center; margin-top:10px; flex-wrap:wrap; }
   .shutter { width:68px; height:68px; border-radius:50%; border:5px solid var(--card); outline:2px solid var(--accent); background:var(--accent); cursor:pointer; }
   /* query + results */
   .row { display:flex; gap:14px; margin-top:16px; flex-wrap:wrap; }
@@ -128,10 +136,14 @@
     </div>
     <p class="hint">Plain background, part filling the frame. Desktop: drop an image or paste a screenshot (Ctrl/Cmd+V).</p>
     <div class="card" id="cam">
-      <video id="video" autoplay playsinline muted></video>
+      <div class="viewfinder">
+        <video id="video" autoplay playsinline muted></video>
+        <div class="overlay" id="overlay" hidden></div>
+      </div>
       <div class="camrow">
         <button type="button" class="ghost" id="flip">&#8635; Flip</button>
         <button type="button" class="shutter" id="shutter" aria-label="Take photo"></button>
+        <button type="button" class="ghost" id="livetoggle">&#9679; Live ID</button>
         <button type="button" class="ghost" id="camclose">Close</button>
       </div>
     </div>
@@ -250,9 +262,39 @@ async function openCam() {
   catch (e) { toast('Camera not available: ' + e.message); return; }
   $('video').srcObject = stream; $('cam').classList.add('on');
 }
-function closeCam() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } $('cam').classList.remove('on'); }
+function closeCam() { stopLive(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } $('cam').classList.remove('on'); }
+
+// ---- Live ID: identify frames continuously (fast mode, not logged) ------------
+let liveTimer = null, liveBusy = false, liveLast = null;
+$('livetoggle').addEventListener('click', () => liveTimer ? stopLive() : startLive());
+function startLive() {
+  if (!stream) return;
+  $('livetoggle').classList.add('on'); $('overlay').hidden = false; $('overlay').innerHTML = '<span class="dot"></span><span>Looking&hellip;</span>';
+  liveTimer = setInterval(liveTick, 900); liveTick();
+}
+function stopLive() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; liveBusy = false; $('livetoggle').classList.remove('on'); $('overlay').hidden = true; }
+async function liveTick() {
+  const v = $('video'); if (liveBusy || !v.videoWidth) return;
+  liveBusy = true;
+  try {
+    const c = document.createElement('canvas'); const s = 512 / Math.max(v.videoWidth, v.videoHeight);
+    c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.8));
+    const fd = new FormData(); fd.append('file', blob, 'live.jpg');
+    const r = await fetch('/identify?top_n=1&tta=fast&log=false', { method: 'POST', body: fd });
+    if (!r.ok) return;
+    const res = await r.json(); liveLast = res;
+    const b = res.best || res.candidates[0];
+    const tierText = { exact: 'exact', likely: 'likely', candidate: 'maybe', unknown: 'no match' }[res.tier] || res.tier;
+    $('overlay').innerHTML = b
+      ? `<span class="dot ${res.tier}"></span><img src="/parts/${encodeURIComponent(b.part_number)}/thumb?size=96" alt=""><span><b>${esc(b.part_number)}</b> ${esc(b.name)}<br><small>${tierText} · ${pct(b.confidence)} · ${res.timings_ms.total} ms</small></span>`
+      : `<span class="dot unknown"></span><span>No match yet — move closer</span>`;
+  } catch (_) {} finally { liveBusy = false; }
+}
 $('shutter').addEventListener('click', async () => {
   const v = $('video'); if (!v.videoWidth) return;
+  stopLive();
   const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0);
   const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
   if (navigator.vibrate) navigator.vibrate(30);

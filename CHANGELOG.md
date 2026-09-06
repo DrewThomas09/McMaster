@@ -2,6 +2,8 @@
 
 ## 0.2.2
 
+- Live ID: continuous identification overlay on the live camera; preview frames skip the request log.
+- Concurrency gate (MCV_MAX_CONCURRENCY) and `/categories`.
 - `mcv up`: one-command demo/serve with QR code; demo mode (sample parts identified live, printable sheet, `/connect`); install button; CORS setting; DEMO.md.
 - Query-embedding cache; `mcv up` defaults to TinyCNN for a sub-minute first build.
 
