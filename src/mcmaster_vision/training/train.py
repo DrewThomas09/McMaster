@@ -359,14 +359,14 @@ def _train_cached(
     part_labels = torch.arange(n_parts)
     arc_labels_all = torch.tensor([arc_label(p) for p in train_parts])
 
-    x_cache = None
+    x_u8: np.ndarray | None = None
     by_part: list[np.ndarray] = []
     hard: dict[str, list[str]] = {}
     history: list[dict[str, Any]] = []
     best_val = -1.0
     step = 0
     for epoch in range(epochs):
-        if x_cache is None or epoch % int(cfg["cache_refresh_epochs"]) == 0:
+        if x_u8 is None or epoch % int(cfg["cache_refresh_epochs"]) == 0:
             t_cache = time.time()
             mild = cfg["augment_curriculum"] and epoch == 0 and epochs > 1
             aug_cfg = (
@@ -382,11 +382,12 @@ def _train_cached(
                 seed=cfg["seed"] + 7919 * epoch,
                 workers=int(cfg["cache_workers"]),
             )
-            x_cache = to_tensor(x_u8)
+            # keep the cache as uint8; batches are converted to float on the fly
+            # (a float32 copy of a 70k-view cache would be ~7.5 GB)
             by_part = [np.nonzero(owners == i)[0] for i in range(n_parts)]
             log.info(
                 "view cache: %d views (%.0fs, %s)",
-                len(x_cache),
+                len(x_u8),
                 time.time() - t_cache,
                 "mild" if mild else "full",
             )
@@ -411,7 +412,7 @@ def _train_cached(
             idx = np.array(
                 [rng.choice(by_part[p], 2, replace=len(by_part[p]) < 2) for p in sel]
             ).reshape(-1)
-            x = x_cache[torch.from_numpy(idx)].to(device)
+            x = to_tensor(x_u8[np.sort(idx)][np.argsort(np.argsort(idx))]).to(device)
             labels = part_labels[sel].to(device)
             feats = backbone._forward(x)
             emb = head(feats).reshape(bs, 2, -1)

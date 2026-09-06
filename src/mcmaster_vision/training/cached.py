@@ -55,14 +55,18 @@ def build_view_cache(
             owners.append(i)
     if not jobs:
         return np.zeros((0, image_size, image_size, 3), np.uint8), np.zeros((0,), np.int64)
+    # Stream results into one preallocated uint8 array: no list-of-arrays copy, so
+    # peak memory is the cache itself (N*k*S*S*3 bytes), not twice that.
+    x = np.empty((len(jobs) * k, image_size, image_size, 3), dtype=np.uint8)
     if workers > 1:
         # "spawn" (not fork): forking a process that already initialised torch's
         # thread pool can deadlock the workers.
         with get_context("spawn").Pool(workers) as pool:
-            views = pool.map(_job, jobs, chunksize=8)
+            for i, views in enumerate(pool.imap(_job, jobs, chunksize=8)):
+                x[i * k : (i + 1) * k] = views
     else:
-        views = [_job(j) for j in jobs]
-    x = np.concatenate(views)
+        for i, job in enumerate(jobs):
+            x[i * k : (i + 1) * k] = _job(job)
     y = np.repeat(np.asarray(owners, dtype=np.int64), k)
     return x, y
 
