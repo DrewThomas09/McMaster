@@ -221,10 +221,9 @@ def test_import_web_and_fetch_images_cli(tmp_path, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=_png_bytes(), headers={"content-type": "image/png"})
 
+    real_client = httpx.Client
     monkeypatch.setattr(
-        intake_mod.httpx,
-        "Client",
-        lambda **kw: httpx.Client(transport=httpx.MockTransport(handler)),
+        intake_mod.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler))
     )
     src = tmp_path / "urls.csv"
     src.write_text("part_number,name,image_urls\n9452K21,Hex Nut,https://x/a.png;https://x/b.png\n")
