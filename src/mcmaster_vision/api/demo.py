@@ -115,19 +115,26 @@ def sheet(
         f"<figure><img src='/parts/{html.escape(p.part_number)}/image'><figcaption>{html.escape(p.part_number) if key else '&nbsp;'}<br><small>{html.escape(p.name)}</small></figcaption></figure>"
         for p in parts
     )
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>McMaster-Vision demo sheet</title>
-<style>
- body {{ font-family: system-ui, sans-serif; margin: 12mm; }}
- h1 {{ font-size: 16px; margin: 0 0 8px; }} p {{ color:#555; font-size: 12px; margin: 0 0 12px; }}
- .grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10mm; }}
- figure {{ margin: 0; text-align: center; page-break-inside: avoid; }}
- img {{ width: 100%; aspect-ratio: 1; object-fit: contain; border: 1px solid #ddd; background: #fff; }}
- figcaption {{ font-size: 12px; margin-top: 4px; }} small {{ color: #666; }}
- @media print {{ .noprint {{ display: none; }} }}
-</style></head><body>
-<h1>McMaster-Vision demo sheet</h1>
-<p class="noprint">Print this page (Ctrl/Cmd+P), lay it flat, and photograph one part at a time with the phone app. <a href="/demo/sheet?n={n}&seed={(seed or 0) + 1}&key={"true" if key else "false"}">another set</a> &middot; <a href="/demo/sheet?n={n}&seed={seed}&key={"false" if key else "true"}">{"hide" if key else "show"} part numbers</a></p>
-<div class="grid">{cells}</div></body></html>"""
+    from mcmaster_vision.api.pages import layout
+
+    head = """<style>
+ .sheet { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8mm; }
+ figure { margin: 0; text-align: center; page-break-inside: avoid; }
+ figure img { width: 100%; aspect-ratio: 1; object-fit: contain; border: 1px solid #ddd; background: #fff; }
+ figcaption { font-size: 12px; margin-top: 4px; } small { color: #666; }
+ @media print { .mc-header, .mc-footer, .noprint { display: none !important; } main.mc { padding: 0; max-width: none; } }
+</style>"""
+    nxt = f"/demo/sheet?n={n}&seed={(seed or 0) + 1}&key={'true' if key else 'false'}"
+    flip = f"/demo/sheet?n={n}&seed={seed}&key={'false' if key else 'true'}"
+    intro = (
+        '<p class="noprint crumbs">Print this page (Ctrl/Cmd+P), lay it flat, and photograph one part at a time '
+        f'with the phone app. <a href="{nxt}">another set</a> &middot; <a href="{flip}">{"hide" if key else "show"} part numbers</a></p>'
+    )
+    return layout(
+        "Demo sheet",
+        f'<h1 class="page">Demo sheet</h1>{intro}<div class="sheet">{cells}</div>',
+        head=head,
+    )
 
 
 @router.get("/connect", response_class=HTMLResponse, include_in_schema=False)
@@ -151,8 +158,14 @@ def connect(request: Request) -> str:
     except ImportError:
         qr_svg = "<p>(pip install qrcode for a QR code)</p>"
     links = "".join(f"<li><a href='{html.escape(u)}'>{html.escape(u)}</a></li>" for u in urls)
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>Connect a phone</title>
-<style>body{{font-family:system-ui,sans-serif;text-align:center;padding:24px}} svg{{width:min(70vw,360px);height:auto}} ul{{list-style:none;padding:0;font-size:18px}} .warn{{color:#b45309;font-size:14px}}</style></head>
-<body><h1>Open on your phone</h1>{qr_svg}<ul>{links}</ul>
-<p class="warn">{'Camera preview and "Add to Home Screen" work: this page is served over HTTPS.' if request.url.scheme == "https" else "Plain HTTP: the photo button works; for the live camera and app install, start with <code>mcv serve --https</code>."}</p>
-</body></html>"""
+    from mcmaster_vision.api.pages import layout
+
+    warn = (
+        'Camera preview and "Add to Home Screen" work: this page is served over HTTPS.'
+        if request.url.scheme == "https"
+        else "Plain HTTP: the photo button works; for the live camera and app install start with <code>mcv serve --https</code>."
+    )
+    body = f'<h1 class="page">Open on your phone</h1><div style="text-align:center">{qr_svg}<ul style="list-style:none;padding:0;font-size:18px">{links}</ul><p class="notice" style="display:inline-block">{warn}</p></div>'
+    return layout(
+        "Connect a phone", body, head="<style>svg{width:min(70vw,360px);height:auto}</style>"
+    )

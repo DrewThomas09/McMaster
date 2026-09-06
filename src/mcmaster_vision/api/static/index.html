@@ -3,38 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b5fff">
+<meta name="theme-color" content="#0b5d3b">
 <link rel="manifest" href="/static/manifest.webmanifest">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>McMaster-Vision</title>
+<link rel="stylesheet" href="/static/theme.css">
 <style>
-  :root { --bg:#f4f5f7; --card:#fff; --ink:#1c1e21; --muted:#6b7280; --accent:#0b5fff; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --line:#e5e7eb; --shadow:0 1px 2px rgba(0,0,0,.06); }
-  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b21; --ink:#e7e9ee; --muted:#9aa3b2; --line:#2a2f38; --shadow:none; } }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html, body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  header { position:sticky; top:0; z-index:5; background:var(--bg); padding:calc(10px + env(safe-area-inset-top)) 16px 8px; display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line); }
-  header h1 { font-size:18px; margin:0; flex:1; }
-  .pill { font-size:12px; padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted); background:var(--card); white-space:nowrap; }
-  .pill.ok { color:var(--ok); border-color:var(--ok); }
-  main { max-width:920px; margin:0 auto; padding:14px 14px calc(40px + env(safe-area-inset-bottom)); }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
   .capture { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   @media (max-width:560px) { .capture { grid-template-columns:1fr; } }
-  .btn { display:flex; align-items:center; justify-content:center; gap:10px; padding:20px 14px; border-radius:14px; font-weight:700; font-size:17px; cursor:pointer; border:2px solid transparent; user-select:none; min-width:0; }
-  .btn.primary { background:var(--accent); color:#fff; }
-  .btn.secondary { background:var(--card); color:var(--ink); border-color:var(--line); }
   .btn input { display:none; }
   .hint { color:var(--muted); font-size:13px; margin:10px 4px 0; text-align:center; }
   .drop.over { outline:3px dashed var(--accent); outline-offset:-6px; border-radius:14px; }
   .opts { display:flex; gap:14px; justify-content:center; margin-top:10px; font-size:13px; color:var(--muted); flex-wrap:wrap; align-items:center; }
   .seg { display:inline-flex; border:1px solid var(--line); border-radius:999px; overflow:hidden; }
   .seg button { border:none; background:var(--card); color:var(--muted); padding:6px 12px; font-size:13px; cursor:pointer; }
-  .seg button.on { background:var(--accent); color:#fff; }
+  .seg button.on { background:var(--yellow-soft); color:var(--yellow-ink); font-weight:700; }
   .search { display:flex; gap:8px; margin-top:12px; }
   .search input { flex:1; padding:12px 14px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:16px; }
-  .search button, .ghost { padding:10px 14px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; font-size:14px; }
+  .search button { padding:10px 14px; border-radius:var(--radius); border:1px solid var(--line); background:var(--green); color:#fff; cursor:pointer; font-size:14px; font-weight:700; }
   /* live camera */
   #cam { display:none; margin-top:10px; padding:10px; }
   #cam.on { display:block; }
@@ -48,7 +37,7 @@
   .overlay .dot.unknown { background:var(--bad); }
   #livetoggle.on { border-color:var(--ok); color:var(--ok); }
   .camrow { display:flex; gap:10px; align-items:center; justify-content:center; margin-top:10px; flex-wrap:wrap; }
-  .shutter { width:68px; height:68px; border-radius:50%; border:5px solid var(--card); outline:2px solid var(--accent); background:var(--accent); cursor:pointer; }
+  .shutter { width:68px; height:68px; border-radius:50%; border:5px solid var(--card); outline:2px solid var(--green); background:var(--green); cursor:pointer; }
   /* query + results */
   .row { display:flex; gap:14px; margin-top:16px; flex-wrap:wrap; }
   .preview { flex:0 0 220px; }
@@ -58,35 +47,23 @@
   .actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
   .results { flex:1; min-width:280px; }
   .verdict { padding:14px 16px; margin-bottom:12px; }
-  .tier { display:inline-block; padding:4px 12px; border-radius:999px; font-weight:700; font-size:13px; color:#fff; letter-spacing:.02em; }
-  .tier.exact { background:var(--ok);} .tier.likely{ background:var(--accent);} .tier.candidate{ background:var(--warn);} .tier.unknown{ background:var(--bad);}
   .verdict .pn { font-size:28px; font-weight:800; margin-top:6px; letter-spacing:.01em; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .verdict .name { color:var(--muted); }
-  .iconbtn { border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:10px; padding:6px 10px; font-size:13px; cursor:pointer; }
-  table.spec { width:100%; border-collapse:collapse; margin-top:10px; font-size:14px; }
-  table.spec td { padding:5px 0; border-top:1px solid var(--line); }
-  table.spec td:first-child { color:var(--muted); width:42%; text-transform:capitalize; }
-  .family { border:1px dashed var(--accent); border-radius:12px; padding:12px 16px; margin-bottom:12px; background:var(--card); }
-  .family b { color:var(--accent); }
-  .chips { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-size:13px; }
-  .chips span { color:var(--muted); }
-  .chips button { padding:6px 10px; border-radius:999px; border:1px solid var(--accent); background:var(--card); color:var(--accent); cursor:pointer; font-size:13px; }
-  .linkbtn { border:none; background:none; color:var(--accent); cursor:pointer; padding:0; font-size:inherit; }
+  .family { border:1px solid var(--yellow); background:var(--yellow-soft); color:var(--yellow-ink); border-radius:12px; padding:12px 16px; margin-bottom:12px; background:var(--card); }
+  .family b { color:inherit; }
   .cand { display:flex; gap:12px; padding:12px; margin-bottom:10px; }
   .cand .main { width:96px; height:96px; object-fit:contain; border-radius:10px; background:#fff; border:1px solid var(--line); flex:0 0 96px; cursor:zoom-in; }
   .cand .pn { font-weight:700; font-size:16px; }
   .cand .meta { color:var(--muted); font-size:13px; }
   .strip { display:flex; gap:6px; margin-top:8px; overflow-x:auto; }
   .strip img { width:56px; height:56px; object-fit:contain; border-radius:6px; background:#fff; border:1px solid var(--line); cursor:zoom-in; flex:0 0 auto; }
-  .bar { height:6px; background:var(--line); border-radius:3px; margin-top:6px; overflow:hidden; }
-  .bar i { display:block; height:100%; background:var(--accent); }
   ul.reasons { margin:6px 0 0; padding-left:18px; font-size:12px; color:var(--muted); }
   .confirm { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
   .confirm button { padding:7px 11px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink); cursor:pointer; font-size:13px; }
   .confirm button.yes { border-color:var(--ok); color:var(--ok); }
   .confirm button.done { background:var(--ok); color:#fff; border-color:var(--ok); }
   details.timings { font-size:12px; color:var(--muted); margin-top:8px; }
-  .spinner { display:inline-block; width:18px; height:18px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:8px; }
+  .spinner { display:inline-block; width:18px; height:18px; border:3px solid var(--line); border-top-color:var(--green); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:8px; }
   @keyframes spin { to { transform:rotate(360deg);} }
   a.link { color:var(--accent); text-decoration:none; }
   #samples { margin-top:12px; padding:10px 12px; }
@@ -115,8 +92,9 @@
 </style>
 </head>
 <body>
-<header><h1>McMaster-Vision</h1><span class="pill" id="status">connecting…</span></header>
-<main>
+<header class="mc-header"><a class="brand" href="/">McMaster-Vision<small>unofficial part identifier</small></a><span class="pill" id="status">connecting…</span><nav><a href="/" class="on">Identify</a><a href="/browse">Browse</a><a href="/dashboard">Dashboard</a></nav></header>
+<main class="mc">
+  <div class="notice" id="notready" hidden>Nothing is built yet: run <code>mcv up</code> for a demo catalog or <code>mcv bootstrap &lt;images&gt;</code>, then reload.</div>
   <div class="drop" id="drop">
     <div class="capture">
       <label class="btn primary">
@@ -176,6 +154,7 @@
 
   <section id="history" hidden><h2>Recent</h2><div class="hist" id="hist"></div></section>
 </main>
+<footer class="mc-footer">Not affiliated with McMaster-Carr; part numbers link to mcmaster.com for reference.</footer>
 
 <div id="lb" onclick="this.classList.remove('on')"><div class="pair"><img id="lb1" alt=""><img id="lb2" alt="" hidden></div><div class="cap" id="lbcap"></div></div>
 <div class="toast" id="toast"></div>
@@ -190,12 +169,16 @@ let tta = 'full';
 let queryDataUrl = null;  // small preview of the first photo (history, lightbox compare)
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pct = x => (x * 100).toFixed(0) + '%';
+const ABBREV = { od: 'OD', id: 'ID', pipe_size: 'pipe size (NPT)' };
+const label = k => ABBREV[k] || k.replace(/_/g, ' ');
 const toast = (msg) => { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2200); };
 
 // ---- status pill -----------------------------------------------------------
 fetch('/health').then(r => r.json()).then(h => {
   const p = $('status'); p.textContent = h.ready ? `${h.parts} parts · ${(h.model || '').split(':')[0]}` : 'index not built'; p.classList.toggle('ok', !!h.ready);
+  $('notready').hidden = !!h.ready;
   if (h.demo_mode) loadSamples();
+  const tryPn = new URLSearchParams(location.search).get('try'); if (tryPn && h.demo_mode) trySample(tryPn);
   if (!/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) $('connect').hidden = false;
 }).catch(() => $('status').textContent = 'offline');
 
@@ -348,13 +331,13 @@ async function send() {
 function specTable(attrs) {
   const rows = Object.entries(attrs || {});
   if (!rows.length) return '';
-  return `<table class="spec">${rows.map(([k, v]) => `<tr><td>${esc(k.replace(/_/g, ' '))}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
+  return `<table class="spec">${rows.map(([k, v]) => `<tr><td>${esc(label(k))}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
 }
 function render(res) {
   const tierText = { exact: 'Exact match', likely: 'Likely match', candidate: 'Possible matches', unknown: 'No confident match' }[res.tier] || res.tier;
   let html = `<div class="card verdict"><span class="tier ${res.tier}">${esc(tierText)}</span>`;
   if (res.best) {
-    html += `<div class="pn">${esc(res.best.part_number)}
+    html += `<div class="pn"><a href="/part/${encodeURIComponent(res.best.part_number)}" style="color:inherit;text-decoration:none">${esc(res.best.part_number)}</a>
       <button type="button" class="iconbtn" onclick="copyText('${esc(res.best.part_number)}')">Copy</button>
       ${navigator.share ? `<button type="button" class="iconbtn" onclick="shareResult()">Share</button>` : ''}
       <a class="iconbtn" href="https://www.mcmaster.com/${encodeURIComponent(res.best.part_number)}/" target="_blank" rel="noopener">mcmaster.com &nearr;</a></div>
@@ -369,7 +352,7 @@ function render(res) {
   html += `<div class="confirm"><button type="button" onclick="confirm(null, this)">None of these</button></div></div>`;
   for (const n of (res.notes || [])) html += `<div class="family">${esc(n)} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear filters</button></div>`;
   if (res.family) {
-    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(k.replace(/_/g, ' '))}:</span> ${v.map(val => `<button type="button" onclick='refine(${JSON.stringify(k)}, ${JSON.stringify(val)})'>${esc(val)}</button>`).join('')}</div>`).join('');
+    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(label(k))}:</span> ${v.map(val => `<button type="button" onclick='refine(${JSON.stringify(k)}, ${JSON.stringify(val)})'>${esc(val)}</button>`).join('')}</div>`).join('');
     html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' Tap what you can read off the part:' + diffs : ''}</div>`;
   }
   if (Object.keys(res.constraints || {}).length) html += `<div class="family">Filtered by ${Object.entries(res.constraints).map(([k, v]) => `<b>${esc(k)}</b> = ${esc(v)}`).join(', ')} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear</button></div>`;
@@ -378,11 +361,11 @@ function render(res) {
     html += `<div class="card cand" data-pn="${esc(c.part_number)}">
       <img class="main" src="/parts/${pn}/thumb?size=200" loading="${ci < 3 ? 'eager' : 'lazy'}" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${pn}/image', queryDataUrl && document.getElementById('img').src, '${esc(c.part_number)} vs your photo')">
       <div style="flex:1;min-width:0">
-        <div class="pn">${esc(c.part_number)} <span style="font-weight:400">&mdash; ${esc(c.name)}</span></div>
+        <div class="pn"><a href="/part/${pn}" style="color:inherit;text-decoration:none">${esc(c.part_number)}</a> <span style="font-weight:400">&mdash; ${esc(c.name)}</span></div>
         <div class="meta">${esc(c.category_path.join(' › '))}</div>
-        <div class="meta">${Object.entries(c.attributes).map(([k,v]) => `${esc(k.replace(/_/g, ' '))}: ${esc(v)}`).join(' · ')}</div>
+        <div class="meta">${Object.entries(c.attributes).map(([k,v]) => `${esc(label(k))}: ${esc(v)}`).join(' · ')}</div>
         <div class="bar"><i style="width:${Math.round(c.confidence*100)}%"></i></div>
-        <div class="meta">confidence ${(c.confidence*100).toFixed(1)}% · similarity ${c.similarity.toFixed(3)} · <a class="link" href="https://www.mcmaster.com/${pn}/" target="_blank" rel="noopener">open on mcmaster.com</a></div>
+        <div class="meta">confidence ${(c.confidence*100).toFixed(1)}% · similarity ${c.similarity.toFixed(3)} · <a class="link" href="/part/${pn}">details</a> · <a class="link" href="https://www.mcmaster.com/${pn}/" target="_blank" rel="noopener">mcmaster.com</a></div>
         <div class="strip" data-strip="${esc(c.part_number)}"></div>
         <ul class="reasons">${c.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
         <div class="confirm"><button type="button" class="yes" onclick="confirm('${esc(c.part_number)}', this)">&#10003; This is it</button></div>

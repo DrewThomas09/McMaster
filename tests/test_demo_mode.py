@@ -36,7 +36,7 @@ def test_demo_endpoints(identifier, tmp_path):
     assert client.post("/demo/try/NOPE1").status_code == 404
     sheet = client.get("/demo/sheet?n=4&seed=2").text
     assert (
-        "demo sheet" in sheet
+        "demo sheet" in sheet.lower()
         and sheet.count("<figure>") == 4
         and samples[0]["part_number"] in client.get("/demo/sheet?n=6&seed=1").text
     )

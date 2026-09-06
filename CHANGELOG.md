@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- McMaster-inspired theme (dark-green header, yellow selection, dense spec tables) across the app and all pages; clearly labelled unofficial.
+- New pages: `/browse` (taxonomy + part grid), `/part/{pn}` (gallery, specs, look-alike family), `/dashboard` (stats, tiers, recent identifications, build info).
+- `/search` category filter and offset; Live ID; concurrency gate; `/categories`.
+
 ## 0.2.2
 
 - Live ID: continuous identification overlay on the live camera; preview frames skip the request log.

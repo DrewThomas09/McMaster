@@ -43,8 +43,10 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"]
         )
     from mcmaster_vision.api.demo import router as demo_router
+    from mcmaster_vision.api.pages import router as pages_router
 
     app.include_router(demo_router)
+    app.include_router(pages_router)
     app.state.settings = settings
     app.state.identifier = identifier
     app.state.feedback = FeedbackStore(settings.queries_dir)
@@ -363,11 +365,21 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     @app.get("/search", response_model=list[Part])
     def search(
-        q: str = Query(..., min_length=1),
+        q: str = Query("", description="Keyword / part number; empty lists a category"),
+        category: str = Query("", description="Category path prefix joined with ' > '"),
         limit: int = Query(20, ge=1, le=100),
+        offset: int = Query(0, ge=0),
         ident: Identifier = Depends(get_identifier),
     ):
-        return ident.store.search_text(q, limit)
+        prefix = [c.strip() for c in category.split(">") if c.strip()]
+        if q.strip():
+            hits = ident.store.search_text(q, limit + offset)
+            if prefix:
+                hits = [p for p in hits if p.category_path[: len(prefix)] == prefix]
+            return hits[offset : offset + limit]
+        if prefix or offset:
+            return ident.store.by_category(prefix, limit=limit, offset=offset)
+        raise HTTPException(400, "give q or category")
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):

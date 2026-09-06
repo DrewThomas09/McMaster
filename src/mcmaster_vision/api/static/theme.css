@@ -1,0 +1,70 @@
+/* McMaster-Vision theme: inspired by industrial catalog pages - dense, high-contrast,
+   dark-green header, yellow highlight for selection - without copying any brand asset. */
+:root {
+  --green: #0b5d3b; --green-dark: #08452b; --green-soft: #e3f0e9;
+  --yellow: #ffd200; --yellow-soft: #fff5bf; --yellow-ink: #6b5200;
+  --bg: #f6f6f4; --card: #ffffff; --ink: #1a1a1a; --muted: #5f6368; --line: #d9d9d4; --rule: #e8e8e4;
+  --ok: #0b5d3b; --warn: #b26a00; --bad: #b3261e; --accent: var(--green);
+  --shadow: 0 1px 2px rgba(0,0,0,.06);
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111412; --card: #1a1f1c; --ink: #e9ebe7; --muted: #9aa39d; --line: #2b322d; --rule: #232926; --green-soft: #17392a; --yellow-soft: #3d3300; --yellow-ink: #ffd200; --shadow: none; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 "Helvetica Neue", Arial, system-ui, sans-serif; }
+a { color: var(--green); }
+@media (prefers-color-scheme: dark) { a { color: #7fd1a8; } }
+/* header */
+.mc-header { position: sticky; top: 0; z-index: 5; background: var(--green); color: #fff; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; display: flex; align-items: center; gap: 12px; }
+.mc-header .brand { font-weight: 800; font-size: 18px; letter-spacing: .01em; color: var(--yellow); text-decoration: none; white-space: nowrap; }
+.mc-header .brand small { display: block; font-weight: 400; font-size: 11px; color: #d7e8de; letter-spacing: 0; }
+.mc-header nav { display: flex; gap: 4px; margin-left: auto; }
+.mc-header nav a { color: #fff; text-decoration: none; font-size: 13px; padding: 6px 10px; border-radius: var(--radius); }
+.mc-header nav a.on, .mc-header nav a:hover { background: var(--green-dark); }
+.mc-header nav a.on { box-shadow: inset 0 -3px 0 var(--yellow); }
+.mc-footer { color: var(--muted); font-size: 12px; text-align: center; padding: 24px 14px calc(24px + env(safe-area-inset-bottom)); border-top: 1px solid var(--rule); margin-top: 24px; }
+main.mc { max-width: 980px; margin: 0 auto; padding: 14px 14px 40px; }
+/* surfaces */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,.35); color: #fff; white-space: nowrap; }
+.pill.ok { background: var(--yellow); color: var(--yellow-ink); border-color: var(--yellow); }
+/* buttons */
+.btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px 14px; border-radius: var(--radius); font-weight: 700; font-size: 17px; cursor: pointer; border: 2px solid transparent; user-select: none; min-width: 0; text-decoration: none; }
+.btn.primary { background: var(--green); color: #fff; }
+.btn.primary:active { background: var(--green-dark); }
+.btn.secondary { background: var(--card); color: var(--ink); border-color: var(--line); }
+.ghost, .iconbtn { padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; font-size: 13px; text-decoration: none; display: inline-block; }
+.ghost.on { background: var(--yellow-soft); border-color: var(--yellow); color: var(--yellow-ink); }
+.linkbtn { border: none; background: none; color: var(--green); cursor: pointer; padding: 0; font-size: inherit; text-decoration: underline; }
+/* chips (yellow = selected, like a filtered catalog) */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+.chips span { color: var(--muted); }
+.chips button, .chip { padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; font-size: 13px; text-decoration: none; }
+.chips button:hover, .chip:hover { border-color: var(--green); }
+.chip.on, .chips button.on { background: var(--yellow-soft); border-color: var(--yellow); color: var(--yellow-ink); }
+/* tiers */
+.tier { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: #fff; }
+.tier.exact { background: var(--ok); } .tier.likely { background: var(--yellow); color: var(--yellow-ink); } .tier.candidate { background: var(--warn); } .tier.unknown { background: var(--bad); }
+/* spec tables */
+table.spec { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.spec td, table.spec th { padding: 6px 4px; border-top: 1px solid var(--rule); text-align: left; vertical-align: top; }
+table.spec td:first-child { color: var(--muted); width: 40%; text-transform: capitalize; }
+table.spec td.msg { text-transform: none; color: var(--muted); }
+.results, #results { scroll-margin-top: 64px; }
+table.spec th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; border-top: none; }
+/* grids */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { display: block; text-decoration: none; color: inherit; padding: 8px; }
+.tile img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #fff; border: 1px solid var(--rule); border-radius: var(--radius); }
+.tile .pn { font-weight: 700; font-size: 14px; margin-top: 6px; }
+.tile .meta { color: var(--muted); font-size: 12px; }
+.crumbs { font-size: 13px; color: var(--muted); margin: 8px 0 12px; }
+.crumbs a { text-decoration: none; }
+h1.page { font-size: 20px; margin: 10px 0 4px; } h2.page { font-size: 15px; color: var(--muted); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+.stat { display: inline-block; min-width: 120px; padding: 10px 12px; }
+.stat b { display: block; font-size: 24px; color: var(--green); }
+.stat span { font-size: 12px; color: var(--muted); }
+.notice { background: var(--yellow-soft); color: var(--yellow-ink); border: 1px solid var(--yellow); border-radius: var(--radius); padding: 10px 12px; font-size: 14px; }
+.bar { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--green); }

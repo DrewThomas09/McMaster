@@ -150,7 +150,7 @@ mcv serve                                    # http://localhost:8000  (POST /ide
 
 ## One photo, one answer (or several angles)
 
-<img src="docs/ui-phone.png" alt="phone UI: photo, verdict card, candidates" width="300" align="right">
+<img src="docs/ui-phone.png" alt="phone UI: photo, verdict card, candidates" width="260" align="right">
 
 `mcv serve` hosts a phone-friendly page: **Take a photo** opens the camera on a
 phone, desktop users can drop an image or paste a screenshot, the image is
@@ -263,6 +263,17 @@ self-signed HTTPS, a Tailscale / Cloudflare tunnel, or a real domain with
 "Add to Home Screen" gives a full-screen camera-first app; the **Fast /
 Accurate** toggle trades 8-view test-time augmentation for 2 views; tap any
 image to compare it with your photo; recent identifications stay on the device.
+
+## Browse, part pages, dashboard
+
+Every page shares one McMaster-inspired theme (dark-green header, yellow
+selection, dense spec tables) and is labelled as unofficial. `/browse` walks the
+taxonomy with part counts, `/part/{pn}` shows the gallery, specifications and
+the look-alike SKUs in the family with the attributes that differ, and
+`/dashboard` shows catalog, index, latency, tier mix, recent identifications and
+build information.
+
+<p><img src="docs/part-page.png" alt="part page" width="260"> <img src="docs/dashboard.png" alt="dashboard" width="260"></p>
 
 ## Operating it
 

@@ -206,6 +206,20 @@ class CatalogStore:
         parts = self.get_many(ordered[:limit])
         return [parts[pn] for pn in ordered[:limit] if pn in parts]
 
+    def by_category(self, prefix: list[str], limit: int = 60, offset: int = 0) -> list[Part]:
+        """Parts whose category path starts with ``prefix`` (JSON list prefix match)."""
+        if not prefix:
+            rows = self._conn.execute(
+                "SELECT * FROM parts ORDER BY part_number LIMIT ? OFFSET ?", (limit, offset)
+            ).fetchall()
+            return [self._row_to_part(r) for r in rows]
+        head = json.dumps(prefix)[:-1]  # '["A", "B"' matches '["A", "B"]' and '["A", "B", ...'
+        rows = self._conn.execute(
+            "SELECT * FROM parts WHERE category_path = ? OR category_path LIKE ? ORDER BY part_number LIMIT ? OFFSET ?",
+            (head + "]", head + ", %", limit, offset),
+        ).fetchall()
+        return [self._row_to_part(r) for r in rows]
+
     def count(self, with_images_only: bool = False) -> int:
         q = "SELECT COUNT(*) FROM parts" + (
             " WHERE image_paths != '[]'" if with_images_only else ""

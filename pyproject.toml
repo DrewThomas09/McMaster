@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcmaster-vision"
-version = "0.2.2"
+version = "0.3.0"
 description = "Photo-to-part-number identification for the McMaster-Carr catalog (~700k SKUs) using visual embeddings, vector search, and multimodal reranking."
 readme = "README.md"
 requires-python = ">=3.10"

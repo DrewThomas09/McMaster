@@ -509,10 +509,16 @@ def review_unknowns(
             f"<tr><td><img src='data:image/jpeg;base64,{b64}' width='160'><br>{html.escape(photo.name)}</td><td>{html.escape(res.tier.value)}<ol>{cands}</ol>"
             f"<p>label: <code>mv {html.escape(str(photo))} {html.escape(str(s.queries_dir))}/&lt;PART_NUMBER&gt;/</code></p></td></tr>"
         )
+    from mcmaster_vision.api.pages import layout
+
     out.write_text(
-        "<html><body><h1>Unlabelled photos</h1><table border=1 cellpadding=8>"
-        + "".join(rows)
-        + "</table></body></html>",
+        layout(
+            "Unlabelled photos",
+            '<h1 class="page">Unlabelled photos</h1><div class="card" style="padding:8px 12px"><table class="spec">'
+            + "".join(rows)
+            + "</table></div>",
+            head="<style>img{border:1px solid var(--rule);border-radius:6px} ol{padding-left:18px}</style>",
+        ),
         encoding="utf-8",
     )
     typer.echo(f"{len(photos)} photos -> {out}")
