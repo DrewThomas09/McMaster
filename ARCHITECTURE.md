@@ -168,6 +168,24 @@ candidates are members of one family (same geometry, different length / thread
 attributes whose values differ, so the UI can ask exactly the one question that
 resolves the SKU instead of guessing.
 
+## Serving details
+
+* `/identify` accepts `constraints` (attributes the user already knows); when no
+  retrieved candidate satisfies them the result says so in `notes` rather than
+  pretending the filter applied. `category_guess` always carries the top coarse
+  categories from the embedding prior.
+* CPU-bound work runs in the threadpool so health checks and static files never
+  stall behind a 6-photo query or a 200-photo batch; batch uploads are size-
+  checked per file. `MCV_RATE_LIMIT_PER_MINUTE` caps per-client calls,
+  `MCV_API_TOKEN` guards `/admin/*`.
+* The API warms up (catalog, index, backbone) at startup; `mcv serve --workers N`
+  runs N processes via the `get_app` factory (each holds its own index copy).
+* Every identification is appended to `data/logs/requests.jsonl`; `GET /metrics`
+  joins it with feedback for the confirmed top-1 rate.
+* Incremental index builds (`--only-new`) blend category centroids by stored
+  per-category counts and refuse to mix a different image size / category depth
+  with an existing index.
+
 ## Answer semantics
 
 | tier | meaning | suggested action |

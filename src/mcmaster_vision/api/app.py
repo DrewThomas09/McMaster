@@ -56,6 +56,17 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 raise HTTPException(503, f"index not built yet: {e}") from e
         return app.state.identifier
 
+    @app.on_event("startup")
+    def warm_up() -> None:
+        """Load catalog + index + backbone at boot so the first photo is fast; if
+        nothing is built yet the endpoints report 503 until `mcv bootstrap` runs."""
+        if app.state.identifier is None and settings.warm_up:
+            try:
+                app.state.identifier = load_identifier(settings)
+                log.info("identifier ready: %s", app.state.identifier.index.stats().model_dump())
+            except FileNotFoundError as e:
+                log.warning("not ready: %s", e)
+
     app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
     @app.get("/sw.js", include_in_schema=False)
@@ -253,10 +264,30 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     return app
 
 
-def run(settings: Settings | None = None, host: str | None = None, port: int | None = None) -> None:
+def get_app() -> FastAPI:
+    """Factory for `uvicorn --factory mcmaster_vision.api.app:get_app` (multi-worker serving)."""
+    return create_app(Settings())
+
+
+def run(
+    settings: Settings | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    workers: int = 1,
+) -> None:
     import uvicorn
 
     settings = settings or Settings()
-    uvicorn.run(
-        create_app(settings), host=host or settings.api_host, port=port or settings.api_port
-    )
+    if workers > 1:
+        # Each worker process loads its own copy of the index; size RAM accordingly.
+        uvicorn.run(
+            "mcmaster_vision.api.app:get_app",
+            factory=True,
+            host=host or settings.api_host,
+            port=port or settings.api_port,
+            workers=workers,
+        )
+    else:
+        uvicorn.run(
+            create_app(settings), host=host or settings.api_host, port=port or settings.api_port
+        )

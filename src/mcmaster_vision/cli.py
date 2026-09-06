@@ -700,11 +700,12 @@ def serve(
     config: Path | None = _config_opt,
     host: str | None = typer.Option(None),
     port: int | None = typer.Option(None),
+    workers: int = typer.Option(1, help="Uvicorn worker processes (each loads the index)"),
 ) -> None:
     """Run the HTTP API + upload UI."""
     from mcmaster_vision.api.app import run
 
-    run(_settings(config), host=host, port=port)
+    run(_settings(config), host=host, port=port, workers=workers)
 
 
 @app.command()
