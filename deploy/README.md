@@ -43,6 +43,17 @@ Caddy obtains a Let's Encrypt certificate automatically. Set `MCV_API_TOKEN`
 in `.env` to protect `/admin/*`, and `MCV_RATE_LIMIT_PER_MINUTE` if the URL is
 public. Mount the same `data/` directory used by `mcv bootstrap`.
 
+Everything the deployment learns (confirmed photos, logs, index, calibration)
+lives in that `data/` directory. Back it up nightly and keep the archive off
+the box:
+
+```bash
+0 2 * * *  cd /srv/mcmaster-vision && docker compose run --rm backup && rsync -a data/backups/ nas:/backups/mcv/
+```
+
+`mcv restore data/backups/mcv-<stamp>.tar.gz` puts it back; the running API
+picks the restored index up within 15 s.
+
 ## Tips on the phone
 
 * Add to Home Screen: Safari share sheet -> "Add to Home Screen"; Chrome menu ->
