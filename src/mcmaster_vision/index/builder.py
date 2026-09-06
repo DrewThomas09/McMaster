@@ -270,6 +270,11 @@ def build_index(
             have = set(existing.ids)
             parts = [p for p in parts if p.part_number not in have]
             log.info("incremental build: %d new parts (index holds %d)", len(parts), len(have))
+            if extra_images:  # only the photos of parts actually embedded in this run count
+                n_extra = sum(
+                    len([x for x in extra_images.get(p.part_number, []) if Path(x).exists()])
+                    for p in parts
+                )
 
     kw = dict(
         batch_size=batch_size,

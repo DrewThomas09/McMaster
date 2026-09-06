@@ -887,6 +887,13 @@ def evaluate(
 
     s = _settings(config)
     ident = load_identifier(s)
+    ident.feedback = None  # the usage prior would reward exactly the parts being evaluated
+    if query_dir and int(ident.index.meta.get("extra_images", 0)):
+        typer.echo(
+            "warning: the index was built --with-feedback; photos from that store are gallery "
+            "entries, so evaluating on them measures memorisation, not recall",
+            err=True,
+        )
     with CatalogStore(s.catalog_db) as store:
         report = evaluate_retrieval(ident, store, query_dir=query_dir, max_queries=max_queries)
     typer.echo(report.to_json())

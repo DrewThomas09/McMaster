@@ -38,7 +38,10 @@ def decode_image(data: bytes, max_side: int = 1280) -> Image.Image:
     straight to a reduced size (``draft``), which is several times faster for a 12 MP
     phone photo that is about to be resized anyway."""
     _enable_heif()
-    img = Image.open(io.BytesIO(data))
+    try:
+        img = Image.open(io.BytesIO(data))
+    except Image.DecompressionBombError as e:  # header claims an absurd size
+        raise ValueError(str(e)) from e
     if img.width * img.height > MAX_PIXELS:
         raise ValueError(f"image too large: {img.width}x{img.height}")
     if img.format == "JPEG" and max(img.size) >= 2 * max_side:

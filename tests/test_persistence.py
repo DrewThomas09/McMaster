@@ -71,8 +71,14 @@ def test_feedback_dedupes_reconfirmation(tmp_path):
     fs.record(b"b", "r2", None)
     e = {x.request_id: x for x in fs.entries()}
     assert len(e) == 2 and e["r1"].part_number == "91251A540"
+    # the photo moved with the correction: no copy is left under the first label
+    assert not (tmp_path / "q" / "91251A537" / "r1.jpg").exists()
+    assert (tmp_path / "q" / "91251A540" / "r1.jpg").exists()
+    fs.record(b"a", "r1", None)  # "none of these" after all
+    assert not (tmp_path / "q" / "91251A540" / "r1.jpg").exists()
+    assert (tmp_path / "q" / "_unknown" / "r1.jpg").exists()
     st = fs.stats()
-    assert st["total"] == 2 and st["confirmed"] == 1 and st["correct_top1"] == 0
+    assert st["total"] == 2 and st["confirmed"] == 0 and st["correct_top1"] == 0
 
 
 def test_feedback_survives_api_restart(identifier, store, tmp_path):
@@ -198,7 +204,7 @@ def test_api_auto_reloads_rebuilt_index(store, embedder, tmp_path, monkeypatch):
         assert c.get("/stats").json()["vectors"] < bigger
 
 
-def test_decode_guards():
+def test_decode_guards(monkeypatch):
     big = Image.new("RGB", (5000, 3000), "white")
     buf = io.BytesIO()
     big.save(buf, format="JPEG", quality=30)
@@ -211,3 +217,57 @@ def test_decode_guards():
     raw[16:24] = (60000).to_bytes(4, "big") + (60000).to_bytes(4, "big")
     with pytest.raises((ValueError, OSError)):
         decode_image(bytes(raw))
+    # PIL's own bomb check surfaces as ValueError (-> HTTP 400), not a 500
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000)
+    with pytest.raises(ValueError):
+        decode_image(_jpeg(size=(100, 100)))
+
+
+def test_backup_captures_uncheckpointed_writes(tmp_path):
+    """A writer holding the catalog open (WAL not folded) must not lose rows in a backup."""
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.schemas import Part
+
+    data = tmp_path / "d"
+    settings = Settings(
+        data_dir=data,
+        catalog_db=data / "catalog.sqlite",
+        index_dir=data / "index",
+        queries_dir=data / "queries",
+        model_dir=data / "models",
+    )
+    store = CatalogStore(settings.catalog_db)
+    store.upsert([Part(part_number=f"P{i}", name="n", category_path=["a"]) for i in range(50)])
+    assert (data / "catalog.sqlite-wal").exists()  # still open, rows sit in the WAL
+    archive = create_backup(settings)
+    other = tmp_path / "o"
+    s2 = settings.model_copy(
+        update={
+            "data_dir": other,
+            "catalog_db": other / "catalog.sqlite",
+            "index_dir": other / "index",
+            "queries_dir": other / "queries",
+            "model_dir": other / "models",
+        }
+    )
+    restore_backup(s2, archive)
+    store.close()
+    with CatalogStore(s2.catalog_db) as restored:
+        assert restored.count() == 50
+    assert not list(other.glob(".mcv-restore-*"))  # temp dir cleaned up
+
+
+def test_only_new_does_not_overcount_feedback_photos(store, embedder, tmp_path):
+    parts = list(store.iter_parts(with_images_only=True))
+    pn = parts[0].part_number
+    out = tmp_path / "idx"
+    build_index(store, embedder, "numpy", out_path=out)
+    again = build_index(
+        store,
+        embedder,
+        "numpy",
+        out_path=out,
+        only_new=True,
+        extra_images={pn: [parts[0].image_paths[0]]},
+    )
+    assert again.meta["extra_images"] == 0

@@ -425,8 +425,10 @@ async function confirm(partNumber, btn) {
   let r = null;
   try { r = await fetch('/feedback', { method: 'POST', body: fd }); } catch (_) { r = null; }
   if (r && r.ok) { btn.textContent = partNumber ? 'Saved as ' + partNumber : 'Saved as unknown'; toast('Thanks — this photo now trains the model'); return; }
-  if (r && r.status === 404 && !blob) { btn.textContent = 'Could not save'; return; }  // photo gone server-side and none to resend
-  if (r && r.status >= 400 && r.status < 500 && r.status !== 404 && r.status !== 429) { btn.textContent = 'Could not save'; return; }
+  if (r && r.status >= 400 && r.status < 500 && r.status !== 429) {  // rejected for good (unknown part, photo gone and none to resend)
+    let why = ''; try { why = (await r.json()).detail || ''; } catch (_) {}
+    btn.textContent = 'Could not save' + (why ? ': ' + why.slice(0, 60) : ''); return;
+  }
   // offline or server down: keep it in an outbox and sync when we are back
   await queueFeedback({ request_id: lastResult.request_id, part_number: partNumber || null, predicted: lastResult.best ? lastResult.best.part_number : null, tier: lastResult.tier, image: blob ? await blobToDataUrl(blob) : null });
   btn.textContent = (partNumber ? 'Saved as ' + partNumber : 'Saved as unknown') + ' (will sync)';
@@ -438,7 +440,7 @@ function blobToDataUrl(blob) { return new Promise(res => { const fr = new FileRe
 async function dataUrlToBlob(u) { return (await fetch(u)).blob(); }
 function outbox() { try { return JSON.parse(localStorage.getItem('mcv.outbox') || '[]'); } catch (_) { return []; } }
 async function queueFeedback(item) {
-  const q = outbox(); q.push(Object.assign({ t: Date.now() }, item));
+  const q = outbox(); q.push(Object.assign({ t: Date.now() + Math.random() }, item));
   try { localStorage.setItem('mcv.outbox', JSON.stringify(q.slice(-20))); } catch (_) { toast('Could not store offline (storage full)'); }
   updateOutboxBadge();
 }
@@ -446,23 +448,25 @@ function updateOutboxBadge() { const n = outbox().length; const el = $('outbox')
 let syncing = false;
 async function syncOutbox() {
   if (syncing) return; const q = outbox(); if (!q.length) return; syncing = true;
-  const left = [];
-  for (const item of q) {
-    const fd = new FormData();
-    fd.append('request_id', item.request_id);
-    if (item.part_number) fd.append('part_number', item.part_number);
-    if (item.predicted) fd.append('predicted', item.predicted);
-    if (item.tier) fd.append('tier', item.tier);
-    if (item.image) fd.append('file', await dataUrlToBlob(item.image), 'photo.jpg');
-    try {
-      const r = await fetch('/feedback', { method: 'POST', body: fd });
-      if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 429)) continue;  // done, or permanently rejected
-    } catch (_) {}
-    left.push(item);
+  const done = new Set();  // keyed by queue time: items queued *during* this sync stay in the box
+  try {
+    for (const item of q) {
+      try {
+        const fd = new FormData();
+        fd.append('request_id', item.request_id);
+        if (item.part_number) fd.append('part_number', item.part_number);
+        if (item.predicted) fd.append('predicted', item.predicted);
+        if (item.tier) fd.append('tier', item.tier);
+        if (item.image) fd.append('file', await dataUrlToBlob(item.image), 'photo.jpg');
+        const r = await fetch('/feedback', { method: 'POST', body: fd });
+        if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 429)) done.add(item.t);  // done, or permanently rejected
+      } catch (_) { /* still offline, or a corrupt stored item: keep it, try again later */ }
+    }
+  } finally {
+    try { localStorage.setItem('mcv.outbox', JSON.stringify(outbox().filter(i => !done.has(i.t)))); } catch (_) {}
+    syncing = false; updateOutboxBadge();
   }
-  try { localStorage.setItem('mcv.outbox', JSON.stringify(left)); } catch (_) {}
-  syncing = false; updateOutboxBadge();
-  if (left.length < q.length) toast((q.length - left.length) + ' confirmation' + (q.length - left.length === 1 ? '' : 's') + ' synced');
+  if (done.size) toast(done.size + ' confirmation' + (done.size === 1 ? '' : 's') + ' synced');
 }
 window.addEventListener('online', syncOutbox);
 setTimeout(syncOutbox, 1500);

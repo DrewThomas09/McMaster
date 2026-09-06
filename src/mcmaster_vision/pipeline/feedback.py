@@ -58,6 +58,11 @@ class FeedbackStore:
             image_path=str(path.resolve()),
         )
         with self._lock:
+            # a corrected tap moves the photo: the earlier label must not survive on disk,
+            # or training / --with-feedback would learn the same photo under both parts
+            for stale in self.root.glob(f"*/{request_id}.*"):
+                if stale != path:
+                    stale.unlink(missing_ok=True)
             path.write_bytes(image_bytes)
             with open(self.log, "a", encoding="utf-8") as fh:
                 fh.write(fb.model_dump_json() + "\n")
@@ -144,20 +149,23 @@ class RecentPhotos:
 
     def get(self, request_id: str) -> bytes | None:
         try:
-            p = self._path(request_id)
-        except ValueError:
+            return self._path(request_id).read_bytes()
+        except (ValueError, OSError):  # bad id, or pruned by another worker meanwhile
             return None
-        return p.read_bytes() if p.exists() else None
 
     def prune(self) -> int:
         """Drop photos older than ``max_age_s`` and all but the newest ``keep``."""
-        files = sorted(
-            (f for f in self.root.glob("*.bin")), key=lambda f: f.stat().st_mtime, reverse=True
-        )
+        stamped: list[tuple[float, Path]] = []
+        for f in self.root.glob("*.bin"):
+            try:  # another worker may prune the same directory at the same time
+                stamped.append((f.stat().st_mtime, f))
+            except OSError:
+                continue
+        stamped.sort(reverse=True)
         now = time.time()
         removed = 0
-        for i, f in enumerate(files):
-            if i >= self.keep or now - f.stat().st_mtime > self.max_age_s:
+        for i, (mtime, f) in enumerate(stamped):
+            if i >= self.keep or now - mtime > self.max_age_s:
                 try:
                     f.unlink()
                     removed += 1

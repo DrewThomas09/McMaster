@@ -42,13 +42,19 @@ def _dir_size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
-def _checkpoint_sqlite(db: Path) -> None:
-    """Fold the WAL into the main file so the copy is self-contained."""
+def _snapshot_sqlite(db: Path, dest: Path) -> Path:
+    """A consistent copy via SQLite's online backup API: includes everything in the WAL
+    and is safe while the API or an ingest is writing (a plain file copy is neither)."""
+    src = sqlite3.connect(str(db))
     try:
-        with sqlite3.connect(str(db)) as conn:
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    except sqlite3.Error:
-        pass
+        dst = sqlite3.connect(str(dest))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    return dest
 
 
 def create_backup(
@@ -73,13 +79,12 @@ def create_backup(
         "components": {},
     }
     tmp = out.with_suffix(out.suffix + ".tmp")
-    with tarfile.open(tmp, "w:gz") as tar:
+    with tarfile.open(tmp, "w:gz") as tar, tempfile.TemporaryDirectory(prefix="mcv-bk-") as td:
         for name, path in comps.items():
             if not path.exists():
                 continue
-            if name == "catalog":
-                _checkpoint_sqlite(path)
-            tar.add(str(path), arcname=name if path.is_dir() else f"{name}/{path.name}")
+            src = _snapshot_sqlite(path, Path(td) / path.name) if name == "catalog" else path
+            tar.add(str(src), arcname=name if path.is_dir() else f"{name}/{path.name}")
             inventory["components"][name] = {
                 "source": str(path),
                 "bytes": _dir_size(path),
@@ -129,7 +134,10 @@ def restore_backup(
         raise ValueError(f"backup has no component(s): {', '.join(sorted(unknown))}")
     comps = _components(settings)
     restored: dict = {}
-    with tempfile.TemporaryDirectory(prefix="mcv-restore-") as tmp:
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    # extract next to the destination: the final moves are then same-filesystem renames
+    # (atomic), not copies that a full disk or a kill could leave half done
+    with tempfile.TemporaryDirectory(prefix=".mcv-restore-", dir=settings.data_dir) as tmp:
         tmpd = Path(tmp)
         with tarfile.open(archive, "r:gz") as tar:
             _safe_extract(tar, tmpd)
@@ -202,7 +210,10 @@ def storage_status(settings: Settings) -> dict:
         sorted(root.glob("*.tar.gz"), key=lambda f: f.stat().st_mtime) if root.exists() else []
     )
     last = backups[-1] if backups else None
-    newest_change = max((c["updated_at"] or "" for c in comps.values()), default="")
+    # the request log changes on every identification; it does not make a backup stale
+    newest_change = max(
+        (c["updated_at"] or "" for n, c in comps.items() if n != "logs"), default=""
+    )
     last_at = (
         datetime.fromtimestamp(last.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
         if last
