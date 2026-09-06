@@ -96,6 +96,13 @@ class IdentificationResult(BaseModel):
     best: Candidate | None
     candidates: list[Candidate]
     family: FamilyHint | None = None
+    category_guess: list[tuple[str, float]] = Field(
+        default_factory=list,
+        description="Top coarse categories from the embedding prior: (category, probability)",
+    )
+    constraints: dict[str, str] = Field(
+        default_factory=dict, description="Attribute filters that were applied"
+    )
     photos: int = 1
     ocr_part_numbers: list[str] = Field(default_factory=list)
     extracted: ExtractedAttributes | None = None

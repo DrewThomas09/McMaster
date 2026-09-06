@@ -10,16 +10,19 @@ GET  /                   upload UI
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from mcmaster_vision import __version__
 from mcmaster_vision.config import Settings
 from mcmaster_vision.pipeline.feedback import FeedbackStore
 from mcmaster_vision.pipeline.identify import Identifier, load_identifier
+from mcmaster_vision.pipeline.requestlog import RequestLog
 from mcmaster_vision.schemas import Feedback, IdentificationResult, IndexStats, Part
 
 log = logging.getLogger(__name__)
@@ -33,6 +36,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     app.state.settings = settings
     app.state.identifier = identifier
     app.state.feedback = FeedbackStore(settings.queries_dir)
+    app.state.requests = RequestLog(settings.data_dir / "logs" / "requests.jsonl")
 
     def get_identifier() -> Identifier:
         if app.state.identifier is None:
@@ -41,6 +45,16 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             except FileNotFoundError as e:
                 raise HTTPException(503, f"index not built yet: {e}") from e
         return app.state.identifier
+
+    app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
+
+    @app.get("/sw.js", include_in_schema=False)
+    def service_worker():
+        return FileResponse(
+            STATIC / "sw.js",
+            media_type="application/javascript",
+            headers={"Service-Worker-Allowed": "/"},
+        )
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     def ui() -> str:
@@ -87,8 +101,17 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         use_llm: bool | None = Query(
             None, description="Override the configured vision-LLM reranker"
         ),
+        constraints: str | None = Query(
+            None, description='JSON object of known attributes, e.g. {"thread_size": "M6"}'
+        ),
         ident: Identifier = Depends(get_identifier),
     ) -> IdentificationResult:
+        try:
+            cons = json.loads(constraints) if constraints else {}
+            if not isinstance(cons, dict):
+                raise ValueError("constraints must be a JSON object")
+        except ValueError as e:
+            raise HTTPException(400, f"bad constraints: {e}") from e
         uploads = [u for u in ([file] if file else []) + (files or []) if u is not None]
         if not uploads:
             raise HTTPException(400, "upload at least one image as 'file' or 'files'")
@@ -104,9 +127,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 raise HTTPException(400, "empty upload")
             blobs.append(data)
         try:
-            result = ident.identify_many_bytes(blobs, top_n=top_n, use_llm=use_llm)
+            result = ident.identify_many_bytes(
+                blobs, top_n=top_n, use_llm=use_llm, constraints=cons
+            )
         except OSError as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
+        app.state.requests.log(result)
         # keep the first photo briefly so /feedback can file it under the confirmed part
         _recent[result.request_id] = blobs[0]
         if len(_recent) > 200:
@@ -140,6 +166,44 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     @app.get("/feedback/stats")
     def feedback_stats() -> dict:
         return app.state.feedback.stats()
+
+    @app.get("/metrics")
+    def metrics() -> dict:
+        """Request volume, tier distribution, latency percentiles, and confirmed top-1 rate."""
+        return app.state.requests.summary(app.state.feedback)
+
+    @app.post("/identify/batch")
+    async def identify_batch(
+        files: list[UploadFile] = File(
+            ..., description="One photo per part (a bin, a drawer, a BOM)"
+        ),
+        top_n: int = Query(3, ge=1, le=20),
+        ident: Identifier = Depends(get_identifier),
+    ) -> list[dict]:
+        """Identify many *different* parts in one call; returns one row per photo."""
+        if len(files) > 200:
+            raise HTTPException(400, "at most 200 photos per batch")
+        rows = []
+        for u in files:
+            data = await u.read()
+            try:
+                res = ident.identify_bytes(data, top_n=top_n)
+            except OSError:
+                rows.append({"file": u.filename, "error": "could not decode image"})
+                continue
+            app.state.requests.log(res)
+            rows.append(
+                {
+                    "file": u.filename,
+                    "request_id": res.request_id,
+                    "tier": res.tier.value,
+                    "best": res.best.part_number if res.best else None,
+                    "confidence": res.best.confidence if res.best else None,
+                    "candidates": [c.part_number for c in res.candidates],
+                    "family": res.family.family_id if res.family else None,
+                }
+            )
+        return rows
 
     @app.get("/parts/{part_number}", response_model=Part)
     def get_part(part_number: str, ident: Identifier = Depends(get_identifier)) -> Part:

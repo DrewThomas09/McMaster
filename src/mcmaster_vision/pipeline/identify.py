@@ -130,9 +130,14 @@ class Identifier:
         *,
         top_n: int = 5,
         use_llm: bool | None = None,
+        constraints: dict[str, str] | None = None,
     ) -> IdentificationResult:
         """Identify one photo, or several photos of the *same* part (different angles):
-        every photo's TTA variants are searched and each catalog part keeps its best score."""
+        every photo's TTA variants are searched and each catalog part keeps its best score.
+
+        ``constraints`` are attribute filters the user already knows (``{"thread_size": "M6"}``):
+        candidates whose attribute value differs are dropped before calibration, which is how
+        a family question ("which length?") is answered in one tap."""
         images = image if isinstance(image, list) else [image]
         if not images:
             raise ValueError("no images")
@@ -181,6 +186,20 @@ class Identifier:
             )
             t = self._timer(timings, "llm_rerank", t)
 
+        # 5b. attribute constraints (case-insensitive equality on stringified values)
+        constraints = {k: str(v) for k, v in (constraints or {}).items() if str(v).strip()}
+        if constraints:
+
+            def _ok(part) -> bool:
+                return all(
+                    str(part.attributes.get(k, "")).strip().lower() == v.strip().lower()
+                    for k, v in constraints.items()
+                )
+
+            filtered = [s for s in scored if _ok(s.part)]
+            if filtered:
+                scored = filtered
+
         # 6. calibrate
         top = scored[:top_n]
         probs = self.calibration.probabilities([s.score for s in scored])[:top_n]
@@ -202,6 +221,10 @@ class Identifier:
             best=candidates[0] if candidates and tier != MatchTier.UNKNOWN else None,
             candidates=candidates,
             family=self._family_hint(top, probs) if tier != MatchTier.UNKNOWN else None,
+            category_guess=sorted(
+                self.retriever.category_prior(qvec).items(), key=lambda kv: -kv[1]
+            )[:3],
+            constraints=constraints,
             photos=len(images),
             ocr_part_numbers=ocr_pns,
             extracted=extracted,

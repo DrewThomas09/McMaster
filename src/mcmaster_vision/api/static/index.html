@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b5fff">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>McMaster-Vision</title>
 <style>
   :root { --bg:#f4f5f7; --card:#fff; --ink:#1c1e21; --muted:#6b7280; --accent:#0b5fff; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --line:#e5e7eb; }
@@ -57,6 +61,10 @@
   .confirm button.done { background:var(--ok); color:#fff; border-color:var(--ok); }
   .thumbs { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
   .thumbs img { width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
+  .chips { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; font-size:13px; }
+  .chips span { color:var(--muted); }
+  .chips button { padding:6px 10px; border-radius:999px; border:1px solid var(--accent); background:var(--card); color:var(--accent); cursor:pointer; font-size:13px; }
+  .linkbtn { border:none; background:none; color:var(--accent); cursor:pointer; padding:0; font-size:inherit; }
 </style>
 </head>
 <body>
@@ -101,13 +109,17 @@ const $ = id => document.getElementById(id);
 const drop = $('drop'), results = $('results'), preview = $('preview'), img = $('img'), thumbs = $('thumbs');
 let photos = [];          // File[] for the current query (several angles of one part)
 let lastResult = null;
+let constraints = {};     // attribute filters chosen from family chips
+function refine(k, v) { constraints[k] = v; send(); }
+function clearConstraints() { constraints = {}; send(); }
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; addPhotos([...e.target.files]); } e.target.value = ''; });
 $('angle').addEventListener('change', e => { if (e.target.files[0]) addPhotos([e.target.files[0]]); e.target.value = ''; });
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
 drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; addPhotos([...e.dataTransfer.files]); } });
 window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; addPhotos([it.getAsFile()]); break; } });
-$('again').addEventListener('click', () => { photos = []; lastResult = null; preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
+$('again').addEventListener('click', () => { photos = []; lastResult = null; constraints = {}; preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
 $('searchform').addEventListener('submit', async e => { e.preventDefault(); const q = $('q').value.trim(); if (q) await search(q); });
 
 async function addPhotos(files) {
@@ -162,6 +174,7 @@ async function send() {
   const fd = new FormData();
   for (const f of photos) fd.append('files', await downscale(f));
   const q = new URLSearchParams({ top_n: $('topn').value }); if ($('llm').checked) q.set('use_llm', 'true');
+  if (Object.keys(constraints).length) q.set('constraints', JSON.stringify(constraints));
   let r;
   try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
   catch (e) { results.innerHTML = `<p style="color:var(--bad)">Network error: ${e}</p>`; return; }
@@ -181,9 +194,15 @@ function render(res) {
   if (res.ocr_part_numbers.length) html += `<div class="name">Part number read from the photo: ${res.ocr_part_numbers.map(esc).join(', ')}</div>`;
   if (res.extracted) { const ex = res.extracted; const bits = [ex.part_type, ex.material_guess, ex.head_type, ex.drive_style].filter(Boolean).map(esc); if (bits.length) html += `<div class="name">Seen in photo: ${bits.join(' &middot; ')}</div>`; }
   html += `<div class="confirm"><button type="button" onclick="confirm(null, this)">None of these</button></div></div>`;
+  if (res.category_guess && res.category_guess.length && !res.best) {
+    html += `<div class="family">Category guess: ${res.category_guess.map(([c, p]) => `<b>${esc(c)}</b> ${pct(p)}`).join(' &middot; ')}</div>`;
+  }
   if (res.family) {
-    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<b>${esc(k)}</b>: ${v.map(esc).join(' / ')}`).join(' &middot; ');
-    html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' They differ by ' + diffs + ' &mdash; check the part and pick below.' : ''}</div>`;
+    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(k)}:</span> ${v.map(val => `<button type="button" onclick='refine(${JSON.stringify(k)}, ${JSON.stringify(val)})'>${esc(val)}</button>`).join('')}</div>`).join('');
+    html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' Tap what you can read off the part:' + diffs : ''}</div>`;
+  }
+  if (Object.keys(res.constraints || {}).length) {
+    html += `<div class="family">Filtered by ${Object.entries(res.constraints).map(([k, v]) => `<b>${esc(k)}</b> = ${esc(v)}`).join(', ')} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear</button></div>`;
   }
   for (const c of res.candidates) {
     html += `<div class="cand">

@@ -8,11 +8,21 @@ appends a JSON line to ``feedback.jsonl``. "None of these" answers are kept unde
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from mcmaster_vision.schemas import Feedback
 
 UNKNOWN_DIR = "_unknown"
+_SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def safe_segment(value: str, what: str) -> str:
+    """Only plain identifiers may become path segments (no separators, no dot-dot)."""
+    v = str(value).strip()
+    if not _SAFE.match(v) or v in (".", ".."):
+        raise ValueError(f"invalid {what}: {value!r}")
+    return v
 
 
 class FeedbackStore:
@@ -31,7 +41,10 @@ class FeedbackStore:
         tier: str | None = None,
         ext: str = "jpg",
     ) -> Feedback:
-        folder = self.root / (part_number.upper() if part_number else UNKNOWN_DIR)
+        request_id = safe_segment(request_id, "request_id")
+        pn = safe_segment(part_number, "part_number").upper() if part_number else None
+        ext = safe_segment(ext, "extension").lower()
+        folder = self.root / (pn or UNKNOWN_DIR)
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{request_id}.{ext}"
         path.write_bytes(image_bytes)
