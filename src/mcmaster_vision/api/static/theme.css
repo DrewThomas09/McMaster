@@ -34,6 +34,7 @@ main.mc { max-width: 980px; margin: 0 auto; padding: 14px 14px 40px; }
 .btn.primary { background: var(--green); color: #fff; }
 .btn.primary:active { background: var(--green-dark); }
 .btn.secondary { background: var(--card); color: var(--ink); border-color: var(--line); }
+.btn.small { display: inline-flex; padding: 6px 12px; font-size: 13px; background: var(--green); color: #fff; border-radius: 6px; }
 .ghost, .iconbtn { padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; font-size: 13px; text-decoration: none; display: inline-block; }
 .ghost.on { background: var(--yellow-soft); border-color: var(--yellow); color: var(--yellow-ink); }
 .linkbtn { border: none; background: none; color: var(--green); cursor: pointer; padding: 0; font-size: inherit; text-decoration: underline; }

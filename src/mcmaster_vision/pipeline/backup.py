@@ -166,3 +166,51 @@ def restore_backup(
         "created_at": inventory.get("created_at"),
         "restored": restored,
     }
+
+
+def storage_status(settings: Settings) -> dict:
+    """Sizes and ages of every durable component plus the newest backup (for
+    ``GET /status``, the dashboard and ``mcv doctor``)."""
+    comps = {}
+    total = 0
+    for name, path in _components(settings).items():
+        if path.exists():
+            size = _dir_size(path)
+            total += size
+            mtime = (
+                max((f.stat().st_mtime for f in path.rglob("*") if f.is_file()), default=0)
+                if path.is_dir()
+                else path.stat().st_mtime
+            )
+            comps[name] = {
+                "path": str(path),
+                "bytes": size,
+                "updated_at": datetime.fromtimestamp(mtime, timezone.utc).isoformat(
+                    timespec="seconds"
+                )
+                if mtime
+                else None,
+            }
+        else:
+            comps[name] = {"path": str(path), "bytes": 0, "updated_at": None}
+    root = settings.data_dir / "backups"
+    backups = (
+        sorted(root.glob("*.tar.gz"), key=lambda f: f.stat().st_mtime) if root.exists() else []
+    )
+    last = backups[-1] if backups else None
+    newest_change = max((c["updated_at"] or "" for c in comps.values()), default="")
+    last_at = (
+        datetime.fromtimestamp(last.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
+        if last
+        else None
+    )
+    return {
+        "components": comps,
+        "bytes_total": total,
+        "backups": len(backups),
+        "last_backup": {"path": str(last), "bytes": last.stat().st_size, "created_at": last_at}
+        if last
+        else None,
+        # something changed since the newest backup (or there is none)
+        "backup_stale": bool(newest_change and (last_at is None or newest_change > last_at)),
+    }

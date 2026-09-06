@@ -99,3 +99,16 @@ def test_pages_when_not_ready(tmp_path):
     )
     assert "Nothing is built yet" in client.get("/browse").text
     assert client.get("/dashboard").status_code == 200
+
+
+def test_dashboard_storage_and_backup_button(identifier, store, tmp_path):
+    client = _client(identifier, tmp_path, api_token="s3cret")
+    page = client.get("/dashboard").text
+    assert "Storage" in page and "no backup yet" in page and "backupbtn" in page
+    assert client.post("/admin/backup").status_code == 401
+    r = client.post("/admin/backup", headers={"X-API-Token": "s3cret"})
+    assert r.status_code == 200 and "queries" in r.json()["components"]
+    assert client.get("/admin/backups", headers={"X-API-Token": "s3cret"}).json()[0]["bytes"] > 0
+    st = client.get("/status").json()["storage"]
+    assert st["last_backup"] is not None and st["backups"] == 1
+    assert "last backup" in client.get("/dashboard").text

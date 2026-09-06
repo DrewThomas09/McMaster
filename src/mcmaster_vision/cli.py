@@ -348,6 +348,22 @@ def doctor(
     )
     free_gb = shutil.disk_usage(s.data_dir if s.data_dir.exists() else Path(".")).free / 1e9
     checks.append(("disk", free_gb > 5, f"{free_gb:.1f} GB free under {s.data_dir}"))
+    from mcmaster_vision.pipeline.backup import storage_status
+
+    sto = storage_status(s)
+    last = sto["last_backup"]
+    checks.append(
+        (
+            "backup",
+            bool(last) and not sto["backup_stale"],
+            (
+                f"{last['created_at']} ({last['bytes'] / 1e6:.1f} MB)"
+                + ("; state changed since -> mcv backup" if sto["backup_stale"] else "")
+            )
+            if last
+            else f"none yet: mcv backup ({sto['bytes_total'] / 1e6:.1f} MB of state)",
+        )
+    )
     if s.rerank_llm_enabled:
         import os
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -103,3 +104,19 @@ def test_retrain_end_to_end(tmp_path, demo_dir, index, store):
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["checkpoint"].endswith("best.pt") and manifest["retrain_eval"]["queries"] == 1
     assert (tmp_path / "m" / "calibration.json").exists()
+
+
+def test_doctor_reports_backup_state(tmp_path, demo_dir):
+    cli = app
+    env = {"MCV_DATA_DIR": str(tmp_path), "MCV_CATALOG_DB": str(demo_dir / "catalog.sqlite")}
+    runner = CliRunner()
+    out = runner.invoke(cli, ["doctor", "--json"], env=env)
+    assert out.exit_code == 0, out.output
+    checks = {c["name"]: c for c in json.loads(out.output)["checks"]}
+    assert not checks["backup"]["ok"] and "none yet" in checks["backup"]["detail"]
+    assert runner.invoke(cli, ["backup"], env=env).exit_code == 0
+    out = runner.invoke(cli, ["doctor", "--json"], env=env)
+    assert (
+        json.loads(out.output)["checks"]
+        and {c["name"]: c for c in json.loads(out.output)["checks"]}["backup"]["ok"]
+    )

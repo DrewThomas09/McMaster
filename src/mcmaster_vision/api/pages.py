@@ -194,6 +194,22 @@ def dashboard(request: Request) -> str:
             f"<td>{best_html}</td><td>{conf}%</td><td>{e(r.get('latency_ms'))} ms</td></tr>"
         )
     stale = st.get("index_stale")
+    sto = st.get("storage") or {}
+    storage_rows = ""
+    for name, c in (sto.get("components") or {}).items():
+        mb = c.get("bytes", 0) / 1e6
+        storage_rows += (
+            f"<tr><td>{e(name)}</td><td>{mb:.1f} MB</td>"
+            f"<td>{e((c.get('updated_at') or '—')[:19])}</td></tr>"
+        )
+    last = sto.get("last_backup")
+    backup_line = (
+        f"last backup {e(last['created_at'][:19])} ({last['bytes'] / 1e6:.1f} MB)"
+        if last
+        else "no backup yet"
+    )
+    if sto.get("backup_stale"):
+        backup_line += ' <span class="tier candidate">changed since</span>'
     body = f"""<h1 class="page">Dashboard</h1>
 {'<div class="notice">The catalog changed after the index was built: run <code>mcv build-index --only-new</code> then <code>POST /admin/reload</code>.</div>' if stale else ""}
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
@@ -206,6 +222,21 @@ def dashboard(request: Request) -> str:
 </div>
 <h2 class="page">Answer tiers (recent window)</h2><div class="card" style="padding:8px 12px"><table class="spec">{tier_rows or "<tr><td>No requests yet.</td></tr>"}</table></div>
 <h2 class="page">Recent identifications</h2><div class="card" style="padding:8px 12px;overflow-x:auto"><table class="spec"><tr><th>time</th><th>tier</th><th>best</th><th>conf.</th><th>latency</th></tr>{recent_rows or '<tr><td class="msg" colspan="5">None yet.</td></tr>'}</table></div>
+<h2 class="page">Storage</h2><div class="card" style="padding:8px 12px"><table class="spec"><tr><th>state</th><th>size</th><th>updated</th></tr>{storage_rows}</table>
+<p class="crumbs" id="backupline">{backup_line} · <button class="btn small" type="button" id="backupbtn">Back up now</button> <code>mcv backup</code> / <code>mcv restore</code></p></div>
+<script>
+document.getElementById('backupbtn').onclick = async () => {{
+  const b = document.getElementById('backupbtn'); b.disabled = true; b.textContent = 'Backing up…';
+  try {{
+    const tok = localStorage.getItem('mcv_token') || '';
+    const r = await fetch('/admin/backup', {{method: 'POST', headers: tok ? {{'X-API-Token': tok}} : {{}}}});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.status);
+    document.getElementById('backupline').firstChild.textContent = 'backed up to ' + j.path + ' (' + (j.bytes / 1e6).toFixed(1) + ' MB) ';
+  }} catch (err) {{ alert('Backup failed: ' + err.message + (String(err.message).includes('Token') ? ' — set localStorage.mcv_token' : '')); }}
+  b.disabled = false; b.textContent = 'Back up now';
+}};
+</script>
 <h2 class="page">Build</h2><div class="card" style="padding:8px 12px"><table class="spec">
 <tr><td>model</td><td>{e(idx.get("backbone") or st.get("settings", {}).get("backbone"))}</td></tr>
 <tr><td>index built</td><td>{e(idx.get("built_at", "—"))}</td></tr>

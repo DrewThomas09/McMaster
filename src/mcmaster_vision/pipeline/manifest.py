@@ -73,6 +73,9 @@ def status(settings: Settings) -> dict[str, Any]:
     out["feedback"] = (
         FeedbackStore(settings.queries_dir).stats() if settings.queries_dir.exists() else None
     )
+    from mcmaster_vision.pipeline.backup import storage_status
+
+    out["storage"] = storage_status(settings)
     out["ready"] = bool(out["catalog"] and out["index"])
     # the catalog changed after the index was built -> parts missing from search
     cat_updated = out["catalog"].get("updated_at") if out.get("catalog") else None
