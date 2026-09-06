@@ -148,5 +148,5 @@ and no token are needed. Add `mcv backup` before the nightly `retrain` in cron.
 mcv status                                  # ready: true, index backbone == settings backbone
 mcv evaluate --max-queries 500              # synthetic-photo recall on the real gallery
 mcv identify some_real_photo.jpg            # end-to-end on one photo
-python3 -m pytest -q                        # 105 tests incl. a real browser run of the UI
+python3 -m pytest -q                        # 100+ tests incl. real browser runs of the UI
 ```
