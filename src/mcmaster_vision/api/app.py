@@ -396,7 +396,13 @@ def self_signed_cert(cert_dir: Path, hosts: list[str]) -> tuple[Path, Path]:
         "-addext",
         f"subjectAltName={san}",
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except FileNotFoundError as e:
+        raise SystemExit(
+            "--https needs the `openssl` command (brew install openssl / apt install openssl), "
+            "or put the server behind a TLS proxy: see deploy/README.md"
+        ) from e
     return crt, key
 
 

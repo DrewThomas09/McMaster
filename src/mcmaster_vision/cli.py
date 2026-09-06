@@ -921,7 +921,7 @@ def _build_demo(
     )
     ident = Identifier(store, index, embedder, qe_k=s.query_expansion_k, image_size=s.image_size)
     typer.echo("4/4 evaluating + calibrating ...")
-    report = evaluate_retrieval(ident, store, max_queries=min(parts, 200))
+    report = evaluate_retrieval(ident, store, max_queries=min(parts, 120))
     cal = Calibration.fit_temperature(report.score_lists, report.correct_idx).fit_thresholds(
         report.score_lists, report.correct_idx
     )
