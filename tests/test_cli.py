@@ -37,3 +37,32 @@ def test_demo_end_to_end(tmp_path):
     )
     assert r.exit_code == 0, r.output
     assert '"candidates"' in r.output
+
+
+def test_identify_dir_writes_csv(tmp_path, store, index, embedder, demo_dir):
+    import csv
+
+    from PIL import Image
+
+    index.save(tmp_path / "index" / "parts")
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    parts = list(store.iter_parts(with_images_only=True))[:3]
+    for p in parts:
+        Image.open(p.image_paths[0]).convert("RGB").save(photos / f"{p.part_number}.jpg")
+    (photos / "junk.jpg").write_bytes(b"not an image")
+    env = {
+        "MCV_CATALOG_DB": str(demo_dir / "catalog.sqlite"),
+        "MCV_INDEX_DIR": str(tmp_path / "index"),
+        "MCV_MODEL_DIR": str(tmp_path / "m"),
+        "MCV_DATA_DIR": str(tmp_path),
+        "MCV_QUERIES_DIR": str(tmp_path / "q"),
+    }
+    r = CliRunner().invoke(
+        app, ["identify-dir", str(photos), "--out", str(tmp_path / "res.csv")], env=env
+    )
+    assert r.exit_code == 0, r.output
+    rows = list(csv.DictReader(open(tmp_path / "res.csv")))
+    assert len(rows) == 4
+    assert all(row["best"] == row["file"].split(".")[0] for row in rows if not row["error"])
+    assert any(row["error"] for row in rows)

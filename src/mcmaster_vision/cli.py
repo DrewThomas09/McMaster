@@ -346,6 +346,47 @@ def identify(
     typer.echo(result.model_dump_json(indent=2))
 
 
+@app.command("identify-dir")
+def identify_dir(
+    folder: Path = typer.Argument(
+        ..., exists=True, file_okay=False, help="Folder of photos, one part per photo"
+    ),
+    out: Path = typer.Option(Path("identify_results.csv"), help="CSV of results"),
+    config: Path | None = _config_opt,
+    top_n: int = typer.Option(3),
+) -> None:
+    """Identify every photo in a folder (a bin, a drawer, a BOM shoot) and write a CSV."""
+    import csv
+
+    from mcmaster_vision.pipeline import load_identifier
+
+    ident = load_identifier(_settings(config))
+    exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".bmp"}
+    files = sorted(f for f in folder.iterdir() if f.suffix.lower() in exts)
+    with open(out, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["file", "tier", "best", "confidence", "family", "candidates", "error"])
+        for f in files:
+            try:
+                res = ident.identify_path(f, top_n=top_n)
+            except OSError as e:
+                w.writerow([f.name, "", "", "", "", "", str(e)])
+                continue
+            w.writerow(
+                [
+                    f.name,
+                    res.tier.value,
+                    res.best.part_number if res.best else "",
+                    res.best.confidence if res.best else "",
+                    res.family.family_id if res.family else "",
+                    " ".join(c.part_number for c in res.candidates),
+                    "",
+                ]
+            )
+            typer.echo(f"{f.name}: {res.tier.value} {res.best.part_number if res.best else '-'}")
+    typer.echo(f"{len(files)} photos -> {out}")
+
+
 @app.command()
 def serve(
     config: Path | None = _config_opt,
