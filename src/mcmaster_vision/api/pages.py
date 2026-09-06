@@ -197,9 +197,10 @@ def dashboard(request: Request) -> str:
     sto = st.get("storage") or {}
     storage_rows = ""
     for name, c in (sto.get("components") or {}).items():
-        mb = c.get("bytes", 0) / 1e6
+        nbytes = c.get("bytes", 0)
+        size = f"{nbytes / 1e6:.1f} MB" if nbytes >= 1e6 else f"{nbytes / 1e3:.0f} KB"
         storage_rows += (
-            f"<tr><td>{e(name)}</td><td>{mb:.1f} MB</td>"
+            f"<tr><td>{e(name)}</td><td>{size}</td>"
             f"<td>{e((c.get('updated_at') or '—')[:19])}</td></tr>"
         )
     last = sto.get("last_backup")
@@ -232,7 +233,9 @@ document.getElementById('backupbtn').onclick = async () => {{
     const r = await fetch('/admin/backup', {{method: 'POST', headers: tok ? {{'X-API-Token': tok}} : {{}}}});
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || r.status);
-    document.getElementById('backupline').firstChild.textContent = 'backed up to ' + j.path + ' (' + (j.bytes / 1e6).toFixed(1) + ' MB) ';
+    const line = document.getElementById('backupline');
+    line.firstChild.textContent = 'backed up to ' + j.path + ' (' + (j.bytes / 1e6).toFixed(1) + ' MB) ';
+    const badge = line.querySelector('.tier'); if (badge) badge.remove();
   }} catch (err) {{ alert('Backup failed: ' + err.message + (String(err.message).includes('Token') ? ' — set localStorage.mcv_token' : '')); }}
   b.disabled = false; b.textContent = 'Back up now';
 }};
