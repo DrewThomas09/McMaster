@@ -271,10 +271,10 @@ function render(res) {
     html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' Tap what you can read off the part:' + diffs : ''}</div>`;
   }
   if (Object.keys(res.constraints || {}).length) html += `<div class="family">Filtered by ${Object.entries(res.constraints).map(([k, v]) => `<b>${esc(k)}</b> = ${esc(v)}`).join(', ')} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear</button></div>`;
-  for (const c of res.candidates) {
+  res.candidates.forEach((c, ci) => {
     const pn = encodeURIComponent(c.part_number);
     html += `<div class="card cand" data-pn="${esc(c.part_number)}">
-      <img class="main" src="/parts/${pn}/thumb?size=200" loading="lazy" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${pn}/image', queryDataUrl && document.getElementById('img').src, '${esc(c.part_number)} vs your photo')">
+      <img class="main" src="/parts/${pn}/thumb?size=200" loading="${ci < 3 ? 'eager' : 'lazy'}" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${pn}/image', queryDataUrl && document.getElementById('img').src, '${esc(c.part_number)} vs your photo')">
       <div style="flex:1;min-width:0">
         <div class="pn">${esc(c.part_number)} <span style="font-weight:400">&mdash; ${esc(c.name)}</span></div>
         <div class="meta">${esc(c.category_path.join(' › '))}</div>
@@ -285,7 +285,7 @@ function render(res) {
         <ul class="reasons">${c.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
         <div class="confirm"><button type="button" class="yes" onclick="confirm('${esc(c.part_number)}', this)">&#10003; This is it</button></div>
       </div></div>`;
-  }
+  });
   const t = res.timings_ms || {};
   html += `<details class="timings"><summary>${res.photos > 1 ? res.photos + ' photos · ' : ''}${t.total ? t.total + ' ms on server' : ''}${res._roundtrip ? ' · ' + res._roundtrip + ' ms round trip' : ''} · ${esc(res.model_version)}</summary>${Object.entries(t).map(([k,v]) => `${esc(k)} ${v} ms`).join(' · ')}</details>`;
   results.innerHTML = html;

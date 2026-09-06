@@ -178,6 +178,12 @@ resolves the SKU instead of guessing.
   stall behind a 6-photo query or a 200-photo batch; batch uploads are size-
   checked per file. `MCV_RATE_LIMIT_PER_MINUTE` caps per-client calls,
   `MCV_API_TOKEN` guards `/admin/*`.
+* Phone performance: candidate images are served as cached 200 px JPEG
+  thumbnails with long cache headers, JSON is gzipped, the client downscales
+  photos to 1280 px before upload, and `tta=fast` (2 views) cuts embedding
+  time versus `full` (8 views). Measured per query on 2 CPU threads (30-part
+  demo catalog, gallery augmentation 1): TinyCNN 25 ms full / 15 ms fast;
+  ensemble 103 ms full / 36 ms fast, with the same top-1 on that sample.
 * The API warms up (catalog, index, backbone) at startup; `mcv serve --workers N`
   runs N processes via the `get_app` factory (each holds its own index copy).
 * Every identification is appended to `data/logs/requests.jsonl`; `GET /metrics`
