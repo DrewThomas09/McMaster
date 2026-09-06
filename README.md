@@ -31,6 +31,20 @@ real-browser run of the phone UI):
 | operations | bootstrap, doctor, status, metrics, retrain (cron), hot reload, rate limit, request log, runbook |
 | needs you | McMaster images (any of the intake paths), a GPU for CLIP/DINOv2, real photos via the feedback loop |
 
+## Demo in 60 seconds
+
+```bash
+pip install -e ".[dev,phone]"        # add ,ml for the learned model (torch)
+mcv up                               # builds a synthetic demo catalog once, then serves it
+```
+
+`mcv up` prints a QR code; scan it with your phone (same Wi-Fi). In the app,
+**Take a photo** of anything, or tap a **sample part** to watch a photo-style
+render get identified live, or open **print a sheet**, print it, and photograph
+the paper with the phone. `mcv up --https` makes the app installable with a
+live camera preview. Once you have built a real catalog (`mcv bootstrap`),
+`mcv up` serves that instead.
+
 ## Quick start (no GPU, no proprietary data)
 
 ```bash

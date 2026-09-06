@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     max_upload_mb: int = 20
     api_token: str | None = None  # protects /admin/* when set (header X-API-Token)
     warm_up: bool = True  # load catalog/index/backbone at API startup
+    demo_mode: bool = False  # /demo/* endpoints (sample parts, printable sheet)
+    cors_origins: str = (
+        ""  # comma-separated origins allowed to call the API (native apps, other hosts)
+    )
     rate_limit_per_minute: int = Field(
         default=0, ge=0, description="Per-client cap on /identify calls (0 = off)"
     )

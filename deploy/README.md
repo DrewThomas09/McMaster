@@ -7,8 +7,12 @@ The interface is a web page, so any phone browser works. Camera capture via the
 ## 1. Same Wi-Fi as your laptop (fastest to set up)
 
 ```bash
-mcv serve --host 0.0.0.0 --qr
+mcv up                    # demo catalog or your built one, QR code printed
+mcv serve --host 0.0.0.0 --qr    # same, without demo mode
 ```
+
+On the laptop you can also open `http://localhost:8000/connect` to show the QR
+code full-screen.
 
 The command prints the LAN URLs and a QR code; scan it with the phone camera.
 Photos go straight to your laptop; nothing leaves the network.

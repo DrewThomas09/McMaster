@@ -44,6 +44,10 @@ Stages, all resumable by re-running the individual commands:
 
 ## 2. Serve
 
+`mcv up` is the shortcut: serves the built catalog on the network with a QR
+code and demo mode on (`/demo/*`: sample parts, printable sheet, `/connect`).
+Set `MCV_DEMO_MODE=false` (the default for `mcv serve`) in production.
+
 Phones: `mcv serve --host 0.0.0.0 --qr` on the same network, `--https` for the
 installable app and live camera, or `deploy/` for tunnels and a real domain
 (see `deploy/README.md`).

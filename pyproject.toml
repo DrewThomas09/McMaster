@@ -78,6 +78,7 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 # Depends()/File()/typer.Option() in defaults is the idiomatic FastAPI / typer style.
 "src/mcmaster_vision/api/app.py" = ["B008"]
+"src/mcmaster_vision/api/demo.py" = ["B008"]
 "src/mcmaster_vision/cli.py" = ["B008"]
 
 [tool.mypy]

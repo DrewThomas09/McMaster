@@ -81,6 +81,15 @@
   .spinner { display:inline-block; width:18px; height:18px; border:3px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:8px; }
   @keyframes spin { to { transform:rotate(360deg);} }
   a.link { color:var(--accent); text-decoration:none; }
+  #samples { margin-top:12px; padding:10px 12px; }
+  .samples-head { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; font-size:14px; margin-bottom:6px; }
+  .samples-head .meta { color:var(--muted); font-size:12px; }
+  #samplestrip img { width:76px; height:76px; cursor:pointer; }
+  #samplestrip figure { margin:0; flex:0 0 auto; text-align:center; font-size:10px; color:var(--muted); }
+  .toolbar { display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
+  .toolbar a { text-decoration:none; }
+  .badge { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; margin-left:8px; color:#fff; }
+  .badge.ok { background:var(--ok);} .badge.no { background:var(--bad);} .badge.near { background:var(--warn);}
   /* history */
   #history { margin-top:22px; }
   #history h2 { font-size:14px; color:var(--muted); margin:0 0 8px; }
@@ -132,6 +141,15 @@
     <button type="submit">Search</button>
   </form>
 
+  <section class="card" id="samples" hidden>
+    <div class="samples-head"><b>No part at hand? Tap a sample</b> <span class="meta">a photo-style render is identified live</span> <button type="button" class="linkbtn" id="moresamples">shuffle</button> <a class="linkbtn" href="/demo/sheet" target="_blank" rel="noopener">print a sheet</a></div>
+    <div class="strip" id="samplestrip"></div>
+  </section>
+  <div class="toolbar">
+    <button type="button" class="ghost" id="install" hidden>&#8681; Install app</button>
+    <a class="ghost" href="/connect" id="connect" hidden>&#128241; Open on phone</a>
+  </div>
+
   <div class="row">
     <div class="preview" id="preview" hidden>
       <img id="img" alt="query" onclick="lightbox(this.src, null, 'Your photo')">
@@ -163,7 +181,48 @@ const pct = x => (x * 100).toFixed(0) + '%';
 const toast = (msg) => { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 2200); };
 
 // ---- status pill -----------------------------------------------------------
-fetch('/health').then(r => r.json()).then(h => { const p = $('status'); p.textContent = h.ready ? `${h.parts} parts · ${(h.model || '').split(':')[0]}` : 'index not built'; p.classList.toggle('ok', !!h.ready); }).catch(() => $('status').textContent = 'offline');
+fetch('/health').then(r => r.json()).then(h => {
+  const p = $('status'); p.textContent = h.ready ? `${h.parts} parts · ${(h.model || '').split(':')[0]}` : 'index not built'; p.classList.toggle('ok', !!h.ready);
+  if (h.demo_mode) loadSamples();
+  if (!/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) $('connect').hidden = false;
+}).catch(() => $('status').textContent = 'offline');
+
+// ---- demo samples -----------------------------------------------------------
+let sampleSeed = Math.floor(Math.random() * 1e6);
+async function loadSamples() {
+  try {
+    const r = await fetch(`/demo/samples?n=14&seed=${sampleSeed}`); if (!r.ok) return;
+    const items = await r.json();
+    $('samples').hidden = !items.length;
+    $('samplestrip').innerHTML = items.map(it => `<figure><img src="${it.thumb}" alt="" loading="lazy" title="${esc(it.name)}" onclick="trySample('${esc(it.part_number)}')"><figcaption>${esc(it.category)}</figcaption></figure>`).join('');
+  } catch (_) {}
+}
+$('moresamples').addEventListener('click', () => { sampleSeed++; loadSamples(); });
+async function trySample(pn) {
+  const seed = Math.floor(Math.random() * 1000);
+  photos = []; constraints = {}; lastResult = null;
+  preview.hidden = false; thumbs.innerHTML = ''; img.src = `/demo/query/${encodeURIComponent(pn)}?seed=${seed}`;
+  queryDataUrl = img.src;
+  results.innerHTML = '<p><span class="spinner"></span>Identifying a photo-style render of ' + esc(pn) + '&hellip;</p>';
+  const t0 = performance.now();
+  const r = await fetch(`/demo/try/${encodeURIComponent(pn)}?seed=${seed}&top_n=${$('topn').value}&tta=${tta}`, { method: 'POST' });
+  if (!r.ok) { results.innerHTML = `<p style="color:var(--bad)">Demo failed (${r.status})</p>`; return; }
+  const d = await r.json();
+  lastResult = d.result; lastResult._roundtrip = Math.round(performance.now() - t0);
+  // the demo photo is generated server-side: fetch it so "This is it" can still file feedback
+  try { const b = await (await fetch(img.src)).blob(); photos = [new File([b], 'demo.jpg', { type: 'image/jpeg' })]; } catch (_) {}
+  render(lastResult);
+  const verdict = document.querySelector('.verdict .tier');
+  if (verdict) verdict.insertAdjacentHTML('afterend', d.rank === 1 ? '<span class="badge ok">correct</span>' : d.rank ? `<span class="badge near">truth ranked #${d.rank}</span>` : '<span class="badge no">missed</span>');
+  document.querySelectorAll('.cand').forEach(el => { if (el.dataset.pn === d.truth) el.style.outline = '2px solid var(--ok)'; });
+  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ---- install prompt (Android/desktop Chrome); iOS uses the share sheet --------
+let installEvent = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent = e; $('install').hidden = false; });
+$('install').addEventListener('click', async () => { if (!installEvent) return; installEvent.prompt(); await installEvent.userChoice; installEvent = null; $('install').hidden = true; });
+if (/iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone) { $('install').hidden = false; $('install').textContent = 'Install: Share → Add to Home Screen'; $('install').onclick = () => toast('Tap the Share button, then "Add to Home Screen"'); }
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 
 // ---- inputs ----------------------------------------------------------------
@@ -237,6 +296,7 @@ async function send() {
   if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(d)}</p>`; return; }
   lastResult = await r.json();
   lastResult._roundtrip = Math.round(performance.now() - t0);
+  if (navigator.vibrate) navigator.vibrate(lastResult.tier === 'exact' ? [30, 40, 30] : 20);
   render(lastResult);
   remember(lastResult);
   results.scrollIntoView({ behavior: 'smooth', block: 'start' });

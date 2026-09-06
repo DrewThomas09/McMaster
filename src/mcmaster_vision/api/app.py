@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -36,6 +37,14 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     _recent: dict[str, bytes] = {}  # request_id -> first photo (bounded, in-memory)
     app = FastAPI(title="McMaster-Vision", version=__version__, description=__doc__)
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+    if settings.cors_origins:
+        origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+        app.add_middleware(
+            CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"]
+        )
+    from mcmaster_vision.api.demo import router as demo_router
+
+    app.include_router(demo_router)
     app.state.settings = settings
     app.state.identifier = identifier
     app.state.feedback = FeedbackStore(settings.queries_dir)
@@ -93,6 +102,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             "model": ident.embedder.version if ident else None,
             "index_built_at": ident.index.meta.get("built_at") if ident else None,
             "parts": len(set(ident.index.ids)) if ident else None,
+            "demo_mode": settings.demo_mode,
+            "secure": False,  # the client checks window.isSecureContext itself
         }
 
     @app.get("/status")

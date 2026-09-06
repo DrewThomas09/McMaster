@@ -88,3 +88,33 @@ def test_export_dataset(tmp_path, demo_dir):
     assert len(rows) == 80 and all((tmp_path / "ds" / row["path"]).exists() for row in rows[:5])
     assert len(list((tmp_path / "ds" / "queries").iterdir())) == 40
     assert sum(1 for _ in open(tmp_path / "ds" / "parts.jsonl")) == 40
+
+
+def test_up_builds_demo_once_then_reuses(tmp_path, monkeypatch):
+    """`mcv up` with nothing built: builds a synthetic demo catalog, then serves; second run reuses it."""
+    import mcmaster_vision.api.app as app_mod
+
+    calls = []
+    monkeypatch.setattr(app_mod, "run", lambda s, **kw: calls.append((s, kw)))
+    env = {
+        "MCV_DATA_DIR": str(tmp_path / "data"),
+        "MCV_CATALOG_DB": str(tmp_path / "data" / "c.sqlite"),
+        "MCV_INDEX_DIR": str(tmp_path / "data" / "i"),
+        "MCV_MODEL_DIR": str(tmp_path / "data" / "m"),
+        "MCV_QUERIES_DIR": str(tmp_path / "data" / "q"),
+        "MCV_BACKBONE": "hash",
+    }
+    r = CliRunner().invoke(
+        app, ["up", "--parts", "20", "--demo-dir", str(tmp_path / "demo")], env=env
+    )
+    assert r.exit_code == 0, r.output
+    assert (
+        "synthetic demo catalog" in r.output
+        and (tmp_path / "demo" / "index" / "parts" / "meta.json").exists()
+    )
+    s, kw = calls[-1]
+    assert s.demo_mode is True and kw["host"] == "0.0.0.0" and kw["qr"] is True
+    r = CliRunner().invoke(
+        app, ["up", "--parts", "20", "--demo-dir", str(tmp_path / "demo")], env=env
+    )
+    assert r.exit_code == 0 and "generating" not in r.output and len(calls) == 2

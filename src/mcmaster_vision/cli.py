@@ -819,6 +819,117 @@ def evaluate(
 
 
 @app.command()
+def up(
+    config: Path | None = _config_opt,
+    port: int = typer.Option(8000),
+    https: bool = typer.Option(
+        False, help="Self-signed HTTPS (installable app + live camera on phones)"
+    ),
+    parts: int = typer.Option(300, help="Synthetic parts to generate when nothing is built yet"),
+    demo_dir: Path = typer.Option(Path("./data/demo")),
+) -> None:
+    """Serve on the network with a QR code. Uses your built catalog if there is one, otherwise
+    builds (and reuses) a synthetic demo catalog with the shipped model. The seamless demo entry point."""
+    from mcmaster_vision.api.app import run
+
+    s = _settings(config)
+    if (s.index_path / "meta.json").exists() and s.catalog_db.exists():
+        typer.echo(f"serving the built catalog at {s.catalog_db}")
+        s = s.model_copy(update={"demo_mode": True})
+    else:
+        typer.echo(
+            "no catalog built yet -> using a synthetic demo catalog (built once, then reused)"
+        )
+        s = _demo_settings(
+            demo_dir, backbone=_best_offline_backbone(), checkpoint=None, train_epochs=0
+        )
+        s = s.model_copy(update={"demo_mode": True})
+        if not (s.index_path / "meta.json").exists():
+            _build_demo(s, parts=parts, images_per_part=3, gallery_augment=2)
+    run(s, host="0.0.0.0", port=port, https=https, qr=True)
+
+
+def _best_offline_backbone() -> str:
+    try:
+        import torch  # noqa: F401
+
+        if (Path(__file__).resolve().parents[2] / "assets" / "tinycnn_synthetic.pt").exists():
+            return "ensemble"
+    except ImportError:
+        pass
+    return "hash"
+
+
+def _demo_settings(
+    data_dir: Path, backbone: str, checkpoint: Path | None, train_epochs: int
+) -> Settings:
+    if checkpoint is None and train_epochs == 0 and backbone in ("tinycnn", "ensemble"):
+        shipped = Path(__file__).resolve().parents[2] / "assets" / "tinycnn_synthetic.pt"
+        if shipped.exists():
+            checkpoint = shipped
+    s = Settings(
+        data_dir=data_dir,
+        catalog_db=data_dir / "catalog.sqlite",
+        index_dir=data_dir / "index",
+        model_dir=data_dir / "models",
+        queries_dir=data_dir / "queries",
+        backbone=backbone,  # type: ignore[arg-type]
+        backbone_pretrained="none" if backbone in ("tinycnn", "ensemble") else None,
+        backbone_checkpoint=checkpoint,
+        index_backend="numpy",
+    )
+    if backbone == "openclip":
+        s = s.model_copy(update={"backbone_pretrained": Settings().backbone_pretrained})
+    s.ensure_dirs()
+    return s
+
+
+def _build_demo(
+    s: Settings, *, parts: int, images_per_part: int, gallery_augment: int, seed: int = 0
+):
+    """Generate + ingest + index + calibrate a synthetic catalog into ``s`` (returns the Identifier)."""
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.catalog import ingest as _ingest
+    from mcmaster_vision.data import SyntheticCatalog
+    from mcmaster_vision.index import build_index
+    from mcmaster_vision.models import PartEmbedder, load_backbone
+    from mcmaster_vision.pipeline import Identifier
+    from mcmaster_vision.pipeline.calibration import Calibration
+    from mcmaster_vision.training import evaluate_retrieval
+
+    data_dir = s.data_dir
+    jsonl = data_dir / "parts.jsonl"
+    if not jsonl.exists():
+        typer.echo(f"1/4 generating {parts} synthetic parts ...")
+        SyntheticCatalog(parts, images_per_part, seed=seed).write_jsonl(data_dir / "images", jsonl)
+    typer.echo("2/4 ingesting ...")
+    store = CatalogStore(s.catalog_db)
+    _ingest(jsonl, store)
+    typer.echo(f"3/4 embedding + indexing with {s.backbone} ...")
+    embedder = PartEmbedder(load_backbone(s))
+    index = build_index(
+        store,
+        embedder,
+        "numpy",
+        out_path=s.index_path,
+        gallery_augment=gallery_augment,
+        image_size=s.image_size,
+    )
+    ident = Identifier(store, index, embedder, qe_k=s.query_expansion_k, image_size=s.image_size)
+    typer.echo("4/4 evaluating + calibrating ...")
+    report = evaluate_retrieval(ident, store, max_queries=min(parts, 200))
+    cal = Calibration.fit_temperature(report.score_lists, report.correct_idx).fit_thresholds(
+        report.score_lists, report.correct_idx
+    )
+    cal.save(s.model_dir / "calibration.json")
+    ident.calibration = cal
+    typer.echo(
+        f"   Recall@1 {report.recall_at.get(1)}  Recall@5 {report.recall_at.get(5)}  Recall@10 {report.recall_at.get(10)}"
+    )
+    return ident
+
+
+@app.command()
 def demo(
     parts: int = typer.Option(300, help="Synthetic parts to generate"),
     images_per_part: int = typer.Option(3),
@@ -834,6 +945,12 @@ def demo(
     ),
     train_epochs: int = typer.Option(
         0, help="Train the backbone on the synthetic catalog first (needs torch)"
+    ),
+    phone: bool = typer.Option(
+        False, help="Serve on the network with a QR code (and demo mode) so a phone can open it"
+    ),
+    https: bool = typer.Option(
+        False, help="Self-signed HTTPS (with --phone): installable app + live camera"
     ),
 ) -> None:
     """Generate a synthetic catalog, index it, evaluate, and (optionally) serve it."""
@@ -932,12 +1049,16 @@ def demo(
     )
 
     if serve_:
-        import uvicorn
+        from mcmaster_vision.api.app import run
 
-        from mcmaster_vision.api.app import create_app
-
-        typer.echo(f"\nserving UI at http://127.0.0.1:{port}")
-        uvicorn.run(create_app(s, ident), host="127.0.0.1", port=port)
+        s = s.model_copy(update={"demo_mode": True})
+        if phone:
+            run(s, host="0.0.0.0", port=port, https=https, qr=True)
+        else:
+            typer.echo(
+                f"\nserving UI at http://127.0.0.1:{port}  (add --phone to open it on a phone)"
+            )
+            run(s, host="127.0.0.1", port=port)
 
 
 if __name__ == "__main__":
