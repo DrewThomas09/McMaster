@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Shipped checkpoint retrained on 8,000 synthetic parts (held-out Recall@1 0.33 vs 0.29).
+- Phone interface v3: live camera, compare lightbox, image strips, spec table, history, Fast/Accurate.
+- Thumbnails, gzip, TTA modes, query-embedding cache; `mcv serve --qr/--https`; Caddy deployment.
+
 ## 0.2.0
 
 Groundwork complete: everything except real McMaster-Carr imagery.

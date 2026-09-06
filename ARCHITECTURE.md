@@ -55,7 +55,8 @@ one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 | tinycnn (24 epochs) | 0 | 0.12 | 0.37 | 0.59 | 0.95 | 0.26 | 75 |
 | tinycnn (24 epochs) | 2 | 0.13 | 0.46 | 0.71 | 0.97 | 0.29 | 78 |
 | ensemble tinycnn(24ep)+hash (1:1) | 2 | 0.20 | 0.57 | 0.71 | 0.98 | 0.36 | 203 |
-| tinycnn (42 epochs, shipped `assets/tinycnn_synthetic.pt`) | 2 | **0.29** | **0.74** | 0.86 | **1.00** | **0.48** | 92 |
+| tinycnn (42 epochs on 800 parts) | 2 | 0.29 | 0.74 | 0.86 | 1.00 | 0.48 | 92 |
+| tinycnn (24 epochs on 8,000 parts, shipped `assets/tinycnn_synthetic.pt`) | 2 | **0.33** | 0.72 | **0.88** | **1.00** | **0.50** | 92 |
 | tinycnn (42 epochs) + query expansion k=3 | 2 | 0.28 | 0.72 | **0.87** | 1.00 | 0.47 | 92 |
 | ensemble tinycnn(42ep)+hash (1:1) | 2 | 0.27 | 0.73 | 0.87 | 1.00 | 0.47 | 200 |
 | ensemble tinycnn(42ep)+hash (1:0.5) | 2 | 0.31 | 0.74 | **0.88** | 1.00 | 0.49 | 200 |
@@ -118,8 +119,12 @@ imagery.
 | query latency, exact numpy (60k x 128-d) | p50 111 ms / p95 130 ms |
 | query latency, HNSW | p50 34 ms / p95 41 ms, identical Recall@K, 88% top-50 overlap |
 
-Retrieval at this size: SKU Recall@1 0.01 / @10 0.20 / @50 0.59, **family**
-Recall@1 0.33 / @10 0.58 / @50 0.89. The synthetic generator only has 495
+Retrieval at this size with the shipped (800-part) model: SKU Recall@1 0.02 /
+@10 0.18 / @50 0.54, **family** Recall@1 0.36 / @10 0.64 on parts from families
+it never saw. A TinyCNN trained on 8,000 of these parts (24 epochs, 2.2 h on
+4 cores) reaches SKU @10 0.20 / @50 0.57 and family Recall@1 0.42 / @10 0.67 on
+the same held-out parts: more training data helps family-level recall, while
+SKU-level recall stays capped by the catalog's look-alikes. The synthetic generator only has 495
 kind x material families, so 20k parts means ~40 visually identical renders per
 family; SKU-level recall is bounded by that ambiguity, not by the pipeline. Real
 catalogs have the same structure for length / thread variants, which is exactly

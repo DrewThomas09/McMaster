@@ -59,9 +59,9 @@ mcv demo --parts 800 --backbone ensemble                    # uses the shipped a
 mcv demo --parts 800 --backbone ensemble --train-epochs 24  # ...or train tinycnn first (~1 h on 4 CPU cores)
 ```
 
-`assets/tinycnn_synthetic.pt` (6.5 MB) is a TinyCNN trained for 42 epochs on
-the synthetic catalog; it is the default for `tinycnn` / `ensemble` in the demo
-when no `--checkpoint` is given. It knows synthetic renders, not real photos:
+`assets/tinycnn_synthetic.pt` (6.5 MB) is a TinyCNN trained on 8,000 synthetic
+parts; it is the default for `tinycnn` / `ensemble` in the demo when no
+`--checkpoint` is given. It knows synthetic renders, not real photos:
 retrain on your own images with `mcv train`.
 
 Real accuracy on real photos comes from the CLIP / DINOv2 backbones plus
