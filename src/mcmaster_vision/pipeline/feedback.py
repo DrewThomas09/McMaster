@@ -9,6 +9,8 @@ appends a JSON line to ``feedback.jsonl``. "None of these" answers are kept unde
 from __future__ import annotations
 
 import re
+import threading
+import time
 from pathlib import Path
 
 from mcmaster_vision.schemas import Feedback
@@ -30,6 +32,7 @@ class FeedbackStore:
         self.root = Path(queries_dir)
         self.root.mkdir(parents=True, exist_ok=True)
         self.log = self.root / "feedback.jsonl"
+        self._lock = threading.Lock()
 
     def record(
         self,
@@ -47,7 +50,6 @@ class FeedbackStore:
         folder = self.root / (pn or UNKNOWN_DIR)
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{request_id}.{ext}"
-        path.write_bytes(image_bytes)
         fb = Feedback(
             request_id=request_id,
             part_number=part_number.upper() if part_number else None,
@@ -55,18 +57,24 @@ class FeedbackStore:
             tier=tier,
             image_path=str(path.resolve()),
         )
-        with open(self.log, "a", encoding="utf-8") as fh:
-            fh.write(fb.model_dump_json() + "\n")
+        with self._lock:
+            path.write_bytes(image_bytes)
+            with open(self.log, "a", encoding="utf-8") as fh:
+                fh.write(fb.model_dump_json() + "\n")
+                fh.flush()
         return fb
 
     def entries(self) -> list[Feedback]:
+        """All feedback, one entry per request (a re-confirmation replaces the earlier
+        answer, so a corrected tap does not count twice)."""
         if not self.log.exists():
             return []
-        return [
-            Feedback.model_validate_json(ln)
-            for ln in self.log.read_text(encoding="utf-8").splitlines()
-            if ln.strip()
-        ]
+        by_request: dict[str, Feedback] = {}
+        for ln in self.log.read_text(encoding="utf-8").splitlines():
+            if ln.strip():
+                fb = Feedback.model_validate_json(ln)
+                by_request[fb.request_id] = fb
+        return list(by_request.values())
 
     def stats(self) -> dict[str, int]:
         e = self.entries()
@@ -92,3 +100,56 @@ class FeedbackStore:
                 if imgs:
                     out[folder.name] = imgs
         return out
+
+
+class RecentPhotos:
+    """Query photos kept on disk for a while so ``POST /feedback`` can file them under the
+    confirmed part even after a restart or on another worker process. Bounded by count
+    and age; the newest photo wins on a request-id collision."""
+
+    def __init__(self, root: str | Path, *, keep: int = 500, max_age_s: float = 7 * 86400):
+        self.root = Path(root)
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.keep = keep
+        self.max_age_s = max_age_s
+        self._lock = threading.Lock()
+        self._writes = 0
+
+    def _path(self, request_id: str) -> Path:
+        return self.root / f"{safe_segment(request_id, 'request_id')}.bin"
+
+    def put(self, request_id: str, data: bytes) -> None:
+        p = self._path(request_id)
+        tmp = p.with_suffix(".tmp")
+        with self._lock:
+            tmp.write_bytes(data)
+            tmp.replace(p)
+            self._writes += 1
+            if self._writes % 50 == 0:
+                self.prune()
+
+    def get(self, request_id: str) -> bytes | None:
+        try:
+            p = self._path(request_id)
+        except ValueError:
+            return None
+        return p.read_bytes() if p.exists() else None
+
+    def prune(self) -> int:
+        """Drop photos older than ``max_age_s`` and all but the newest ``keep``."""
+        files = sorted(
+            (f for f in self.root.glob("*.bin")), key=lambda f: f.stat().st_mtime, reverse=True
+        )
+        now = time.time()
+        removed = 0
+        for i, f in enumerate(files):
+            if i >= self.keep or now - f.stat().st_mtime > self.max_age_s:
+                try:
+                    f.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+        return removed
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self.root.glob("*.bin"))

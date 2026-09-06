@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
@@ -23,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 
 from mcmaster_vision import __version__
 from mcmaster_vision.config import Settings
-from mcmaster_vision.pipeline.feedback import FeedbackStore
+from mcmaster_vision.pipeline.feedback import FeedbackStore, RecentPhotos
 from mcmaster_vision.pipeline.identify import Identifier, load_identifier
 from mcmaster_vision.pipeline.requestlog import RequestLog
 from mcmaster_vision.schemas import Feedback, IdentificationResult, IndexStats, Part
@@ -34,7 +35,6 @@ STATIC = Path(__file__).parent / "static"
 
 def create_app(settings: Settings | None = None, identifier: Identifier | None = None) -> FastAPI:
     settings = settings or Settings()
-    _recent: dict[str, bytes] = {}  # request_id -> first photo (bounded, in-memory)
     app = FastAPI(title="McMaster-Vision", version=__version__, description=__doc__)
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     if settings.cors_origins:
@@ -51,6 +51,13 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     app.state.identifier = identifier
     app.state.feedback = FeedbackStore(settings.queries_dir)
     app.state.requests = RequestLog(settings.data_dir / "logs" / "requests.jsonl")
+    # query photos wait on disk (not in memory) so a confirmation still lands after a
+    # restart, a redeploy, or on a different worker process
+    app.state.recent = RecentPhotos(settings.data_dir / "cache" / "recent")
+    app.state.started_at = time.time()
+    app.state.index_mtime: float | None = None
+    app.state.last_index_check = 0.0
+    index_meta = settings.index_path / "meta.json"
 
     from mcmaster_vision.api.ratelimit import RateLimiter
 
@@ -71,12 +78,38 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         if not limiter.allow(client):
             raise HTTPException(429, "rate limit exceeded; try again in a minute")
 
+    def _load() -> Identifier:
+        ident = load_identifier(settings)
+        app.state.index_mtime = index_meta.stat().st_mtime if index_meta.exists() else None
+        app.state.last_index_check = time.time()
+        return ident
+
+    def _maybe_reload() -> None:
+        """Pick up a rebuilt index (``mcv build-index`` / ``mcv retrain`` / ``mcv restore``)
+        without a restart or a token: the on-disk meta.json is polled at most every 15 s."""
+        now = time.time()
+        if now - app.state.last_index_check < 15:
+            return
+        app.state.last_index_check = now
+        try:
+            mtime = index_meta.stat().st_mtime if index_meta.exists() else None
+        except OSError:
+            return
+        if mtime and app.state.index_mtime and mtime > app.state.index_mtime:
+            try:
+                app.state.identifier = _load()
+                log.info("index changed on disk; reloaded")
+            except Exception:  # keep serving the old index
+                log.exception("auto-reload failed; still serving the previous index")
+
     def get_identifier() -> Identifier:
         if app.state.identifier is None:
             try:
-                app.state.identifier = load_identifier(settings)
+                app.state.identifier = _load()
             except FileNotFoundError as e:
                 raise HTTPException(503, f"index not built yet: {e}") from e
+        elif settings.auto_reload:
+            _maybe_reload()
         return app.state.identifier
 
     @app.on_event("startup")
@@ -85,7 +118,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         nothing is built yet the endpoints report 503 until `mcv bootstrap` runs."""
         if app.state.identifier is None and settings.warm_up:
             try:
-                app.state.identifier = load_identifier(settings)
+                app.state.identifier = _load()
                 log.info("identifier ready: %s", app.state.identifier.index.stats().model_dump())
             except FileNotFoundError as e:
                 log.warning("not ready: %s", e)
@@ -116,6 +149,13 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             "parts": len(set(ident.index.ids)) if ident else None,
             "demo_mode": settings.demo_mode,
             "secure": False,  # the client checks window.isSecureContext itself
+            "uptime_s": round(time.time() - app.state.started_at, 1),
+            "requests_total": app.state.requests.total,
+            "index_backbone_mismatch": bool(
+                ident
+                and ident.index.meta.get("backbone")
+                and ident.index.meta.get("backbone") != ident.embedder.version
+            ),
         }
 
     @app.get("/status")
@@ -126,21 +166,51 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         out["loaded"] = app.state.identifier is not None
         return out
 
+    def check_admin(request: Request) -> None:
+        token = settings.api_token
+        if token and request.headers.get("x-api-token") != token:
+            raise HTTPException(401, "bad or missing X-API-Token")
+
     @app.post("/admin/reload")
     def reload(request: Request) -> dict:
         """Re-open the catalog and index after `mcv build-index` without restarting.
         Protected by MCV_API_TOKEN (header X-API-Token) when that is set."""
-        token = settings.api_token
-        if token and request.headers.get("x-api-token") != token:
-            raise HTTPException(401, "bad or missing X-API-Token")
+        check_admin(request)
         try:
-            app.state.identifier = load_identifier(settings)
+            app.state.identifier = _load()
         except FileNotFoundError as e:
             raise HTTPException(503, f"index not built yet: {e}") from e
         return {
             "reloaded": True,
             "index": app.state.identifier.index.stats().model_dump(mode="json"),
         }
+
+    @app.post("/admin/backup")
+    async def backup(request: Request) -> dict:
+        """Bundle catalog, index, calibration, confirmed photos, logs and manifest into
+        ``data/backups/mcv-<timestamp>.tar.gz`` (same as ``mcv backup``)."""
+        check_admin(request)
+        from mcmaster_vision.pipeline.backup import create_backup, read_inventory
+
+        path = await run_in_threadpool(create_backup, settings)
+        inv = read_inventory(path)
+        return {
+            "path": str(path),
+            "bytes": path.stat().st_size,
+            "components": sorted(inv["components"]),
+            "created_at": inv["created_at"],
+        }
+
+    @app.get("/admin/backups")
+    def list_backups(request: Request) -> list[dict]:
+        check_admin(request)
+        root = settings.data_dir / "backups"
+        if not root.exists():
+            return []
+        out = []
+        for f in sorted(root.glob("*.tar.gz"), reverse=True):
+            out.append({"path": str(f), "bytes": f.stat().st_size, "mtime": f.stat().st_mtime})
+        return out
 
     @app.get("/stats", response_model=IndexStats)
     def stats(ident: Identifier = Depends(get_identifier)) -> IndexStats:
@@ -200,14 +270,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 constraints=cons,
                 tta=tta,
             )
-        except OSError as e:
+        except (OSError, ValueError) as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
         if log:
             app.state.requests.log(result)
-        # keep the first photo briefly so /feedback can file it under the confirmed part
-        _recent[result.request_id] = blobs[0]
-        if len(_recent) > 200:
-            _recent.pop(next(iter(_recent)))
+            # keep the first photo so /feedback can file it under the confirmed part
+            app.state.recent.put(result.request_id, blobs[0])
         return result
 
     @app.post("/feedback", response_model=Feedback)
@@ -221,7 +289,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         file: UploadFile | None = File(None, description="Photo, if the server no longer holds it"),
         ident: Identifier = Depends(get_identifier),
     ) -> Feedback:
-        data = _recent.get(request_id)
+        data = app.state.recent.get(request_id)
         if data is None and file is not None:
             data = await file.read()
         if not data:
@@ -268,10 +336,11 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 res = await run_in_threadpool(
                     identify_gated, ident.identify_bytes, data, top_n=top_n
                 )
-            except OSError:
+            except (OSError, ValueError):
                 rows.append({"file": u.filename, "error": "could not decode image"})
                 continue
             app.state.requests.log(res)
+            app.state.recent.put(res.request_id, data)
             rows.append(
                 {
                     "file": u.filename,

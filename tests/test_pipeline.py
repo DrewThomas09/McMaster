@@ -208,7 +208,9 @@ def test_fit_thresholds_meets_precision_targets():
     assert cal.likely_threshold <= cal.exact_threshold
     # answers above the exact threshold are >= 90% correct on this set
     above = [
-        c == 0 for s, c in zip(scores, correct) if cal.probabilities(s)[0] >= cal.exact_threshold
+        c == 0
+        for s, c in zip(scores, correct, strict=True)
+        if cal.probabilities(s)[0] >= cal.exact_threshold
     ]
     assert above and sum(above) / len(above) >= 0.9
     # with no data, defaults are kept

@@ -106,12 +106,41 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 | `mcv identify-dir photos/ --out results.csv` | batch identification of a bin / drawer / BOM shoot |
 | `MCV_RATE_LIMIT_PER_MINUTE=60` | per-client cap on `/identify`; `MCV_API_TOKEN` protects `/admin/*` |
 | `MCV_MAX_CONCURRENCY=4` | simultaneous identifications (default: CPU count); live previews queue behind real photos |
+| `mcv build-index --with-feedback` | confirmed photos become gallery entries (no training needed) |
+| `mcv backup` / `mcv restore <tar.gz>` | one archive of everything learned at run time; see section 4c |
+| `POST /admin/backup`, `GET /admin/backups` | the same from the API (token-protected) |
 
 Nightly refresh (cron):
 
 ```
+0 2 * * *  cd /srv/mcmaster-vision && mcv backup >> data/logs/backup.log 2>&1
 0 3 * * *  cd /srv/mcmaster-vision && mcv retrain --epochs 8 --reload-url http://localhost:8000 >> data/logs/retrain.log 2>&1
 ```
+
+## 4c. Nothing gets lost
+
+Everything the system learns while running is on disk and covered by one command:
+
+| state | where | written by |
+|---|---|---|
+| catalog | `data/catalog.sqlite` (WAL) | `mcv ingest` / `import-web` / `bootstrap` |
+| vector index | `data/index/parts/` (atomic swap) | `mcv build-index` / `retrain` |
+| calibration | `data/models/calibration.json` | `mcv evaluate --fit-calibration` / `retrain` |
+| confirmed photos | `data/queries/<part>/`, `feedback.jsonl` | `POST /feedback` (a re-confirmation replaces the earlier answer) |
+| request log | `data/logs/requests.jsonl` | `POST /identify`; reloaded at boot so `/metrics` keeps its history |
+| recent query photos | `data/cache/recent/` (7 days / 500) | `POST /identify`; lets a confirmation land after a restart or on another worker |
+| manifest | `data/manifest.json` | every build |
+
+```bash
+mcv backup                         # data/backups/mcv-<timestamp>.tar.gz (+ BACKUP.json inventory)
+mcv backup --out /mnt/nas/mcv/     # elsewhere
+mcv restore data/backups/mcv-20260906T120000Z.tar.gz          # everything
+mcv restore backup.tar.gz --only queries --only calibration    # just some of it
+```
+
+Restores are atomic per component (extract, then swap). The running API notices a
+restored or rebuilt index within 15 s (`MCV_AUTO_RELOAD`, on by default) so no restart
+and no token are needed. Add `mcv backup` before the nightly `retrain` in cron.
 
 ## 5. Checks before going live
 
@@ -119,5 +148,5 @@ Nightly refresh (cron):
 mcv status                                  # ready: true, index backbone == settings backbone
 mcv evaluate --max-queries 500              # synthetic-photo recall on the real gallery
 mcv identify some_real_photo.jpg            # end-to-end on one photo
-pytest                                      # 79 tests incl. a real browser run of the UI
+python3 -m pytest -q                        # 105 tests incl. a real browser run of the UI
 ```

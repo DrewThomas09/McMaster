@@ -182,7 +182,7 @@ def dashboard(request: Request) -> str:
             f'<tr><td><span class="tier {e(t)}">{e(t)}</span></td><td>{n}</td>'
             f'<td style="width:50%"><div class="bar"><i style="width:{width}"></i></div></td></tr>'
         )
-    recent = list(request.app.state.requests._recent)[-15:][::-1]
+    recent = request.app.state.requests.recent(15)
     recent_rows = ""
     for r in recent:
         when = e(str(r.get("created_at", ""))[11:19])

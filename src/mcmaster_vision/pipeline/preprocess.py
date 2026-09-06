@@ -30,9 +30,25 @@ def _enable_heif() -> None:
     _HEIF_READY = True
 
 
-def decode_image(data: bytes) -> Image.Image:
+MAX_PIXELS = 50_000_000  # a 40 MP phone photo is ~48 MP; anything larger is not a photo
+
+
+def decode_image(data: bytes, max_side: int = 2048) -> Image.Image:
+    """Decode an upload into RGB, rejecting decompression bombs and letting JPEG decode
+    straight to a reduced size (``draft``), which is several times faster for a 12 MP
+    phone photo that is about to be resized anyway."""
     _enable_heif()
     img = Image.open(io.BytesIO(data))
+    if img.width * img.height > MAX_PIXELS:
+        raise ValueError(f"image too large: {img.width}x{img.height}")
+    if img.format == "JPEG" and max(img.size) > 2 * max_side:
+        w, h = img.size  # draft keeps both sides >= the request, so ask in the photo's aspect
+        target = (
+            (max_side, max(1, max_side * h // w))
+            if w >= h
+            else (max(1, max_side * w // h), max_side)
+        )
+        img.draft("RGB", target)
     img.load()
     return ImageOps.exif_transpose(img).convert("RGB")
 

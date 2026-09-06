@@ -24,6 +24,25 @@ class RequestLog:
         self._recent: deque[dict] = deque(maxlen=keep)
         self._lock = threading.Lock()
         self.total = 0
+        self._load()
+
+    def _load(self) -> None:
+        """Warm the window from the file so /metrics survives a restart."""
+        if not self.path.exists():
+            return
+        try:
+            with open(self.path, encoding="utf-8") as fh:
+                for ln in fh:
+                    ln = ln.strip()
+                    if not ln:
+                        continue
+                    try:
+                        self._recent.append(json.loads(ln))
+                    except json.JSONDecodeError:
+                        continue
+                    self.total += 1
+        except OSError:
+            return
 
     def log(self, res: IdentificationResult) -> None:
         row = {
@@ -41,6 +60,12 @@ class RequestLog:
             self.total += 1
             with open(self.path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row) + "\n")
+                fh.flush()
+
+    def recent(self, n: int = 50) -> list[dict]:
+        with self._lock:
+            rows = list(self._recent)
+        return rows[-n:][::-1]
 
     def summary(self, feedback=None) -> dict:
         with self._lock:

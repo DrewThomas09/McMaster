@@ -220,8 +220,27 @@ def build_index(
     only_new: bool = False,
     workers: int = 1,
     settings_dump: dict | None = None,
+    extra_images: dict[str, list[str]] | None = None,
 ) -> VectorIndex:
+    """``extra_images`` maps part numbers to additional gallery photos (confirmed real
+    photos from the feedback store): they are embedded next to the catalog renders, so
+    a part photographed once is found again from the same angle."""
     parts = list(store.iter_parts(with_images_only=True))
+    n_extra = 0
+    if extra_images:
+        known = {p.part_number for p in parts}
+        for i, part in enumerate(parts):
+            more = [x for x in extra_images.get(part.part_number, []) if Path(x).exists()]
+            if more:
+                parts[i] = part.model_copy(update={"image_paths": [*part.image_paths, *more]})
+                n_extra += len(more)
+        for pn, paths in extra_images.items():  # parts that have photos but no catalog image
+            if pn not in known:
+                part = store.get(pn)
+                paths = [x for x in paths if Path(x).exists()]
+                if part is not None and paths:
+                    parts.append(part.model_copy(update={"image_paths": paths}))
+                    n_extra += len(paths)
     total = len(parts)
     existing: VectorIndex | None = None
     if only_new and out_path and (Path(out_path) / "meta.json").exists():
@@ -274,6 +293,7 @@ def build_index(
             "gallery_augment": gallery_augment,
             "built_at": datetime.now(timezone.utc).isoformat(),
             "parts": len(set(index.ids)),
+            "extra_images": n_extra + int(existing.meta.get("extra_images", 0) if existing else 0),
         }
     )
     if out_path:

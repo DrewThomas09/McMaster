@@ -427,7 +427,7 @@ def retrain(
                 "backbone_pretrained": cfg.get("backbone_pretrained", s.backbone_pretrained),
             }
         )
-        typer.echo("2/3 rebuilding index ...")
+        typer.echo("2/3 rebuilding index (catalog renders + confirmed photos) ...")
         embedder = PartEmbedder(load_backbone(s))
         idx = build_index(
             store,
@@ -436,6 +436,7 @@ def retrain(
             out_path=s.index_path,
             image_size=s.image_size,
             gallery_augment=s.index_gallery_augment,
+            extra_images=extra or None,
         )
         typer.echo("3/3 evaluating + calibrating ...")
         ident = Identifier(
@@ -469,6 +470,50 @@ def retrain(
             timeout=120,
         )
         typer.echo(f"reload -> {r.status_code}")
+
+
+@app.command()
+def backup(
+    config: Path | None = _config_opt,
+    out: Path | None = typer.Option(
+        None, help="Archive path or directory (default data/backups/mcv-<timestamp>.tar.gz)"
+    ),
+    no_checkpoint: bool = typer.Option(False, help="Leave the model checkpoint out"),
+) -> None:
+    """Bundle catalog, index, calibration, confirmed photos, logs and manifest into one tar.gz."""
+    from mcmaster_vision.pipeline.backup import create_backup, read_inventory
+
+    s = _settings(config)
+    path = create_backup(s, out, include_checkpoint=not no_checkpoint)
+    inv = read_inventory(path)
+    total = sum(c["bytes"] for c in inv["components"].values())
+    for name, c in inv["components"].items():
+        typer.echo(f"  {name:12s} {c['bytes'] / 1e6:8.1f} MB  {c['source']}")
+    typer.echo(f"{path}  ({path.stat().st_size / 1e6:.1f} MB compressed, {total / 1e6:.1f} MB raw)")
+
+
+@app.command()
+def restore(
+    archive: Path = typer.Argument(..., exists=True, help="A backup written by `mcv backup`"),
+    config: Path | None = _config_opt,
+    only: list[str] | None = typer.Option(
+        None, help="Restore just these components (catalog, index, calibration, queries, ...)"
+    ),
+    list_only: bool = typer.Option(False, "--list", help="Show what the archive holds and exit"),
+) -> None:
+    """Put a backup back in place (the running API picks the index up automatically)."""
+    from mcmaster_vision.pipeline.backup import read_inventory, restore_backup
+
+    inv = read_inventory(archive)
+    typer.echo(f"backup from {inv.get('created_at')} (version {inv.get('version')}):")
+    for name, c in inv["components"].items():
+        typer.echo(f"  {name:12s} {c['bytes'] / 1e6:8.1f} MB")
+    if list_only:
+        return
+    s = _settings(config)
+    res = restore_backup(s, archive, components=only or None)
+    for name, dest in res["restored"].items():
+        typer.echo(f"restored {name} -> {dest}")
 
 
 @app.command("review-unknowns")
@@ -652,6 +697,11 @@ def build_index_cmd(
     gallery_augment: int | None = typer.Option(
         None, help="Photo-style variants per catalog image (default from config)"
     ),
+    with_feedback: bool = typer.Option(
+        False,
+        "--with-feedback",
+        help="Also embed confirmed photos from the feedback store as gallery images",
+    ),
 ) -> None:
     """Embed every catalog image and write the vector index."""
     import time
@@ -659,10 +709,20 @@ def build_index_cmd(
     from mcmaster_vision.catalog import CatalogStore
     from mcmaster_vision.index import build_index
     from mcmaster_vision.models import PartEmbedder, load_backbone
+    from mcmaster_vision.pipeline.feedback import FeedbackStore
     from mcmaster_vision.pipeline.manifest import update_manifest
 
     s = _settings(config, index_backend=None if backend in (None, "auto") else backend)
     ga = s.index_gallery_augment if gallery_augment is None else gallery_augment
+    extra = FeedbackStore(s.queries_dir).labelled_images() if with_feedback else None
+    if extra:
+        typer.echo(
+            f"including {sum(len(v) for v in extra.values())} confirmed photos of {len(extra)} parts"
+        )
+        if only_new:
+            typer.echo(
+                "note: --only-new skips parts already indexed; photos for those are not added"
+            )
     embedder = PartEmbedder(load_backbone(s))
     t = time.time()
     with CatalogStore(s.catalog_db) as store:
@@ -677,6 +737,7 @@ def build_index_cmd(
             only_new=only_new,
             workers=workers,
             settings_dump=s.model_dump(mode="json"),
+            extra_images=extra,
             progress=lambda d, t: typer.echo(f"  {d}/{t} parts embedded"),
         )
     stats = idx.stats()

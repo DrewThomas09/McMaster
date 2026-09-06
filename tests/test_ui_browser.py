@@ -84,18 +84,17 @@ def test_take_photo_flow(server, store, tmp_path):
         page.fill("#q", part.part_number)
         page.click("#searchform button")
         page.wait_for_function(
-            "document.querySelectorAll('#results .cand').length >= 1 && document.body.innerText.includes('%s')"
-            % part.part_number,
+            "document.querySelectorAll('#results .cand').length >= 1 && "
+            f"document.body.innerText.includes('{part.part_number}')",
             timeout=30000,
         )
         # paste path: clipboard image -> identify
         page.evaluate(
-            """async () => {
-                const r = await fetch('/parts/%s/image'); const blob = await r.blob();
-                const dt = new DataTransfer(); dt.items.add(new File([blob], 'shot.png', {type: 'image/png'}));
-                window.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt}));
-            }"""
-            % part.part_number
+            "async () => {"
+            f"const r = await fetch('/parts/{part.part_number}/image'); const blob = await r.blob();"
+            "const dt = new DataTransfer(); dt.items.add(new File([blob], 'shot.png', {type: 'image/png'}));"
+            "window.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt}));"
+            "}"
         )
         page.wait_for_function("document.querySelectorAll('.cand').length >= 1", timeout=30000)
         browser.close()

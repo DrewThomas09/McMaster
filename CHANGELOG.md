@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1
+
+- Nothing gets lost: query photos wait on disk so a confirmation lands after a restart or
+  on another worker; the request log reloads at boot; feedback re-confirmations replace
+  instead of double-counting; `mcv backup` / `mcv restore` (+ `POST /admin/backup`,
+  `GET /admin/backups`) bundle catalog, index, calibration, photos, logs and manifest.
+- `mcv build-index --with-feedback` and `mcv retrain` embed confirmed photos as gallery
+  entries, so a part photographed once is found again from that angle without training.
+- The API picks up a rebuilt or restored index automatically (`MCV_AUTO_RELOAD`).
+- Uploads: decompression-bomb guard and reduced-scale JPEG decoding (faster for 12 MP photos);
+  `/health` reports uptime, requests served and index/backbone mismatch.
+
 ## 0.3.0
 
 - McMaster-inspired theme (dark-green header, yellow selection, dense spec tables) across the app and all pages; clearly labelled unofficial.
