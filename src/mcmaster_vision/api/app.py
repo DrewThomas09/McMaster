@@ -38,6 +38,15 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     app.state.feedback = FeedbackStore(settings.queries_dir)
     app.state.requests = RequestLog(settings.data_dir / "logs" / "requests.jsonl")
 
+    from mcmaster_vision.api.ratelimit import RateLimiter
+
+    limiter = RateLimiter(settings.rate_limit_per_minute)
+
+    def check_rate(request: Request) -> None:
+        client = request.client.host if request.client else "unknown"
+        if not limiter.allow(client):
+            raise HTTPException(429, "rate limit exceeded; try again in a minute")
+
     def get_identifier() -> Identifier:
         if app.state.identifier is None:
             try:
@@ -112,6 +121,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 raise ValueError("constraints must be a JSON object")
         except ValueError as e:
             raise HTTPException(400, f"bad constraints: {e}") from e
+        check_rate(request)
         uploads = [u for u in ([file] if file else []) + (files or []) if u is not None]
         if not uploads:
             raise HTTPException(400, "upload at least one image as 'file' or 'files'")
@@ -174,6 +184,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     @app.post("/identify/batch")
     async def identify_batch(
+        request: Request,
         files: list[UploadFile] = File(
             ..., description="One photo per part (a bin, a drawer, a BOM)"
         ),
@@ -183,6 +194,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         """Identify many *different* parts in one call; returns one row per photo."""
         if len(files) > 200:
             raise HTTPException(400, "at most 200 photos per batch")
+        check_rate(request)
         rows = []
         for u in files:
             data = await u.read()

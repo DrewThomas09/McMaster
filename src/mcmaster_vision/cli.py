@@ -250,6 +250,230 @@ def status(config: Path | None = _config_opt) -> None:
     typer.echo(json.dumps(_status(_settings(config)), indent=2, default=str))
 
 
+@app.command()
+def doctor(config: Path | None = _config_opt) -> None:
+    """Check the environment: optional dependencies, checkpoint, index/backbone match, disk, GPU."""
+    import importlib
+    import shutil
+
+    s = _settings(config)
+    checks: list[tuple[str, bool, str]] = []
+
+    def dep(name: str, extra: str) -> None:
+        try:
+            importlib.import_module(name)
+            checks.append((f"{name}", True, "installed"))
+        except ImportError:
+            checks.append((f"{name}", False, f"pip install -e '.[{extra}]'"))
+
+    for name, extra in (
+        ("torch", "ml"),
+        ("open_clip", "ml"),
+        ("timm", "ml"),
+        ("faiss", "faiss"),
+        ("easyocr", "ocr"),
+        ("anthropic", "llm"),
+        ("rembg", "segment"),
+        ("pillow_heif", "heic"),
+    ):
+        dep(name, extra)
+    try:
+        import torch
+
+        checks.append(
+            (
+                "cuda",
+                torch.cuda.is_available(),
+                f"{torch.cuda.device_count()} GPU(s)" if torch.cuda.is_available() else "CPU only",
+            )
+        )
+    except ImportError:
+        pass
+    if s.backbone in ("tinycnn", "ensemble", "openclip", "dinov2"):
+        ok = s.backbone_checkpoint is not None and Path(s.backbone_checkpoint).exists()
+        checks.append(
+            (
+                "checkpoint",
+                ok,
+                str(s.backbone_checkpoint)
+                if s.backbone_checkpoint
+                else "MCV_BACKBONE_CHECKPOINT unset (pretrained / random weights)",
+            )
+        )
+    checks.append(("catalog", s.catalog_db.exists(), str(s.catalog_db)))
+    meta = s.index_path / "meta.json"
+    checks.append(("index", meta.exists(), str(s.index_path)))
+    if meta.exists() and s.catalog_db.exists():
+        built_with = json.loads(meta.read_text()).get("backbone")
+        try:
+            from mcmaster_vision.models import load_backbone
+
+            current = load_backbone(s).version
+            checks.append(
+                (
+                    "index/backbone match",
+                    built_with == current,
+                    f"index={built_with} settings={current}",
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            checks.append(("backbone loads", False, str(e)[:120]))
+    checks.append(
+        (
+            "calibration",
+            (s.model_dir / "calibration.json").exists(),
+            "run mcv evaluate --fit-calibration"
+            if not (s.model_dir / "calibration.json").exists()
+            else "fitted",
+        )
+    )
+    free_gb = shutil.disk_usage(s.data_dir if s.data_dir.exists() else Path(".")).free / 1e9
+    checks.append(("disk", free_gb > 5, f"{free_gb:.1f} GB free under {s.data_dir}"))
+    if s.rerank_llm_enabled:
+        import os
+
+        checks.append(
+            (
+                "ANTHROPIC_API_KEY",
+                bool(os.environ.get("ANTHROPIC_API_KEY")),
+                "needed for the vision reranker",
+            )
+        )
+    width = max(len(c[0]) for c in checks)
+    for name, ok, detail in checks:
+        typer.echo(f"{'OK  ' if ok else 'MISS'} {name.ljust(width)}  {detail}")
+    typer.echo(
+        "ready"
+        if all(ok for n, ok, _ in checks if n in ("catalog", "index"))
+        else "not ready: build the catalog and index (mcv bootstrap)"
+    )
+
+
+@app.command()
+def retrain(
+    config: Path | None = _config_opt,
+    train_config: Path = typer.Option(Path("configs/train_tinycnn.yaml"), help="Training recipe"),
+    epochs: int | None = typer.Option(None),
+    reload_url: str | None = typer.Option(
+        None, help="e.g. http://localhost:8000 - POST /admin/reload after rebuilding"
+    ),
+) -> None:
+    """Scheduled refresh: train on catalog + confirmed photos, rebuild the index, refit calibration, reload the API."""
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.index import build_index
+    from mcmaster_vision.models import PartEmbedder, load_backbone
+    from mcmaster_vision.pipeline import Identifier
+    from mcmaster_vision.pipeline.calibration import Calibration
+    from mcmaster_vision.pipeline.feedback import FeedbackStore
+    from mcmaster_vision.pipeline.manifest import update_manifest
+    from mcmaster_vision.training import evaluate_retrieval
+    from mcmaster_vision.training.train import load_train_config
+    from mcmaster_vision.training.train import train as _train
+
+    s = _settings(config)
+    cfg = load_train_config(train_config)
+    if epochs:
+        cfg["epochs"] = epochs
+    cfg["output_dir"] = str(s.model_dir / "retrain")
+    extra = FeedbackStore(s.queries_dir).labelled_images()
+    typer.echo(
+        f"1/3 training on catalog + {sum(len(v) for v in extra.values())} confirmed photos ..."
+    )
+    with CatalogStore(s.catalog_db) as store:
+        ckpt = _train(store, cfg, extra_images=extra)
+        s = s.model_copy(
+            update={
+                "backbone_checkpoint": ckpt,
+                "backbone": cfg["backbone"],
+                "backbone_pretrained": cfg.get("backbone_pretrained", s.backbone_pretrained),
+            }
+        )
+        typer.echo("2/3 rebuilding index ...")
+        embedder = PartEmbedder(load_backbone(s))
+        idx = build_index(
+            store,
+            embedder,
+            "auto",
+            out_path=s.index_path,
+            image_size=s.image_size,
+            gallery_augment=s.index_gallery_augment,
+        )
+        typer.echo("3/3 evaluating + calibrating ...")
+        ident = Identifier(store, idx, embedder, top_k=s.index_top_k, image_size=s.image_size)
+        rep = evaluate_retrieval(
+            ident, store, query_dir=s.queries_dir if extra else None, max_queries=500
+        )
+        cal = Calibration.fit_temperature(rep.score_lists, rep.correct_idx).fit_thresholds(
+            rep.score_lists, rep.correct_idx
+        )
+        cal.save(s.model_dir / "calibration.json")
+    update_manifest(
+        s,
+        checkpoint=str(ckpt),
+        index=idx.stats().model_dump(mode="json"),
+        retrain_eval=json.loads(rep.to_json()),
+    )
+    typer.echo(
+        f"checkpoint {ckpt}; set MCV_BACKBONE_CHECKPOINT={ckpt}. Recall@1 {rep.recall_at.get(1)} on {rep.queries} queries"
+    )
+    if reload_url:
+        import httpx
+
+        r = httpx.post(
+            reload_url.rstrip("/") + "/admin/reload",
+            headers={"X-API-Token": s.api_token or ""},
+            timeout=120,
+        )
+        typer.echo(f"reload -> {r.status_code}")
+
+
+@app.command("review-unknowns")
+def review_unknowns(
+    config: Path | None = _config_opt,
+    out: Path = typer.Option(Path("unknowns_review.html")),
+    top_n: int = typer.Option(5),
+) -> None:
+    """Contact sheet of 'none of these' photos with their current top candidates, for labelling."""
+    import base64
+    import html
+
+    from mcmaster_vision.pipeline import load_identifier
+    from mcmaster_vision.pipeline.feedback import UNKNOWN_DIR
+
+    s = _settings(config)
+    folder = s.queries_dir / UNKNOWN_DIR
+    photos = (
+        sorted(
+            p for p in folder.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+        )
+        if folder.exists()
+        else []
+    )
+    if not photos:
+        typer.echo("no unknown photos to review")
+        return
+    ident = load_identifier(s)
+    rows = []
+    for photo in photos:
+        res = ident.identify_path(photo, top_n=top_n)
+        b64 = base64.b64encode(photo.read_bytes()).decode()
+        cands = "".join(
+            f"<li><b>{html.escape(c.part_number)}</b> {html.escape(c.name)} ({c.confidence:.0%})</li>"
+            for c in res.candidates
+        )
+        rows.append(
+            f"<tr><td><img src='data:image/jpeg;base64,{b64}' width='160'><br>{html.escape(photo.name)}</td><td>{html.escape(res.tier.value)}<ol>{cands}</ol>"
+            f"<p>label: <code>mv {html.escape(str(photo))} {html.escape(str(s.queries_dir))}/&lt;PART_NUMBER&gt;/</code></p></td></tr>"
+        )
+    out.write_text(
+        "<html><body><h1>Unlabelled photos</h1><table border=1 cellpadding=8>"
+        + "".join(rows)
+        + "</table></body></html>",
+        encoding="utf-8",
+    )
+    typer.echo(f"{len(photos)} photos -> {out}")
+
+
 @app.command("import-web")
 def import_web(
     items: list[str] = typer.Argument(None, help="Part numbers or product URLs"),

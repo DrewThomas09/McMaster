@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     api_port: int = 8000
     max_upload_mb: int = 20
     api_token: str | None = None  # protects /admin/* when set (header X-API-Token)
+    rate_limit_per_minute: int = Field(
+        default=0, ge=0, description="Per-client cap on /identify calls (0 = off)"
+    )
 
     @property
     def index_path(self) -> Path:
