@@ -112,6 +112,13 @@ class CatalogStore:
                         for p in batch
                     ],
                 )
+        from datetime import datetime, timezone
+
+        self._conn.execute(
+            "INSERT OR REPLACE INTO meta VALUES ('updated_at', ?)",
+            (datetime.now(timezone.utc).isoformat(),),
+        )
+        self._conn.commit()
         return len(batch)
 
     def set_meta(self, key: str, value: str) -> None:

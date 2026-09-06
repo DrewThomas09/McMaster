@@ -62,6 +62,7 @@ def status(settings: Settings) -> dict[str, Any]:
                 "parts": n,
                 "parts_with_images": with_images,
                 "index_backbone": store.get_meta("index_backbone"),
+                "updated_at": store.get_meta("updated_at"),
             }
     else:
         out["catalog"] = None
@@ -73,4 +74,8 @@ def status(settings: Settings) -> dict[str, Any]:
         FeedbackStore(settings.queries_dir).stats() if settings.queries_dir.exists() else None
     )
     out["ready"] = bool(out["catalog"] and out["index"])
+    # the catalog changed after the index was built -> parts missing from search
+    cat_updated = out["catalog"].get("updated_at") if out.get("catalog") else None
+    built = out["index"].get("built_at") if out.get("index") else None
+    out["index_stale"] = bool(cat_updated and built and cat_updated > built)
     return out

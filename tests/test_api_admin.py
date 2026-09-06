@@ -41,3 +41,32 @@ def test_startup_warm_up_loads_identifier(identifier, demo_dir, tmp_path):
         assert client.get("/health").json()["ready"] is True
         assert client.get("/stats").json()["parts"] == 40
     assert get_app().title == "McMaster-Vision"
+
+
+def test_status_flags_stale_index(identifier, demo_dir, tmp_path):
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.schemas import Part
+
+    identifier.index.save(tmp_path / "index" / "parts")
+    db = tmp_path / "c.sqlite"
+    with CatalogStore(db) as st:
+        st.upsert(list(identifier.store.iter_parts()))
+    s = Settings(
+        catalog_db=db,
+        index_dir=tmp_path / "index",
+        model_dir=tmp_path / "m",
+        data_dir=tmp_path,
+        queries_dir=tmp_path / "q",
+    )
+    client = TestClient(create_app(s, identifier=identifier))
+    assert client.get("/status").json()["index_stale"] is True  # catalog written after the index
+    from datetime import datetime, timezone
+
+    identifier.index.meta["built_at"] = datetime.now(
+        timezone.utc
+    ).isoformat()  # a rebuild stamps a new time
+    identifier.index.save(tmp_path / "index" / "parts")
+    assert client.get("/status").json()["index_stale"] is False
+    with CatalogStore(db) as st:
+        st.upsert([Part(part_number="LATER1", name="x")])
+    assert client.get("/status").json()["index_stale"] is True

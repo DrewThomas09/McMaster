@@ -318,6 +318,22 @@ def doctor(config: Path | None = _config_opt) -> None:
             )
         except Exception as e:  # noqa: BLE001
             checks.append(("backbone loads", False, str(e)[:120]))
+    if meta.exists() and s.catalog_db.exists():
+        from mcmaster_vision.catalog import CatalogStore
+
+        with CatalogStore(s.catalog_db) as store:
+            updated = store.get_meta("updated_at")
+        built = json.loads(meta.read_text()).get("built_at")
+        stale = bool(updated and built and updated > built)
+        checks.append(
+            (
+                "index up to date",
+                not stale,
+                "catalog changed after the index was built: run mcv build-index --only-new"
+                if stale
+                else "index newer than catalog",
+            )
+        )
     checks.append(
         (
             "calibration",
