@@ -454,8 +454,9 @@ function render(res) {
     : `<div class="family">${esc(n)} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear filters</button></div>`;
   if (res.family) {
     const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(label(k))}:</span> ${v.map(val => `<button type="button" onclick="refine(${js(k)}, ${js(val)})">${esc(val)}</button>`).join('')}</div>`).join('');
-    const sizeKeys = Object.keys(res.family.distinguishing_attributes).filter(k => /length|pipe_size|^od$|diameter|width|thread_size/i.test(k));
-    const nudge = (sizeKeys.length && !scale) ? `<div class="crumbs" style="margin-top:6px">These differ by ${sizeKeys.map(k => esc(label(k))).join(' / ')}: put a coin next to the part and tap <b>Measure</b> (or pick the coin above) to let the photo decide.</div>` : '';
+    const sizeKeys = Object.keys(res.family.distinguishing_attributes).filter(k => /length|pipe_size|^od$|diameter|width|thread_size|wall|schedule/i.test(k));
+    const boreKeys = sizeKeys.filter(k => /pipe_size|wall|schedule/i.test(k));
+    const nudge = (sizeKeys.length && !scale) ? `<div class="crumbs" style="margin-top:6px">These differ by ${sizeKeys.map(k => esc(label(k))).join(' / ')}: put a coin next to the part and tap <b>Measure</b> (or pick the coin above) to let the photo decide.${boreKeys.length ? ' For a fitting, photograph its open end: the bore tells the size and the wall apart.' : ''}</div>` : '';
     html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' Tap what you can read off the part:' + diffs : ''}${nudge}</div>`;
   }
   if (Object.keys(res.constraints || {}).length) html += `<div class="family">Filtered by ${Object.entries(res.constraints).map(([k, v]) => `<b>${esc(k)}</b> = ${esc(v)}`).join(', ')} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear</button></div>`;
