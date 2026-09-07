@@ -24,6 +24,12 @@ services:
       - ../data:/data
     expose: ["8000"]
     restart: unless-stopped
+    healthcheck:  # /health is cheap and reports ready: true once the index is loaded
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   caddy:
     image: caddy:2
