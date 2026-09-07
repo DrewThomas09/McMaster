@@ -103,6 +103,7 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 
 | command | purpose |
 |---|---|
+| `mcv selfcheck` | one command on a fresh machine: environment, build, identify, coin + measure, feedback, backup, restore; PASS/FAIL per step |
 | `mcv doctor` (`--json`) | optional deps, GPU, checkpoint, index/backbone match, index freshness, calibration, disk |
 | `mcv status` / `GET /status` | what is built, from what, and how well it measured |
 | `GET /metrics` | request volume, tier mix, latency p50/p95, confirmed top-1 rate |

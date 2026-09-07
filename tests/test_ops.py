@@ -140,3 +140,11 @@ def test_serve_refuses_a_busy_port(monkeypatch):
         with pytest.raises(SystemExit, match=f"port {port} is already in use"):
             run(Settings(), host="127.0.0.1", port=port)
     assert port_in_use("127.0.0.1", port) is None
+
+
+def test_selfcheck_passes_end_to_end(tmp_path):
+    r = CliRunner().invoke(app, ["selfcheck", "--data-dir", str(tmp_path / "sc"), "--parts", "30"])
+    assert r.exit_code == 0, r.output
+    assert "ALL PASS" in r.output and r.output.count("PASS") >= 8
+    assert "FAIL" not in r.output.replace("FAILED", "")
+    assert (tmp_path / "sc" / "backups").exists()

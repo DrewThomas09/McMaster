@@ -314,6 +314,7 @@ of catalog, index, calibration, confirmed photos, logs and manifest, and
 ## Development
 
 ```bash
+mcv selfcheck  # proves this machine can run everything (build, identify, measure, backup)
 make lint      # ruff
 make test      # pytest (uses the synthetic catalog; no network, no GPU)
 docker compose up api                          # serve

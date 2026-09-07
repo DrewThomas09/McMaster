@@ -260,10 +260,34 @@ def doctor(
     as_json: bool = typer.Option(False, "--json", help="Machine-readable output"),
 ) -> None:
     """Check the environment: optional dependencies, checkpoint, index/backbone match, disk, GPU."""
+
+    s = _settings(config)
+    checks = _doctor_checks(s)
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks],
+                    "ready": all(ok for n, ok, _ in checks if n in ("catalog", "index")),
+                },
+                indent=2,
+            )
+        )
+        return
+    width = max(len(c[0]) for c in checks)
+    for name, ok, detail in checks:
+        typer.echo(f"{'OK  ' if ok else 'MISS'} {name.ljust(width)}  {detail}")
+    typer.echo(
+        "ready"
+        if all(ok for n, ok, _ in checks if n in ("catalog", "index"))
+        else "not ready: build the catalog and index (mcv bootstrap)"
+    )
+
+
+def _doctor_checks(s: Settings) -> list[tuple[str, bool, str]]:
     import importlib
     import shutil
 
-    s = _settings(config)
     checks: list[tuple[str, bool, str]] = []
 
     def dep(name: str, extra: str) -> None:
@@ -380,25 +404,7 @@ def doctor(
                 "needed for the vision reranker",
             )
         )
-    if as_json:
-        typer.echo(
-            json.dumps(
-                {
-                    "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks],
-                    "ready": all(ok for n, ok, _ in checks if n in ("catalog", "index")),
-                },
-                indent=2,
-            )
-        )
-        return
-    width = max(len(c[0]) for c in checks)
-    for name, ok, detail in checks:
-        typer.echo(f"{'OK  ' if ok else 'MISS'} {name.ljust(width)}  {detail}")
-    typer.echo(
-        "ready"
-        if all(ok for n, ok, _ in checks if n in ("catalog", "index"))
-        else "not ready: build the catalog and index (mcv bootstrap)"
-    )
+    return checks
 
 
 @app.command()
@@ -580,6 +586,139 @@ def _retrain_switches(live: Settings, new_version: str) -> bool:
     except Exception:  # the live backbone cannot even load: anything new is a switch
         return True
     return current != new_version
+
+
+@app.command()
+def selfcheck(
+    data_dir: Path = typer.Option(
+        None, help="Scratch directory for the check (default: a temporary one, removed after)"
+    ),
+    parts: int = typer.Option(60, help="Synthetic parts to build the check catalog from"),
+) -> None:
+    """One command that proves this machine can run the whole thing: environment, build,
+    identify, measure with a coin, feedback, backup, restore. Prints PASS or FAIL per step."""
+    import shutil
+    import tempfile
+    import time
+
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.backup import create_backup, read_inventory, restore_backup
+    from mcmaster_vision.pipeline.feedback import FeedbackStore
+
+    tmp = None
+    if data_dir is None:
+        tmp = tempfile.mkdtemp(prefix="mcv-selfcheck-")
+        data_dir = Path(tmp)
+    results: list[tuple[str, bool, str]] = []
+
+    def step(name: str, fn):
+        t = time.perf_counter()
+        try:
+            detail = fn() or ""
+            results.append((name, True, f"{detail} ({time.perf_counter() - t:.1f}s)"))
+        except Exception as e:  # report, do not abort: every step is informative
+            results.append((name, False, f"{type(e).__name__}: {str(e)[:120]}"))
+        typer.echo(f"{'PASS' if results[-1][1] else 'FAIL'}  {name:28s} {results[-1][2]}")
+
+    state: dict = {}
+
+    def _env():
+        checks = _doctor_checks(_settings(None))
+        missing = [n for n, ok, _ in checks if not ok and n in ("catalog", "index")]
+        return f"{sum(ok for _, ok, _ in checks)}/{len(checks)} checks ok" + (
+            "" if not missing else " (no catalog built yet: fine for a check)"
+        )
+
+    def _build():
+        s = _demo_settings(
+            data_dir, backbone=_best_offline_backbone(), checkpoint=None, train_epochs=0
+        )
+        state["s"] = s
+        state["ident"] = _build_demo(s, parts=parts, images_per_part=2, gallery_augment=1)
+        return f"{parts} parts, backbone {state['ident'].embedder.version}"
+
+    def _identify():
+        ident = state["ident"]
+        part = next(ident.store.iter_parts(with_images_only=True))
+        img = Image.open(part.image_paths[0]).convert("RGB")
+        res = ident.identify(img, tta="fast")
+        state["part"], state["img"], state["res"] = part, img, res
+        ranked = [c.part_number for c in res.candidates]
+        rank = ranked.index(part.part_number) + 1 if part.part_number in ranked else None
+        if rank is None:
+            raise RuntimeError("the catalog image of a part did not retrieve itself")
+        return f"tier {res.tier.value}, truth ranked #{rank}, {res.timings_ms.get('total')} ms"
+
+    def _measure():
+        ident = state["ident"]
+        render = state["img"].resize((256, 256))
+        canvas = Image.new("RGB", (512, 256), (255, 255, 255))
+        ImageDraw.Draw(canvas).ellipse((40, 48, 200, 208), fill=(184, 172, 120))
+        canvas.paste(render, (256, 0))
+        res = ident.identify(canvas, tta="fast", suggest_reference=True)
+        if not res.coin_hint:
+            raise RuntimeError("no coin hint on a photo with a coin")
+        d = res.coin_hint["diameter_px"]
+        ref = (
+            res.coin_hint["cx"] - d / 2,
+            res.coin_hint["cy"],
+            res.coin_hint["cx"] + d / 2,
+            res.coin_hint["cy"],
+        )
+        res2 = ident.identify(canvas, tta="fast", mm_per_px=24.26 / d, reference=ref)
+        if not res2.measured:
+            raise RuntimeError("no measurement with a scale")
+        return f"coin {d:.0f} px, part {res2.measured['long_mm']} x {res2.measured['short_mm']} mm"
+
+    def _feedback():
+        s = state["s"]
+        fs = FeedbackStore(s.queries_dir)
+        fb = fs.record(b"x", state["res"].request_id, state["part"].part_number)
+        n = fs.stats()["confirmed"]
+        return f"{n} confirmed, stored at {Path(fb.image_path).parent.name}/"
+
+    def _backup():
+        s = state["s"]
+        archive = create_backup(s, data_dir / "backups")
+        inv = read_inventory(archive)
+        state["archive"] = archive
+        return f"{len(inv['components'])} components, {archive.stat().st_size / 1e6:.1f} MB"
+
+    def _restore():
+        s = state["s"]
+        other = data_dir / "restored"
+        s2 = s.model_copy(
+            update={
+                "data_dir": other,
+                "catalog_db": other / "catalog.sqlite",
+                "index_dir": other / "index",
+                "queries_dir": other / "queries",
+                "model_dir": other / "models",
+            }
+        )
+        res = restore_backup(s2, state["archive"])
+        from mcmaster_vision.pipeline import load_identifier
+
+        ident2 = load_identifier(s2)
+        return f"{len(res['restored'])} components back, {len(ident2.index.ids)} index rows"
+
+    for name, fn in (
+        ("environment", _env),
+        ("build catalog + index", _build),
+        ("identify", _identify),
+        ("coin hint + measure", _measure),
+        ("feedback", _feedback),
+        ("backup", _backup),
+        ("restore + load", _restore),
+    ):
+        step(name, fn)
+    if tmp:
+        shutil.rmtree(tmp, ignore_errors=True)
+    failed = [n for n, ok, _ in results if not ok]
+    typer.echo("ALL PASS" if not failed else f"FAILED: {', '.join(failed)}")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 @app.command("review-unknowns")

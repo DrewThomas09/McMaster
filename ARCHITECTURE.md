@@ -73,6 +73,11 @@ cached views, SupCon + classification, hard negatives); 24 epochs took ~35 min,
 the CLIP/DINOv2 backbones are the next step for real photos. Once the learned
 model is strong the hand-crafted descriptor only helps at a small weight (1:0.3).
 
+Query expansion (`MCV_QUERY_EXPANSION_K`) stays off: on the 800-part held-out
+catalog (TinyCNN, 300 queries) k=3 left Recall@1 unchanged and cost 3 points of
+family Recall@1, k=8 cost 3 points of Recall@1; raising `top_k` from 50 to 200
+changed nothing (2026-09-07).
+
 ## Training (`training/train.py`)
 
 * **Objective**: supervised contrastive (SupCon) over SKU labels with two
