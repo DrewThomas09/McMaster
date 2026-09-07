@@ -18,7 +18,7 @@ reranking stage resolves the look-alikes. See [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## Status
 
-Everything except the real imagery is built and tested (130 tests, including
+Everything except the real imagery is built and tested (223 tests, including
 real-browser runs of the phone UI):
 
 | area | state |
