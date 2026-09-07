@@ -231,20 +231,24 @@ usage prior, 2026-09-07):
 | top-1 on *new* photos of the same parts | 31% | 44% |
 | part found in the top 5 (new photos) | 73% | 72% |
 
-With the shipped TinyCNN checkpoint on the same demo (same day, same
-protocol):
+With the shipped TinyCNN checkpoint (retrained on the fixed renderer) on the
+same demo, same protocol:
 
 | | before learning | after `mcv learn` |
 |---|---|---|
-| bought photos that were the top answer | 61% | 100% |
-| top-1 over all 120 customers | 59% | 96% |
-| top-1 on *new* photos of the same parts | 59% | 69% |
-| part found in the top 5 (new photos) | 96% | 97% |
+| bought photos that were the top answer | 74% | 100% |
+| top-1 over all 120 customers | 71% | 98% |
+| top-1 on *new* photos of the same parts | 71% | 84% |
+| part found in the top 5 (new photos) | 98% | 99% |
 
-Its 115 calibration samples (45 wrong) raised the exact threshold from 0.90 to
-0.96 and the likely one from 0.60 to 0.90, because on real outcomes "likely"
-answers had been right only 73% of the time when bought and "candidate" ones
-50%; the tighter tiers are what the customer sees as confidence.
+(The previous checkpoint on the same protocol: 61% -> 100%, 59% -> 96%,
+59% -> 69%, 96% -> 97%.) Its 118 calibration samples (34 wrong) raised the
+exact threshold from 0.90 to 0.97 and the likely one from 0.60 to 0.78, because
+on real outcomes "likely" answers had been right 86% of the time when bought and
+"candidate" ones 57%; the tighter tiers are what the customer sees as
+confidence. The two confusion pairs it flagged differ by pipe size and by
+length / thread size, which the issue list turns into "use the coin and
+Measure", and identification ran at 28 ms p50.
 
 The retrain half of the loop was exercised on the same TinyCNN data: 232 new
 confirmations tripped the threshold, `mcv learn` ran a purchase-weighted
