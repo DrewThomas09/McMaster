@@ -2,6 +2,9 @@
 
 ## 0.3.3
 
+- Coin hint: a round blob next to the part is reported (`coin_hint`) and the app offers it
+  as the scale reference in one pick; no tapping needed.
+
 Bug-hunt release: four independent reviews plus API fuzzing and concurrency probes; every
 finding below has a regression test.
 

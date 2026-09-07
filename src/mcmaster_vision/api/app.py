@@ -311,6 +311,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                     tta=tta,
                     mm_per_px=mm_per_px,
                     reference=reference,
+                    suggest_reference=log,  # not for live-preview frames
                 )
         except (OSError, ValueError) as e:
             raise HTTPException(400, f"could not decode image: {e}") from e

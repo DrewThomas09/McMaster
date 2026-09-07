@@ -215,6 +215,15 @@ def test_measure_tool_sets_scale_and_matches_sizes(server, store, tmp_path):
         page.goto(server + "/")
         page.set_input_files("#camera", str(photo))
         page.wait_for_selector(".verdict", timeout=30000)
+        # the server spotted the coin: one pick sets the scale without any tapping
+        page.wait_for_selector("#coinpick", timeout=10000)
+        page.select_option("#coinpick", "24.26")
+        page.wait_for_function(
+            "document.body.innerText.includes('Measured from your photo')", timeout=30000
+        )
+        assert page.locator("#coinpick").count() == 0  # the hint goes away once a scale is set
+        page.evaluate("(async () => { scale = null; refSeg = null; await send(); })()")
+        page.wait_for_selector("#coinpick", timeout=30000)
         assert page.locator("#msvg").is_hidden()  # the overlay must not block the lightbox
         page.click("#measurebtn")
         assert page.locator("#msvg").is_visible() and page.locator("#measurebox").is_visible()

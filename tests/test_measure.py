@@ -200,3 +200,38 @@ def test_diameter_uses_short_axis_when_part_has_a_length():
     assert size_consistency(m, pin)[0] == 1.0
     assert size_consistency(m, fat_pin)[0] < 0.5
     assert size_consistency(m, washer)[0] == 1.0  # no length: OD is the long axis
+
+
+def test_coin_hint_offered_and_usable(identifier, store):
+    """A coin next to the part is reported in uploaded pixels; using it as the scale gives
+    a measurement without any tapping."""
+    from fastapi.testclient import TestClient
+    from PIL import ImageDraw
+
+    from mcmaster_vision.api import create_app
+    from mcmaster_vision.config import Settings
+
+    part = next(store.iter_parts(with_images_only=True))
+    render = Image.open(part.image_paths[0]).convert("RGB").resize((256, 256))
+    canvas = Image.new("RGB", (512, 256), (255, 255, 255))
+    ImageDraw.Draw(canvas).ellipse((40, 48, 200, 208), fill=(184, 172, 120))
+    canvas.paste(render, (256, 0))
+    buf = io.BytesIO()
+    canvas.save(buf, format="JPEG", quality=92)
+    client = TestClient(create_app(Settings(), identifier=identifier))
+    r = client.post("/identify?tta=none", files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")})
+    hint = r.json()["coin_hint"]
+    assert hint and abs(hint["cx"] - 120) < 10 and abs(hint["diameter_px"] - 160) < 16
+    # live-preview frames do not pay for the hint
+    r2 = client.post(
+        "/identify?tta=none&log=false", files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")}
+    )
+    assert r2.json()["coin_hint"] is None
+    d = hint["diameter_px"]
+    ref = f"{hint['cx'] - d / 2},{hint['cy']},{hint['cx'] + d / 2},{hint['cy']}"
+    r3 = client.post(
+        f"/identify?tta=none&mm_per_px={24.26 / d}&ref={ref}",
+        files={"file": ("a.jpg", buf.getvalue(), "image/jpeg")},
+    )
+    m = r3.json()["measured"]
+    assert m and 20 < m["long_mm"] < 45 and r3.json()["coin_hint"] is None

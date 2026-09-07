@@ -179,10 +179,12 @@ camera access on iOS.
 * **Answer the family question in one tap.** The distinguishing values are shown
   as chips; tapping one re-queries with `constraints={"length": "1\""}`. API
   callers can pass any attributes they already know the same way.
-* **Measure it.** Tap **Measure**, then the two ends of a coin, a card edge or
-  an inch on a ruler in the photo; the object's size is measured and matched
-  against each candidate's length / OD / thread size (`mm_per_px` on the API).
-  This is what separates look-alike SKUs that share one catalog image.
+* **Measure it.** Put a coin next to the part: the server spots it and the
+  answer offers "use it as a US quarter" in one pick. Or tap **Measure**, then
+  the two ends of a coin, a card edge or an inch on a ruler; the object's size is
+  measured and matched against each candidate's length / OD / thread size
+  (`mm_per_px` and `ref` on the API). This is what separates look-alike SKUs
+  that share one catalog image.
 * **Category guess** (`category_guess`) from the embedding prior is always
   returned, so even an `unknown` still says "looks like a hex nut".
 * **Bins and BOMs.** `POST /identify/batch` or `mcv identify-dir photos/ --out results.csv`

@@ -23,6 +23,7 @@ from mcmaster_vision.pipeline.feedback import FeedbackStore
 from mcmaster_vision.pipeline.measure import Measurement, measure
 from mcmaster_vision.pipeline.ocr import OCREngine
 from mcmaster_vision.pipeline.preprocess import decode_image, preprocess
+from mcmaster_vision.pipeline.reference import find_coin
 from mcmaster_vision.pipeline.rerank import ClaudeVisionReranker, FusionReranker, Scored
 from mcmaster_vision.pipeline.retrieve import Retriever
 from mcmaster_vision.schemas import (
@@ -173,6 +174,7 @@ class Identifier:
         cache_keys: list[str] | None = None,
         mm_per_px: float | None = None,
         reference: tuple[float, float, float, float] | None = None,
+        suggest_reference: bool = False,
     ) -> IdentificationResult:
         """Identify one photo, or several photos of the *same* part (different angles):
         every photo's TTA variants are searched and each catalog part keeps its best score.
@@ -199,10 +201,20 @@ class Identifier:
         query_img = query_imgs[0]
         image = images[0]
         size: Measurement | None = None
+        coin_hint: dict[str, float] | None = None
         if mm_per_px:
             size = measure(image, mm_per_px, reference)
             if size is None:
                 notes.append("could not find the object outline to measure it; size not used")
+        elif suggest_reference:
+            coin = find_coin(image)
+            if coin is not None:  # report it in *uploaded* pixels, like mm_per_px / ref
+                k = float(image.info.get("upload_scale", 1.0) or 1.0)
+                coin_hint = {
+                    "cx": round(coin.cx * k, 1),
+                    "cy": round(coin.cy * k, 1),
+                    "diameter_px": round(coin.diameter_px * k, 1),
+                }
         t = self._timer(timings, "preprocess", t)
 
         # 2. OCR (may short-circuit)
@@ -306,6 +318,7 @@ class Identifier:
             notes=notes,
             photos=len(images),
             measured=size.as_dict() if size else None,
+            coin_hint=coin_hint,
             ocr_part_numbers=ocr_pns,
             extracted=extracted,
             timings_ms=timings,

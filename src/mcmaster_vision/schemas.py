@@ -111,6 +111,11 @@ class IdentificationResult(BaseModel):
         None,
         description="Object size from the first photo when a scale was given: long_mm, short_mm",
     )
+    coin_hint: dict[str, float] | None = Field(
+        None,
+        description="A coin-like blob found next to the part (uploaded-pixel cx, cy, diameter_px): "
+        "the app offers it as the scale reference in one tap",
+    )
     ocr_part_numbers: list[str] = Field(default_factory=list)
     extracted: ExtractedAttributes | None = None
     timings_ms: dict[str, float] = Field(default_factory=dict)
