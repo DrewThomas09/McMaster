@@ -17,11 +17,19 @@ pw = pytest.importorskip("playwright.sync_api")
 
 
 def _chromium_path() -> str | None:
-    root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
-    candidates = (
-        glob.glob(os.path.join(root, "chromium-*", "chrome-linux*", "chrome")) if root else []
-    )
-    return candidates[0] if candidates else None
+    """A Playwright Chromium build: PLAYWRIGHT_BROWSERS_PATH, or the default cache that
+    `playwright install chromium` fills (CI)."""
+    roots = [
+        os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""),
+        os.path.expanduser("~/.cache/ms-playwright"),
+    ]
+    for root in roots:
+        if not root:
+            continue
+        candidates = sorted(glob.glob(os.path.join(root, "chromium-*", "chrome-linux*", "chrome")))
+        if candidates:
+            return candidates[-1]
+    return None
 
 
 @pytest.fixture(scope="module")
