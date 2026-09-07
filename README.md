@@ -18,8 +18,8 @@ reranking stage resolves the look-alikes. See [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## Status
 
-Everything except the real imagery is built and tested (223 tests, including
-real-browser runs of the phone UI):
+Everything except the real imagery is built and tested (250+ tests, including
+real-browser runs of the phone UI and of the cart-to-checkout flow):
 
 | area | state |
 |---|---|
@@ -31,6 +31,7 @@ real-browser runs of the phone UI):
 | operations | bootstrap, doctor, status, metrics, retrain (cron), auto reload, rate limit, request log, runbook |
 | durability | every confirmation, photo, log and index is on disk; `mcv backup` / `mcv restore`; offline outbox on the phone; usage prior from confirmations |
 | sizing | Measure tool and coin hint; nominal pipe size -> real OD/ID; thread pitch from the photo (NPT vs BSP, coarse vs fine); catalog-page importer |
+| purchase loop | cart, Buy now, checkout; purchases become weighted confirmations; `mcv learn` adds them to the index in seconds and retrains when enough arrived; calibration refit on real outcomes; event log, `/analytics`, dashboard "Learning loop" with issues and a daily trend; `mcv simulate` self-runs the journey and reports before/after |
 | needs you | McMaster images (any of the intake paths), a GPU for CLIP/DINOv2, real photos via the feedback loop |
 
 ## Demo in 60 seconds
