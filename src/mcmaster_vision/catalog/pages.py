@@ -38,6 +38,43 @@ HEADER = re.compile(r"^\s*(pipe\s+size|pipe\s*/\s*thread\s+size|size|thread\s+si
 FOOTER = re.compile(r"mcmaster-?carr", re.I)
 NOISE_HEADINGS = {"pipe", "size", "lg.", "lg", "(a)", "(b)", "qty.", "dia."}
 
+# OCR of the printed catalog: vulgar-fraction glyphs, "S" for "$", I/l/O inside part numbers
+_VULGAR = {
+    "⅛": "1/8",
+    "¼": "1/4",
+    "⅜": "3/8",
+    "½": "1/2",
+    "⅝": "5/8",
+    "¾": "3/4",
+    "⅞": "7/8",
+    "⅙": "1/6",
+    "⅓": "1/3",
+    "⅔": "2/3",
+    "⅕": "1/5",
+    "⅟": "1/",
+}
+_PN_LIKE = re.compile(r"\b([\dOIl]{4,5})([A-Z])([\dOIl]{1,4})([A-Z]?)\b")
+_DIGIT_FIX = str.maketrans({"O": "0", "I": "1", "l": "1"})
+
+
+def normalise_ocr(line: str) -> str:
+    """Undo the OCR errors that hide rows: ``⅛`` -> ``1/8``, ``1¼`` -> ``1-1/4``,
+    ``S6.00`` -> ``$6.00``, ``4464KI3`` -> ``4464K13``."""
+    for glyph, frac in _VULGAR.items():
+        line = re.sub(rf"(\d)\s*{glyph}", rf"\1-{frac}", line)  # 1¼ -> 1-1/4
+        line = line.replace(glyph, frac)
+    line = re.sub(r"(?<![A-Za-z])S(?=\d{1,4}\.\d\d\b)", "$", line)
+    line = _PN_LIKE.sub(
+        lambda m: (
+            m.group(1).translate(_DIGIT_FIX)
+            + m.group(2)
+            + m.group(3).translate(_DIGIT_FIX)
+            + m.group(4)
+        ),
+        line,
+    )
+    return line
+
 
 @dataclass
 class PageContext:
@@ -100,7 +137,7 @@ def parse_page(text: str, page_label: str = "") -> Iterator[Part]:
     lines = text.splitlines()
     ctx = PageContext(page=page_label, title=_title(lines))
     for raw in lines:
-        line = raw.rstrip()
+        line = normalise_ocr(raw.rstrip())
         if not line.strip() or FOOTER.search(line):
             continue
         if HEADER.match(line):

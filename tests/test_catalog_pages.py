@@ -107,3 +107,35 @@ def test_import_pages_into_store_and_cli(tmp_path):
     assert "35" in r.output
     with CatalogStore(tmp_path / "c2.sqlite") as st2:
         assert st2.count() == 35 and st2.get("4830K111").attributes["catalog_page"] == "5"
+
+
+def test_ocr_noise_is_normalised():
+    from mcmaster_vision.catalog.pages import normalise_ocr
+
+    assert normalise_ocr("⅛ ........ 4464K11 ... $4.90") == "1/8 ........ 4464K11 ... $4.90"
+    assert normalise_ocr("1¼ ...... 4464K17 .... 24.32").startswith("1-1/4 ")
+    assert normalise_ocr("3/8 ...... 4464KI3 .... S6.00") == "3/8 ...... 4464K13 .... $6.00"
+    assert normalise_ocr("44O4Kl1 $1.00") == "4404K11 $1.00"
+    assert normalise_ocr("Stainless Steel") == "Stainless Steel"  # words are left alone
+    header = "Pipe Size  90° Elbows  Tees\nType 304 Stainless Steel\n"
+    rows = "⅛ .. 4464K11 .. S4.90  4464K47 .. $6.91\n1¼ .. 4464KI7 .. 24.32  4464K54 .. 37.14\n"
+    parts = {p.part_number: p for p in parse_page(header + rows)}
+    assert parts["4464K11"].attributes["pipe_size"] == "1/8"
+    assert parts["4464K17"].attributes["pipe_size"] == "1-1/4"
+    assert parts["4464K54"].attributes["fitting_type"] == "Tees"
+
+
+def test_parsers_never_crash_on_junk():
+    import random
+    import string
+
+    from mcmaster_vision.pipeline.measure import parse_length_mm
+    from mcmaster_vision.pipeline.pipe import normalise_pipe_size
+
+    rng = random.Random(1)
+    alphabet = string.printable + "⅛¼⅜½¾⅝″”°×–—"
+    for _ in range(400):
+        s = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 80)))
+        parse_length_mm(s)
+        normalise_pipe_size(s)
+        list(parse_page(s))
