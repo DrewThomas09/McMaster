@@ -774,12 +774,28 @@ def identify(
     config: Path | None = _config_opt,
     top_n: int = typer.Option(5),
     llm: bool = typer.Option(False, help="Use the Claude vision reranker"),
+    mm_per_px: float | None = typer.Option(
+        None, help="Scale of the photo (mm per pixel) to match candidates by size"
+    ),
+    ref: str | None = typer.Option(
+        None, help="x1,y1,x2,y2 of a line across the reference object (coin, card), in pixels"
+    ),
 ) -> None:
     """Identify the part in a photo."""
     from mcmaster_vision.pipeline import load_identifier
+    from mcmaster_vision.pipeline.preprocess import decode_image
 
     s = _settings(config, rerank_llm_enabled=llm or None)
-    result = load_identifier(s).identify_path(image, top_n=top_n, use_llm=llm or None)
+    reference = tuple(float(v) for v in ref.split(",")) if ref else None
+    if reference is not None and len(reference) != 4:
+        raise typer.BadParameter("--ref needs four numbers: x1,y1,x2,y2")
+    result = load_identifier(s).identify(
+        decode_image(image.read_bytes()),
+        top_n=top_n,
+        use_llm=llm or None,
+        mm_per_px=mm_per_px,
+        reference=reference,  # type: ignore[arg-type]
+    )
     typer.echo(result.model_dump_json(indent=2))
 
 

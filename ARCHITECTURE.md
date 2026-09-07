@@ -190,8 +190,10 @@ McMaster-Carr often uses one image for a whole family, so no visual model can
 tell a 1" screw from a 1-1/4" one. With the photo's scale (the user taps the
 two ends of a coin, a card edge or an inch on a ruler; `mm_per_px` on
 `/identify`) the foreground mask's extent along its principal axes gives the
-object's long and short dimensions. Each candidate's `length` / `od` / thread
-size is parsed to millimetres (fractions, inches, mm, `M6`, `#8-32`) and scored
+object's long and short dimensions; the blob under the line the user drew is the
+reference itself and is removed first, and a scale given in uploaded pixels is
+corrected when the server decoded the JPEG at reduced size. Each candidate's
+`length` / `od` / diameter is parsed to millimetres (fractions, inches, mm, `M6`, `#8-32`) and scored
 +1 inside a tolerance band (a screw's length excludes the head) falling to -1
 one catalog size away; the fusion reranker weights it like 0.2 of cosine
 similarity, enough to reorder look-alikes but not to overturn a clear visual
