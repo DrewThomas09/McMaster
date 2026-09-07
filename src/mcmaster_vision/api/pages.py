@@ -310,6 +310,18 @@ def _learning_loop_html(request: Request) -> str:
     )
     conf = a["confidence"]
     due = learn["retrain_due"]
+    from mcmaster_vision.pipeline.manifest import read_manifest
+
+    cfp = (read_manifest(st.settings) or {}).get("calibration_from_purchases") or {}
+    cal_line = (
+        f" · tiers calibrated on {cfp['samples']} confirmed photos ({cfp['wrong']} wrong)"
+        if cfp.get("refit")
+        else (
+            f" · {cfp['samples']} calibration samples ({cfp.get('wrong', 0)} wrong; a refit needs 30 with 5 wrong)"
+            if cfp.get("samples")
+            else " · tiers calibrated on synthetic renders"
+        )
+    )
     day_rows = "".join(
         f"<tr><td>{e(d['day'])}</td><td>{d['identify']}</td><td>{d['bought']}</td>"
         f"<td>{pc(d['bought_top1_rate'])}</td><td>{d['learns']}{' + ' + str(d['retrains']) + ' retrain' if d['retrains'] else ''}</td></tr>"
@@ -337,7 +349,7 @@ def _learning_loop_html(request: Request) -> str:
   <div class="crumbs">confidence when right {e(conf["when_right"] if conf["when_right"] is not None else "—")} · when wrong {e(conf["when_wrong"] if conf["when_wrong"] is not None else "—")} · p95 latency {e(a["latency_ms"]["p95"] or "—")} ms · errors {w["errors"]}</div></div>
 </div>
 {daily_html}
-<p class="crumbs" id="learnline">last learned {e((learn["learned_at"] or "never")[:19])} ({e(learn["learned_photos"] or 0)} photos) · {learn["since_retrain"]}/{learn["retrain_threshold"]} towards a retrain{' · <span class="tier candidate">retrain due: run mcv learn</span>' if due else ""} ·
+<p class="crumbs" id="learnline">last learned {e((learn["learned_at"] or "never")[:19])} ({e(learn["learned_photos"] or 0)} photos) · {learn["since_retrain"]}/{learn["retrain_threshold"]} towards a retrain{cal_line}{' · <span class="tier candidate">retrain due: run mcv learn</span>' if due else ""} ·
 <button class="btn small" type="button" id="learnbtn">Learn now</button> <code>mcv learn</code> · <code>mcv simulate --learn</code> · <a href="/analytics">/analytics</a> · <a href="/orders">/orders</a></p>
 <script>
 document.getElementById('learnbtn').onclick = async () => {{

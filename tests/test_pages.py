@@ -71,6 +71,7 @@ def test_dashboard_page(identifier, store, tmp_path):
     )
     page = client.get("/dashboard").text
     assert "Learning loop" in page and "Learn now" in page and "towards a retrain" in page
+    assert "calibrated on synthetic renders" in page  # until real outcomes refit the tiers
     assert (
         "Dashboard" in page
         and "identifications" in page
