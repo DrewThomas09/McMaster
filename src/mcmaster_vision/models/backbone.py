@@ -80,17 +80,20 @@ class HashBackbone(Backbone):
         "grad_spec",
     )
     # Tuned by coordinate ascent on synthetic photo-style queries (scripts/tune_hash_weights.py).
+    # re-tuned 2026-09-07 with the thumbnail weighting effective (scripts/tune_hash_weights.py);
+    # validated on an independent 300-part catalog: Recall@1 0.243 vs 0.237, family
+    # Recall@1 0.307 vs 0.293
     DEFAULT_WEIGHTS = {
-        "polar_gray": 1.5,
+        "polar_gray": 2.5,
         "polar_mask": 1.5,
-        "ring_gray": 0.25,
-        "ring_mask": 1.5,
+        "ring_gray": 0.5,
+        "ring_mask": 2.5,
         "thumb_gray": 0.5,
         "thumb_mask": 2.5,
         "chroma_hist": 1.5,
-        "chroma_mean": 0.5,
+        "chroma_mean": 1.0,
         "hu": 0.25,
-        "grad_spec": 1.5,
+        "grad_spec": 2.5,
     }
 
     def __init__(
