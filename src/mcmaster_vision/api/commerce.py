@@ -172,8 +172,15 @@ class Carts:
     def orders(self, limit: int = 50, client_id: str | None = None) -> list[Order]:
         if not self.orders_path.exists():
             return []
-        with self._lock:
-            lines = self.orders_path.read_text(encoding="utf-8").splitlines()
+        with self._lock, open(self.orders_path, "rb") as fh:
+            # the newest orders are at the end: read a bounded tail, never the whole history
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - 512 * 1024))
+            tail = fh.read().decode("utf-8", errors="replace")
+        lines = tail.splitlines()
+        if size > 512 * 1024:
+            lines = lines[1:]  # the first line of a mid-file tail is a fragment
         out: list[Order] = []
         for ln in reversed(lines):
             if not ln.strip():
