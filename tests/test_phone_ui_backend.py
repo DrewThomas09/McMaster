@@ -20,7 +20,11 @@ def test_thumbs_images_and_tta_modes(identifier, store, tmp_path):
     r = client.get(f"/parts/{pn}/thumb?size=96")
     assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
     assert Image.open(io.BytesIO(r.content)).size == (96, 96)
-    assert (tmp_path / "cache" / "thumbs" / f"{pn}_0_96.jpg").exists()  # cached on disk
+    assert list((tmp_path / "cache" / "thumbs").glob("*_0_96.jpg"))  # cached on disk (hashed name)
+    # sizes snap to a few fixed values so the cache cannot be flooded
+    r = client.get(f"/parts/{pn}/thumb?size=97")
+    assert Image.open(io.BytesIO(r.content)).size == (96, 96)
+    assert len(list((tmp_path / "cache" / "thumbs").glob("*.jpg"))) == 1
     assert "max-age" in r.headers.get("cache-control", "")
     lst = client.get(f"/parts/{pn}/images").json()
     assert (
