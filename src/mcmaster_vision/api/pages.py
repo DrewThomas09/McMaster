@@ -254,8 +254,10 @@ def _learning_loop_html(request: Request) -> str:
 
     st = request.app.state
     a = analytics(st.events, st.feedback.stats())
-    if getattr(st, "identifier", None) is not None:
-        enrich_confusions(a, st.identifier.store)
+    try:
+        enrich_confusions(a, st.get_identifier().store)
+    except HTTPException:  # nothing built yet
+        pass
     found = issues(a)
     learn = learning_state(st.settings, st.feedback)
     w = a["window"]

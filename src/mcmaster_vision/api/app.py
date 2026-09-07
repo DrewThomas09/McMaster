@@ -413,9 +413,10 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         """The purchase funnel, confusion pairs, tier precision when bought, latency,
         errors, and a plain-language issues list."""
         a = analytics(app.state.events, app.state.feedback.stats())
-        ident = getattr(app.state, "identifier", None)
-        if ident is not None:
-            enrich_confusions(a, ident.store)
+        try:
+            enrich_confusions(a, get_identifier().store)
+        except HTTPException:  # nothing built yet: the pairs stay unexplained
+            pass
         a["issues"] = issues(a)
         a["learning"] = _learning_state()
         return a
