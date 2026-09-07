@@ -2,6 +2,21 @@
 
 ## 0.3.6
 
+- Training review: the trainer no longer warm-starts from `MCV_BACKBONE_CHECKPOINT` by
+  accident (`warm_start` recipe key); small catalogs no longer train zero steps; web imports
+  get a family key and splits fall back to the category (no look-alike leakage); unreadable
+  confirmation photos are dropped from the view cache instead of becoming black positives;
+  the mild first cache only when a refresh follows; ties keep the later epoch and tiny
+  validation splits are ignored; validation and mining see serving preprocessing; one
+  confirmed photo per part is held out (2+); the cached trainer is TinyCNN-only; the dataset
+  pickles under spawn; transparent PNGs composite on white; ONNX export pins the dynamo
+  exporter (torch >= 2.5).
+- Second-pass server review: IPv4-mapped rate-limit buckets, multi-worker serve honours the
+  resolved settings, retrain switches on the full model version and keeps calibration beside
+  the sibling index, `mcv up` rebuilds on a version mismatch, IPv6 port probe, cross-worker
+  request ids, a failed index load is not retried every 15 s.
+- `mcv selfcheck`; evaluation A/B: query expansion stays off.
+
 - Phone UI review: the `hidden` attribute now wins over class display rules (the live
   overlay, install and connect buttons and the coin chooser were always visible); yellow
   badges readable in dark mode; one reset path for every new query so measure points and
