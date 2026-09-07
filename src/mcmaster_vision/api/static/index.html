@@ -43,6 +43,14 @@
   .preview { flex:0 0 220px; }
   .preview img { width:100%; aspect-ratio:1; object-fit:contain; border-radius:12px; background:#fff; border:1px solid var(--line); cursor:zoom-in; }
   .thumbs { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .imgwrap { position:relative; }
+  .imgwrap svg { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
+  .imgwrap svg line { stroke:var(--yellow); stroke-width:3; stroke-linecap:round; }
+  .imgwrap svg circle { fill:var(--yellow); stroke:var(--green); stroke-width:2; }
+  .measurebox { margin-top:8px; padding:10px 12px; border:1px solid var(--yellow); border-radius:12px; background:var(--card); font-size:13px; }
+  .measurebox .mrow { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; align-items:center; }
+  .measurebox select, .measurebox input { padding:7px 8px; border-radius:8px; border:1px solid var(--line); font-size:13px; max-width:100%; background:var(--card); color:var(--ink); }
+  .measurebox .mscale { margin-top:6px; color:var(--green); font-weight:700; }
   .thumbs img { width:52px; height:52px; object-fit:cover; border-radius:6px; border:1px solid var(--line); }
   .actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
   .results { flex:1; min-width:280px; }
@@ -142,11 +150,32 @@
 
   <div class="row">
     <div class="preview" id="preview" hidden>
-      <img id="img" alt="query" onclick="lightbox(this.src, null, 'Your photo')">
+      <div class="imgwrap"><img id="img" alt="query" onclick="lightbox(this.src, null, 'Your photo')"><svg id="msvg" style="display:none"></svg></div>
       <div class="thumbs" id="thumbs"></div>
       <div class="actions">
         <button type="button" class="ghost" onclick="document.getElementById('angle').click()">+ Add another angle</button><input type="file" id="angle" accept="image/*" capture="environment" hidden>
+        <button type="button" class="ghost" id="measurebtn" title="Mark a coin, card or ruler in the photo so sizes can be matched">&#128207; Measure</button>
         <button type="button" class="ghost" id="again">Start over</button>
+      </div>
+      <div class="measurebox" id="measurebox" hidden>
+        <div id="mhint">Tap the two ends of something whose size you know (a coin, a card edge, 1&nbsp;inch on a ruler).</div>
+        <div class="mrow" id="mchoose" hidden>
+          <select id="mref">
+            <option value="24.26">US quarter (24.26 mm)</option>
+            <option value="19.05">US penny (19.05 mm)</option>
+            <option value="21.21">US nickel (21.21 mm)</option>
+            <option value="17.91">US dime (17.91 mm)</option>
+            <option value="85.6">Credit card, long edge (85.6 mm)</option>
+            <option value="53.98">Credit card, short edge (53.98 mm)</option>
+            <option value="25.4">1 inch</option>
+            <option value="10">1 cm</option>
+            <option value="custom">Custom&hellip;</option>
+          </select>
+          <input type="number" id="mcustom" placeholder="mm" min="0.1" step="0.1" hidden>
+          <button type="button" class="ghost on" id="muse">Use</button>
+          <button type="button" class="ghost" id="mclear">Clear</button>
+        </div>
+        <div class="mscale" id="mscale" hidden></div>
       </div>
     </div>
     <div class="results" id="results"></div>
@@ -165,6 +194,7 @@ const drop = $('drop'), results = $('results'), preview = $('preview'), img = $(
 let photos = [];          // File[] for the current query (several angles of one part)
 let lastResult = null;
 let constraints = {};     // attribute filters chosen from family chips
+let scale = null;         // mm per pixel of the *uploaded* (downscaled) photo, from the Measure tool
 let tta = 'full';
 let queryDataUrl = null;  // small preview of the first photo (history, lightbox compare)
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -195,7 +225,7 @@ async function loadSamples() {
 $('moresamples').addEventListener('click', () => { sampleSeed++; loadSamples(); });
 async function trySample(pn) {
   const seed = Math.floor(Math.random() * 1000);
-  photos = []; constraints = {}; lastResult = null;
+  photos = []; constraints = {}; scale = null; lastResult = null;
   preview.hidden = false; thumbs.innerHTML = ''; img.src = `/demo/query/${encodeURIComponent(pn)}?seed=${seed}`;
   queryDataUrl = img.src;
   results.innerHTML = '<p><span class="spinner"></span>Identifying a photo-style render of ' + esc(pn) + '&hellip;</p>';
@@ -221,13 +251,13 @@ if (/iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone) { $('insta
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 
 // ---- inputs ----------------------------------------------------------------
-for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; constraints = {}; addPhotos([...e.target.files]); } e.target.value = ''; });
+for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; constraints = {}; scale = null; addPhotos([...e.target.files]); } e.target.value = ''; });
 $('angle').addEventListener('change', e => { if (e.target.files[0]) addPhotos([e.target.files[0]]); e.target.value = ''; });
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; constraints = {}; addPhotos([...e.dataTransfer.files]); } });
-window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; constraints = {}; addPhotos([it.getAsFile()]); break; } });
-$('again').addEventListener('click', () => { photos = []; lastResult = null; constraints = {}; preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; constraints = {}; scale = null; addPhotos([...e.dataTransfer.files]); } });
+window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; constraints = {}; scale = null; addPhotos([it.getAsFile()]); break; } });
+$('again').addEventListener('click', () => { photos = []; lastResult = null; constraints = {}; scale = null; measureOff(); preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
 $('searchform').addEventListener('submit', async e => { e.preventDefault(); const q = $('q').value.trim(); if (q) await search(q); });
 document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on'); tta = b.dataset.tta; if (photos.length) send(); }));
 function refine(k, v) { constraints[k] = v; send(); }
@@ -282,7 +312,7 @@ $('shutter').addEventListener('click', async () => {
   const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
   if (navigator.vibrate) navigator.vibrate(30);
   const f = new File([blob], 'live.jpg', { type: 'image/jpeg' });
-  if (photos.length && lastResult) addPhotos([f]); else { photos = []; constraints = {}; addPhotos([f]); }
+  if (photos.length && lastResult) addPhotos([f]); else { photos = []; constraints = {}; scale = null; addPhotos([f]); }
 });
 
 // ---- query -----------------------------------------------------------------
@@ -315,6 +345,7 @@ async function send() {
   for (const f of photos) fd.append('files', await downscale(f));
   const q = new URLSearchParams({ top_n: $('topn').value, tta }); if ($('llm').checked) q.set('use_llm', 'true');
   if (Object.keys(constraints).length) q.set('constraints', JSON.stringify(constraints));
+  if (scale) q.set('mm_per_px', scale.toFixed(6));
   let r;
   try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
   catch (e) { results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
@@ -347,6 +378,7 @@ function render(res) {
     html += `<div class="name">Try another angle, closer, on a plain background &mdash; or search by text.</div>`;
   }
   if (res.category_guess && res.category_guess.length) html += `<div class="name" style="margin-top:8px">Looks like: ${res.category_guess.slice(0, 2).map(([c, p]) => `<b>${esc(c)}</b> ${pct(p)}`).join(' &middot; ')}</div>`;
+  if (res.measured) html += `<div class="name">Measured from your photo: &asymp; <b>${esc(res.measured.long_mm)}</b> &times; <b>${esc(res.measured.short_mm)}</b> mm (${esc((res.measured.long_mm / 25.4).toFixed(2))} &times; ${esc((res.measured.short_mm / 25.4).toFixed(2))} in) &middot; sizes matched against the catalog</div>`;
   if (res.ocr_part_numbers.length) html += `<div class="name">Part number read from the photo: ${res.ocr_part_numbers.map(esc).join(', ')}</div>`;
   if (res.extracted) { const ex = res.extracted; const bits = [ex.part_type, ex.material_guess, ex.head_type, ex.drive_style].filter(Boolean).map(esc); if (bits.length) html += `<div class="name">Seen in photo: ${bits.join(' &middot; ')}</div>`; }
   html += `<div class="confirm"><button type="button" onclick="confirm(null, this)">None of these</button></div></div>`;
@@ -410,6 +442,62 @@ async function search(q) {
       <div class="meta">${esc(p.category_path.join(' › '))}</div>${specTable(p.attributes)}
       <div class="meta" style="margin-top:6px"><a class="link" href="https://www.mcmaster.com/${encodeURIComponent(p.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div></div></div>`).join('');
 }
+
+// ---- measure tool: two taps on a known object give the photo's scale ------------
+const msvg = $('msvg'), mbox = $('measurebox');
+let mpts = [];  // natural-image pixel coordinates of the two taps
+let measuring = false;  // (SVG elements ignore the `hidden` attribute, so track state explicitly)
+function measureOn() {
+  if (!photos.length) return;
+  mpts = []; msvg.innerHTML = ''; measuring = true; msvg.style.display = 'block'; mbox.hidden = false; $('mchoose').hidden = true; $('mscale').hidden = !scale;
+  $('mhint').textContent = 'Tap the two ends of something whose size you know (a coin, a card edge, 1 inch on a ruler).';
+  $('measurebtn').classList.add('on');
+}
+function measureOff() { measuring = false; msvg.style.display = 'none'; mbox.hidden = true; $('measurebtn').classList.remove('on'); mpts = []; msvg.innerHTML = ''; }
+$('measurebtn').addEventListener('click', () => (measuring ? measureOff() : measureOn()));
+function imgGeometry() {  // where the letterboxed photo sits inside the square box
+  const box = img.getBoundingClientRect(), nw = img.naturalWidth || 1, nh = img.naturalHeight || 1;
+  const s = Math.min(box.width / nw, box.height / nh);
+  return { box, s, ox: (box.width - nw * s) / 2, oy: (box.height - nh * s) / 2, nw, nh };
+}
+msvg.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  const g = imgGeometry();
+  const x = (e.clientX - g.box.left - g.ox) / g.s, y = (e.clientY - g.box.top - g.oy) / g.s;
+  if (x < 0 || y < 0 || x > g.nw || y > g.nh) return;
+  if (mpts.length >= 2) mpts = [];
+  mpts.push([x, y]);
+  drawMeasure();
+  if (mpts.length === 2) {
+    $('mchoose').hidden = false;
+    $('mhint').textContent = `Line: ${Math.round(Math.hypot(mpts[1][0] - mpts[0][0], mpts[1][1] - mpts[0][1]))} px. How long is it really?`;
+  } else $('mhint').textContent = 'Now tap the other end.';
+});
+function drawMeasure() {
+  const g = imgGeometry();
+  msvg.setAttribute('viewBox', `0 0 ${g.box.width} ${g.box.height}`);
+  const P = p => [g.ox + p[0] * g.s, g.oy + p[1] * g.s];
+  let h = '';
+  if (mpts.length === 2) { const [a, b] = [P(mpts[0]), P(mpts[1])]; h += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`; }
+  for (const p of mpts) { const q = P(p); h += `<circle cx="${q[0]}" cy="${q[1]}" r="6"/>`; }
+  msvg.innerHTML = h;
+}
+window.addEventListener('resize', () => { if (measuring) drawMeasure(); });
+$('mref').addEventListener('change', () => { $('mcustom').hidden = $('mref').value !== 'custom'; if ($('mref').value === 'custom') $('mcustom').focus(); });
+$('muse').addEventListener('click', async () => {
+  if (mpts.length !== 2) return;
+  const mm = $('mref').value === 'custom' ? parseFloat($('mcustom').value) : parseFloat($('mref').value);
+  if (!(mm > 0)) { toast('Enter the real length in mm'); return; }
+  const px = Math.hypot(mpts[1][0] - mpts[0][0], mpts[1][1] - mpts[0][1]);
+  if (px < 4) { toast('Tap two points further apart'); return; }
+  // the upload is downscaled to 1280 px on the long side: express the scale in uploaded pixels
+  const up = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+  scale = mm / (px * up);
+  $('mscale').hidden = false; $('mscale').textContent = `Scale set: 1 mm = ${(1 / scale).toFixed(1)} uploaded px`;
+  toast('Scale set — sizes are now matched against the catalog');
+  await send();
+});
+$('mclear').addEventListener('click', async () => { const had = !!scale; scale = null; measureOff(); if (had) await send(); });
 
 // ---- feedback --------------------------------------------------------------
 async function confirm(partNumber, btn) {

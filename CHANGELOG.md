@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Size matching: a "Measure" tool in the phone UI (tap the two ends of a coin, a card edge
+  or 1 inch on a ruler) gives the photo's scale; the object's extent is measured along its
+  principal axes and compared with each candidate's catalog dimensions (length, OD, thread
+  size), which separates look-alike SKUs that share one catalog image. API: `mm_per_px`.
+
 ## 0.3.1
 
 - Nothing gets lost: query photos wait on disk so a confirmation lands after a restart or

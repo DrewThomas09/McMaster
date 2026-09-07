@@ -183,3 +183,51 @@ def test_live_id_overlay_with_fake_camera(server, tmp_path):
             "ghost ",
         )  # live stops on capture
         browser.close()
+
+
+def test_measure_tool_sets_scale_and_matches_sizes(server, store, tmp_path):
+    """Measure: two taps on the photo + a reference length -> mm_per_px is sent and the
+    verdict shows the measured size."""
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    part = next(store.iter_parts(with_images_only=True))
+    photo = tmp_path / "photo.jpg"
+    Image.open(part.image_paths[0]).convert("RGB").save(photo, format="JPEG", quality=90)
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        page.goto(server + "/")
+        page.set_input_files("#camera", str(photo))
+        page.wait_for_selector(".verdict", timeout=30000)
+        assert page.locator("#msvg").is_hidden()  # the overlay must not block the lightbox
+        page.click("#measurebtn")
+        assert page.locator("#msvg").is_visible() and page.locator("#measurebox").is_visible()
+        box = page.locator("#img").bounding_box()
+        # the photo is square, so it fills the box: tap at 20% and 80% of the width
+        y = box["y"] + box["height"] / 2
+        page.mouse.click(box["x"] + box["width"] * 0.2, y)
+        page.mouse.click(box["x"] + box["width"] * 0.8, y)
+        page.wait_for_selector("#mchoose:not([hidden])")
+        assert "px" in page.locator("#mhint").inner_text()
+        page.select_option("#mref", "25.4")
+        page.click("#muse")
+        page.wait_for_function(
+            "document.body.innerText.includes('Measured from your photo')", timeout=30000
+        )
+        measured = page.evaluate("lastResult.measured")
+        assert measured and measured["long_mm"] > 0
+        scale = page.evaluate("scale")
+        assert scale and scale > 0
+        # every candidate now carries a size verdict when it has a dimension to compare
+        assert page.evaluate(
+            "lastResult.candidates.some(c => c.reasons.some(r => r.includes('measured')))"
+        )
+        page.screenshot(path=str(tmp_path / "measure.png"), full_page=True)
+        (tmp_path / "measure.png").replace(
+            os.environ.get("MCV_UI_SHOT_MEASURE", str(tmp_path / "measure.png"))
+        )
+        page.click("#mclear")
+        page.wait_for_function("scale === null")
+        assert page.locator("#msvg").is_hidden()
+        browser.close()
