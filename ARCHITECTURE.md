@@ -217,10 +217,22 @@ makes sure no category or usage prior can overturn it. The manifest records
 `learned_at` / `retrained_at`, and the dashboard's "Learning loop" panel shows
 the funnel, the confusion pairs, the issue list and how far the next retrain is.
 
-Measured numbers for the loop come from `mcv simulate --customers 120 --learn`
-on a clean 200-part synthetic demo and are recorded below once a run finishes
-on the current code (earlier runs were contaminated by learned photos left in
-the demo index and are not quoted).
+Measured with `mcv simulate --customers 120 --learn` on a clean 200-part
+synthetic demo (hash backbone, gallery augment 2, 2026-09-07):
+
+| | before learning | after `mcv learn` |
+|---|---|---|
+| bought photos that were the top answer | 42% | 100% (same photos, index reloaded) |
+| top-1 over all 120 customers | 30% | 73% |
+| top-1 on *new* photos of the same parts | 30% | 45% |
+| part found in the top 5 (new photos) | 72% | 74% |
+
+The learn step was incremental (86 photos in 25 s, index rows 1972 -> 2058), and
+the 86 photos gave 86 calibration samples (49 wrong) whose refit confirmed the
+existing thresholds. The gallery photo makes the exact angle a sure hit and lifts
+new angles of the same part by half; the rest is what the full retrain is for.
+The analytics also flagged two confusion pairs and that "likely" answers were
+right only half the time when bought, which is the hash backbone's ceiling.
 
 ## Durability (nothing learned at run time is lost)
 
