@@ -334,7 +334,8 @@ customer finds them.
 it, `mcv doctor` the environment, `mcv serve`, then `mcv retrain` on a schedule
 so confirmed photos keep improving accuracy, with `GET /metrics` as the live
 scorecard. Nothing learned at run time is lost: `mcv backup` writes one archive
-of catalog, index, calibration, confirmed photos, logs and manifest, and
+of catalog, index, calibration and its samples, confirmed photos, logs (events,
+orders, carts) and manifest, and
 `mcv restore` puts it back (the API picks a restored index up by itself).
 
 ## Development
