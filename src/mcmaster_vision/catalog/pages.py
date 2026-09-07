@@ -45,6 +45,37 @@ CONT = re.compile(r"\s*\((?:cont(?:inued)?\.?|continued.*?)\)\s*", re.I)
 HEADER = re.compile(r"^\s*(pipe\s+size|pipe\s*/\s*thread\s+size|size|thread\s+size)\b", re.I)
 FOOTER = re.compile(r"mcmaster-?carr", re.I)
 NOISE_HEADINGS = {"pipe", "size", "lg.", "lg", "(a)", "(b)", "qty.", "dia."}
+# header cells that describe the row rather than name a product column, in the order
+# their values appear between the pipe size and the first part number
+ROW_FIELDS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"^\s*(?:pipe\s+)?size\s*\(b\)|^\s*\(b\)", re.I), "pipe_size_b"),
+    (re.compile(r"max\.?\s*psi", re.I), "max_psi"),
+    (re.compile(r"wall\s*thick", re.I), "wall_thickness"),
+    (re.compile(r"flange\s*od", re.I), "flange_od"),
+    (re.compile(r"^\s*od\b", re.I), "od"),
+    (re.compile(r"^\s*id\b", re.I), "id"),
+    (re.compile(r"outlet\s+pipe\s+size", re.I), "outlet_pipe_size"),
+    (re.compile(r"^\s*ht\.?\s*$", re.I), "height"),
+    (re.compile(r"hex\s*key", re.I), "hex_key_size"),
+    (re.compile(r"^\s*width", re.I), "width"),
+    (re.compile(r"^\s*thick\.?\s*$", re.I), "thickness"),
+    (re.compile(r"^\s*thread\s*size\s*(?:\(b\))?", re.I), "thread_b"),
+    (re.compile(r"^\s*lg\.?\s*$|^\s*length", re.I), "length"),
+    (re.compile(r"^\s*\(c\)\s*$|^\s*c\s*$", re.I), "dimension_c"),
+    (re.compile(r"qty", re.I), "bolt_qty"),
+    (re.compile(r"^\s*dia\.?\s*$", re.I), "bolt_dia"),
+    (re.compile(r"fits\s+pipe\s+size|size\s+range", re.I), "fits_pipe_size"),
+]
+# what a value between the size and the part number looks like, when the header did not say
+PSI = re.compile(r"^\d{1,2},\d{3}$|^\d{3,6}$")
+WALL = re.compile(r"^0?\.\d{2,3}\s*(?:\"|″|”)?$")
+THREAD = re.compile(
+    r"^(?:M\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?|\d+(?:/\d+)?(?:\"|″|”)?\s*-\s*\d+|#\d+-\d+)$", re.I
+)
+FRACTION = re.compile(r"^(?:\d+\s*[-\s]\s*)?\d+/\d+\s*(?:\"|″|”)?$|^\d+(?:\.\d+)?\s*(?:\"|″|”)$")
+THREAD_PAIR = re.compile(
+    r"([A-Z][A-Z/]{2,}(?:\s+\([A-Z]\))?)\s*[x×]\s*([A-Z][A-Z/]{2,}(?:\s+\([A-Z]\))?)", re.I
+)
 
 # OCR of the printed catalog: vulgar-fraction glyphs, "S" for "$", I/l/O inside part numbers
 _VULGAR = {
@@ -91,6 +122,8 @@ class PageContext:
     section: str = ""
     material: str = ""
     columns: list[str] = field(default_factory=list)
+    fields: list[str] = field(default_factory=list)  # row fields named by the header
+    connection: str = ""  # "Butt weld" / "NPT" from the section's prose
     counters: dict[str, int] = field(default_factory=dict)
 
 
@@ -119,12 +152,23 @@ def _looks_like_header(line: str) -> bool:
     return sum(1 for c in cells if re.search(r"[A-Za-z]{2}", c)) >= len(cells) - 1
 
 
-def _columns_from_header(line: str) -> list[str]:
+def _columns_from_header(line: str) -> tuple[list[str], list[str]]:
+    """(product columns, row fields): the header cells that describe the row (max psi,
+    wall thickness, a second pipe size, flange OD...) are not product columns."""
     body = HEADER.sub("", line, count=1) if HEADER.match(line) else line
     names = _cells(body)
     if not HEADER.match(line) and names:
         names = names[1:]  # the first cell names the row key ("Thread", "Size (A)")
-    return [n for n in names if n.lower() not in NOISE_HEADINGS]
+    cols: list[str] = []
+    fields: list[str] = []
+    for n in names:
+        low = n.lower()
+        key = next((k for rx, k in ROW_FIELDS if rx.search(n)), None)
+        if key:
+            fields.append(key)
+        elif low not in NOISE_HEADINGS:
+            cols.append(n)
+    return cols, fields
 
 
 def _norm_size(raw: str) -> str:
@@ -171,9 +215,14 @@ def parse_page(text: str, page_label: str = "") -> Iterator[Part]:
         if not line.strip() or FOOTER.search(line):
             continue
         if HEADER.match(line) or _looks_like_header(line):
-            cols = _columns_from_header(line)
-            if cols:
+            cols, fields = _columns_from_header(line)
+            if cols or fields:
                 ctx.columns = cols
+                ctx.fields = fields
+            continue
+        m_conn = re.search(r"connections?:\s*([A-Za-z/ ()-]+?)(?:[.,;]|$)", line, re.I)
+        if m_conn and not PART_PRICE.search(line):
+            ctx.connection = _clean(m_conn.group(1))
             continue
         m_mat = MATERIAL.match(line)
         if m_mat and not PART_PRICE.search(line):
@@ -198,17 +247,63 @@ def parse_page(text: str, page_label: str = "") -> Iterator[Part]:
             ctx.section = t.title() if t.isupper() else t
             if not cont:  # a continued table keeps the header from the previous page
                 ctx.columns = []
+                ctx.fields = []
 
 
-_LENGTH_COLUMN = re.compile(r"^\s*([\d\s/-]+(?:\"|″|”)?)\s*(?:lg\.?|lengths?)\s*$", re.I)
+_LENGTH_COLUMN = re.compile(
+    r"^\s*([\d\s/-]+)\s*(?:\"|″|”)?\s*(?P<unit>ft\.?)?\s*(?:lg\.?|lengths?)?\s*$", re.I
+)
+
+
+def _row_values(between: str, fields: list[str]) -> dict[str, str]:
+    """Attributes from what sits between the pipe size and the first part number: the
+    header's row fields in order when it named them, else by what each token looks like
+    (5,000 -> max psi, 0.083" -> wall thickness, M10 x 1.0 -> a thread, 3/4" -> a length)."""
+    tokens = [t.strip(" .") for t in re.split(r"\s*\.{2,}\s*|\s{2,}", between)]
+    tokens = [t for t in tokens if t]
+    out: dict[str, str] = {}
+    named = [f for f in fields if f != "pipe_size"]
+    for i, tok in enumerate(tokens):
+        key = named[i] if i < len(named) else None
+        if key is None or (key == "pipe_size_b" and not FRACTION.match(tok) and not tok.isdigit()):
+            if PSI.match(tok):
+                key = "max_psi"
+            elif WALL.match(tok):
+                key = "wall_thickness"
+            elif THREAD.match(tok):
+                key = "thread_b"
+            elif FRACTION.match(tok) or tok.isdigit():
+                key = key or ("length" if "length" not in out else "dimension")
+            else:
+                key = key or "note"
+        if key == "max_psi":
+            tok = tok.replace(",", "")
+        elif key in ("pipe_size_b", "outlet_pipe_size", "fits_pipe_size"):
+            tok = _norm_size(tok)
+        elif key == "thread_b":
+            tok = re.sub(r"\s*[x×]\s*", " x ", tok)
+        out.setdefault(key, tok)
+    return out
 
 
 def _row_parts(
     ctx: PageContext, size: str, line: str, hits: list[tuple[str, str]], size_end: int
 ) -> Iterator[Part]:
-    # extra tokens between the size and the first part number (a nipple length, a thread)
+    # extra tokens between the size and the first part number (a second pipe size, max
+    # psi, wall thickness, a nipple length, a thread)
     first_pn = hits[0][0]
-    between = _clean(line[size_end : line.index(first_pn)]).strip(" .")
+    between = line[size_end : line.index(first_pn)].strip(" .")
+    row_values = _row_values(between, ctx.fields) if between else {}
+    # a max-psi cell in front of every column ("5,000 51205K162 $21.99  6,000 51205K113 ...")
+    psi_by_hit: list[str | None] = []
+    cursor_p = size_end
+    for pn, _price in hits:
+        start = line.index(pn, cursor_p)
+        m_psi = re.search(
+            r"(\d{1,2},\d{3}|\d{3,6})(?!\S)\s*[.\s]*$", line[cursor_p:start].rstrip(" .")
+        )
+        psi_by_hit.append(m_psi.group(1).replace(",", "") if m_psi else None)
+        cursor_p = start + len(pn)
     # column index by position: a placeholder ("—", "n/a") between two cells is a skipped
     # column, so later part numbers must not shift left
     col_idx = []
@@ -231,16 +326,26 @@ def _row_parts(
         if ctx.material:
             attrs["material"] = ctx.material
         m_len = _LENGTH_COLUMN.match(column) if column else None
-        if m_len:  # a "2\" Lengths" column: the length is the attribute, the section the type
-            attrs["length"] = _norm_size(m_len.group(1)).replace("-", " ") + '"'
+        if m_len and (m_len.group("unit") or re.search(r"lg|length", column, re.I)):
+            # a "2\" Lengths" / "3 ft." column: the length is the attribute
+            raw_len = _norm_size(m_len.group(1)).replace("-", " ")
+            attrs["length"] = raw_len + (" ft" if m_len.group("unit") else '"')
             column = ctx.section
         elif column:
             attrs["fitting_type"] = column
-        if between:
-            attrs["length" if re.search(r"\d", between) else "note"] = between
+        attrs.update(row_values)
+        if psi_by_hit[i]:
+            attrs["max_psi"] = psi_by_hit[i]
+        if ctx.connection:
+            attrs["connection"] = ctx.connection
+        m_pair = THREAD_PAIR.search(column or "") or THREAD_PAIR.search(ctx.section or "")
+        if m_pair:  # "BSPP (A) x NPT (B)": each end's thread standard
+            attrs["thread_a"] = re.sub(r"\s*\([A-Z]\)", "", m_pair.group(1)).upper()
+            attrs["thread_b_type"] = re.sub(r"\s*\([A-Z]\)", "", m_pair.group(2)).upper()
         if ctx.page:
             attrs["catalog_page"] = ctx.page
-        name_bits = [ctx.material, column or ctx.section, f"{size} pipe size"]
+        size_text = f"{size} x {attrs['pipe_size_b']}" if "pipe_size_b" in attrs else size
+        name_bits = [ctx.material, column or ctx.section, f"{size_text} pipe size"]
         name = ", ".join(b for b in name_bits if b)
         cat = [c for c in (ctx.title, ctx.section) if c]
         yield Part(

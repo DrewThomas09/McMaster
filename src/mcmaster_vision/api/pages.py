@@ -196,6 +196,7 @@ def _fits_with(part) -> str:
         normalise_pipe_size,
         pipe_id_mm,
         pipe_od_mm,
+        schedule_from_text,
     )
 
     attrs = {k.lower().replace(" ", "_"): str(v) for k, v in part.attributes.items()}
@@ -216,6 +217,21 @@ def _fits_with(part) -> str:
             rows.append(("male thread / pipe OD", f"{od / 25.4:.3f} in ({od:.1f} mm)"))
         if pid:
             rows.append(("female thread / pipe ID", f"{pid / 25.4:.3f} in ({pid:.1f} mm)"))
+        wall = attrs.get("wall_thickness") or attrs.get("wall")
+        sched = attrs.get("schedule") or schedule_from_text(text)
+        try:
+            wall_in = float(wall.replace('"', "").strip()) if wall else None
+        except ValueError:
+            wall_in = None
+        if wall_in or (sched and sched != "40"):
+            bore = pipe_id_mm(key, sched, wall_in)
+            if bore:
+                rows.append(
+                    (
+                        f"bore ({'wall ' + wall if wall else 'schedule ' + sched})",
+                        f"{bore / 25.4:.3f} in ({bore:.1f} mm)",
+                    )
+                )
         npt, bsp = THREADS_PER_INCH.get(key, (None, None))
         if npt or bsp:
             rows.append(

@@ -235,3 +235,37 @@ def test_coin_hint_offered_and_usable(identifier, store):
     )
     m = r3.json()["measured"]
     assert m and 20 < m["long_mm"] < 45 and r3.json()["coin_hint"] is None
+
+
+def test_bore_measured_and_matched_to_schedule():
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.measure import Measurement, measure, size_consistency
+    from mcmaster_vision.schemas import Part
+
+    img = Image.new("RGB", (400, 400), "white")
+    d = ImageDraw.Draw(img)
+    d.ellipse((40, 40, 360, 360), fill=(120, 120, 130))  # a 1/2 sch-10 coupling end-on:
+    d.ellipse((115, 115, 285, 285), fill="white")  # OD ~ 32 mm, bore ~ 17 mm
+    m = measure(img, 0.1)
+    assert m.bore_mm and abs(m.bore_mm - 17.0) < 1.0
+    sch10 = Part(
+        part_number="A",
+        name="Thin-Wall Butt-Weld Coupling",
+        category_path=["x"],
+        attributes={"pipe_size": "1/2", "wall_thickness": '0.083"'},
+    )
+    sch80_small = Part(
+        part_number="B",
+        name="Thick-Wall Coupling",
+        category_path=["x"],
+        attributes={"pipe_size": "1/4", "schedule": "80"},
+    )
+    ok, reasons = size_consistency(m, sch10)
+    bad, reasons_b = size_consistency(m, sch80_small)
+    assert any("bore" in r and "consistent" in r for r in reasons), reasons
+    assert any("bore" in r and "off" in r for r in reasons_b), reasons_b
+    assert ok > bad
+    # no bore measured: the bore rule stays silent
+    flat = Measurement(30.0, 30.0, 0.1)
+    assert not any("bore" in r for r in size_consistency(flat, sch10)[1])

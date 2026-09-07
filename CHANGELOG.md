@@ -60,6 +60,12 @@
   just-raised `likely` and needs a 5-point gain to move a threshold; confusion pairs compare
   name and category too and ignore price/url keys; the orders tail read keeps a complete
   first line; the chip says "confirmed before".
+- Catalog fittings pages (13-22): the importer reads reducing bushings and couplings with two
+  pipe sizes per row, max-psi cells per column, butt-weld wall thickness and the (C)
+  dimension, flange OD / bolt columns, thread adapters (NPT x metric, BSPP x NPT ...), pipe by
+  the foot, and "Connections:" lines. Pipe wall schedules 10 / 40 / 80 give a fitting's bore
+  (`pipe_id_mm`), the Measure tool reads the bore of an end-on part, size matching compares
+  it with the candidate's schedule or wall, and the part page lists the bore.
 - Purchases by category: `/analytics` and the dashboard show which categories customers get
   wrong most (top-1 precision when bought) with an issue for the weakest; identify events
   carry the category. A `learner` service in both compose files runs `mcv learn` hourly.

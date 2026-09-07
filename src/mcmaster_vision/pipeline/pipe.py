@@ -55,6 +55,58 @@ PIPE_ID_SCH40_IN: dict[str, float] = {
     "8": 7.981,
 }
 
+# wall thickness by schedule, inches: schedule 10 ("thin-wall") and 40 ("standard-wall")
+# from the catalog's butt-weld fitting tables; schedule 80 ("thick-wall", high-pressure
+# nipples) from ANSI B36.10. A female or unthreaded fitting's inside diameter is the
+# pipe OD minus two walls of its schedule.
+PIPE_WALL_IN: dict[str, dict[str, float]] = {
+    "10": {
+        "1/2": 0.083,
+        "3/4": 0.083,
+        "1": 0.109,
+        "1-1/4": 0.109,
+        "1-1/2": 0.109,
+        "2": 0.109,
+        "2-1/2": 0.120,
+        "3": 0.120,
+        "4": 0.120,
+        "6": 0.134,
+        "8": 0.148,
+    },
+    "40": {
+        "1/8": 0.068,
+        "1/4": 0.088,
+        "3/8": 0.091,
+        "1/2": 0.109,
+        "3/4": 0.113,
+        "1": 0.133,
+        "1-1/4": 0.140,
+        "1-1/2": 0.145,
+        "2": 0.154,
+        "2-1/2": 0.203,
+        "3": 0.216,
+        "4": 0.237,
+        "6": 0.280,
+        "8": 0.322,
+    },
+    "80": {
+        "1/8": 0.095,
+        "1/4": 0.119,
+        "3/8": 0.126,
+        "1/2": 0.147,
+        "3/4": 0.154,
+        "1": 0.179,
+        "1-1/4": 0.191,
+        "1-1/2": 0.200,
+        "2": 0.218,
+        "2-1/2": 0.276,
+        "3": 0.300,
+        "4": 0.337,
+        "6": 0.432,
+        "8": 0.500,
+    },
+}
+
 # threads per inch by pipe size: (NPT, BSP)
 THREADS_PER_INCH: dict[str, tuple[float | None, float | None]] = {
     "1/16": (27, None),
@@ -132,11 +184,6 @@ def pipe_od_mm(size) -> float | None:
     return round(PIPE_OD_IN[key] * INCH, 2) if key in PIPE_OD_IN else None
 
 
-def pipe_id_mm(size) -> float | None:
-    key = normalise_pipe_size(size)
-    return round(PIPE_ID_SCH40_IN[key] * INCH, 2) if key in PIPE_ID_SCH40_IN else None
-
-
 def pipe_size_from_od_mm(od_mm: float, tolerance: float = 0.12) -> str | None:
     """The nominal size whose OD is nearest (within ``tolerance`` relative), else None."""
     best, err = None, tolerance
@@ -186,3 +233,36 @@ def is_tapered(thread_type: str) -> bool | None:
     if t in {k.upper() for k in THREAD_COMPATIBILITY}:
         return False
     return None
+
+
+def schedule_from_text(text: str) -> str | None:
+    """``"Schedule 40"``, ``"Sch. 80"``, ``"thin-wall"``, ``"thick-wall"``, ``"standard-wall"``
+    -> the schedule key, else None."""
+    t = str(text).lower()
+    m = re.search(r"sch(?:edule)?\.?\s*(10|40|80)\b", t)
+    if m:
+        return m.group(1)
+    if "thin-wall" in t or "thin wall" in t:
+        return "10"
+    if "thick-wall" in t or "thick wall" in t or "extra-heavy" in t:
+        return "80"
+    if "standard-wall" in t or "standard wall" in t:
+        return "40"
+    return None
+
+
+def pipe_id_mm(size, schedule: str | None = None, wall_in: float | None = None) -> float | None:
+    """Inside diameter of a nominal size: from an explicit wall thickness (inches), else
+    the schedule's wall (default 40), else the schedule-40 table."""
+    key = normalise_pipe_size(size)
+    if key is None:
+        return None
+    od = PIPE_OD_IN.get(key)
+    if od is None:
+        return None
+    if wall_in is None:
+        wall_in = PIPE_WALL_IN.get(schedule or "40", {}).get(key)
+    if wall_in is not None:
+        return round((od - 2 * wall_in) * INCH, 2)
+    inner = PIPE_ID_SCH40_IN.get(key)
+    return round(inner * INCH, 2) if inner else None

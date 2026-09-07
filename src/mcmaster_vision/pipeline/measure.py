@@ -22,7 +22,9 @@ from PIL import Image
 from mcmaster_vision.pipeline.pipe import (
     THREADS_PER_INCH,
     normalise_pipe_size,
+    pipe_id_mm,
     pipe_od_mm,
+    schedule_from_text,
 )
 from mcmaster_vision.pipeline.preprocess import foreground_mask
 from mcmaster_vision.schemas import Part
@@ -102,6 +104,7 @@ class Measurement:
     short_mm: float
     mm_per_px: float
     pitch_mm: float | None = None  # thread pitch read from the photo, when there is one
+    bore_mm: float | None = None  # the largest hole through the part (end-on fittings)
 
     def as_dict(self) -> dict[str, float]:
         out = {
@@ -109,6 +112,8 @@ class Measurement:
             "short_mm": round(self.short_mm, 1),
             "mm_per_px": round(self.mm_per_px, 5),
         }
+        if self.bore_mm:
+            out["bore_mm"] = round(self.bore_mm, 1)
         if self.pitch_mm:
             out["pitch_mm"] = round(self.pitch_mm, 3)
             out["threads_per_inch"] = round(INCH / self.pitch_mm, 1)
@@ -164,6 +169,59 @@ def object_extent_px(
     return max(long_px, short_px), min(long_px, short_px)
 
 
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Background pixels not reachable from the image border are holes."""
+    try:
+        from scipy import ndimage
+
+        return ndimage.binary_fill_holes(mask)
+    except ImportError:  # iterative propagation from the border, vectorised
+        bg = ~mask
+        reach = np.zeros_like(mask, dtype=bool)
+        reach[0, :] = bg[0, :]
+        reach[-1, :] = bg[-1, :]
+        reach[:, 0] = bg[:, 0]
+        reach[:, -1] = bg[:, -1]
+        for _ in range(max(mask.shape)):
+            grown = reach.copy()
+            grown[1:, :] |= reach[:-1, :]
+            grown[:-1, :] |= reach[1:, :]
+            grown[:, 1:] |= reach[:, :-1]
+            grown[:, :-1] |= reach[:, 1:]
+            grown &= bg
+            if (grown == reach).all():
+                break
+            reach = grown
+        return mask | (bg & ~reach)
+
+
+def bore_px(image: Image.Image, work: int = 160, exclude: Segment | None = None) -> float | None:
+    """Diameter (equivalent circle, image pixels) of the largest hole enclosed by the
+    foreground object: the bore of a fitting, washer or bearing photographed end-on.
+    None when the object has no hole worth the name (under 4% of its area)."""
+    w, h = image.size
+    s = min(1.0, work / max(w, h))
+    small = image.convert("RGB").resize((max(1, round(w * s)), max(1, round(h * s))))
+    excl = _segment_mask(small.size[::-1], exclude, s, pad=2) if exclude else None
+    mask = foreground_mask(np.asarray(small, dtype=np.float32), exclude=excl)
+    if mask is None or mask.sum() < 8:
+        return None
+    mask = mask.astype(bool)
+    holes = _fill_holes(mask) & ~mask
+    if holes.sum() < 0.04 * mask.sum():
+        return None
+    try:
+        from scipy import ndimage
+
+        labels, n = ndimage.label(holes)
+        if n == 0:
+            return None
+        area = max(int((labels == i).sum()) for i in range(1, n + 1))
+    except ImportError:
+        area = int(holes.sum())  # one hole is the common case
+    return 2.0 * float(np.sqrt(area / np.pi)) / s
+
+
 def measure(
     image: Image.Image, mm_per_px: float, reference: Segment | None = None
 ) -> Measurement | None:
@@ -177,7 +235,10 @@ def measure(
     if ext is None:
         return None
     scale = mm_per_px * k  # mm per *decoded* pixel
-    return Measurement(ext[0] * scale, ext[1] * scale, mm_per_px)
+    bore = bore_px(image, exclude=seg)  # type: ignore[arg-type]
+    return Measurement(
+        ext[0] * scale, ext[1] * scale, mm_per_px, bore_mm=bore * scale if bore else None
+    )
 
 
 def _ratio_score(ratio: float, lo_ok: float, hi_ok: float, falloff: float = 1.6) -> float:
@@ -322,6 +383,26 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
             f"measured {meas.short_mm:.0f} mm vs pipe size {pipe} (pipe OD {od:.1f} mm, "
             f"{'female' if female and not male else 'male' if male and not female else 'fitting'} body): {verdict}"
         )
+        # an unthreaded (butt-weld) fitting or plain pipe is the pipe itself: the catalog
+        # says to measure its OD, and its wall / schedule fixes the bore. A measured bore
+        # (the smaller of the two axes on an end-on photo) is compared with that ID
+        wall_txt = attrs.get("wall_thickness") or attrs.get("wall")
+        schedule = attrs.get("schedule") or schedule_from_text(text)
+        try:
+            wall_in = float(str(wall_txt).replace('"', "").strip()) if wall_txt else None
+        except ValueError:
+            wall_in = None
+        if (wall_in or schedule) and meas.bore_mm:
+            inner = pipe_id_mm(pipe, schedule, wall_in)
+            if inner:
+                rb = meas.bore_mm / inner
+                sb = _ratio_score(rb, 0.85, 1.15, 1.3)
+                votes.append(sb)
+                reasons.append(
+                    f"measured bore {meas.bore_mm:.0f} mm vs pipe ID {inner:.1f} mm "
+                    f"({'wall ' + str(wall_txt) if wall_txt else 'schedule ' + str(schedule)}): "
+                    f"{'consistent' if sb > 0.5 else 'off' if sb < -0.5 else 'close'}"
+                )
     p_sc, p_reason = pitch_consistency(meas, part)
     if p_reason:
         votes.append(p_sc)

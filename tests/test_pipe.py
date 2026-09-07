@@ -90,3 +90,17 @@ def test_size_matching_uses_pipe_od_not_the_nominal_number():
         attributes={"pipe_size": '1/2"'},
     )
     assert size_consistency(Measurement(40.0, 28.0, 0.1), coupling)[0] == 1.0
+
+
+def test_pipe_id_by_schedule_and_wall():
+    from mcmaster_vision.pipeline.pipe import PIPE_WALL_IN, pipe_id_mm, schedule_from_text
+
+    assert schedule_from_text("Thin-Wall Butt-Weld") == "10"
+    assert schedule_from_text("Schedule 80 thick-wall") == "80"
+    assert schedule_from_text("Standard-Wall Type 304") == "40" and schedule_from_text("x") is None
+    # 1/2 pipe: OD 0.840; sch 40 wall 0.109 -> ID 0.622" = 15.8 mm; sch 10 wall 0.083 -> 0.674"
+    assert abs(pipe_id_mm("1/2") - 15.8) < 0.1
+    assert abs(pipe_id_mm("1/2", "10") - 0.674 * 25.4) < 0.1
+    assert abs(pipe_id_mm("1/2", wall_in=0.083) - 0.674 * 25.4) < 0.1
+    assert pipe_id_mm("nope") is None and pipe_id_mm("1/2", "99") == pipe_id_mm("1/2")
+    assert PIPE_WALL_IN["10"]["2"] == 0.109 and PIPE_WALL_IN["40"]["2"] == 0.154

@@ -315,6 +315,23 @@ both. The reference coin is excluded from the profile, profiles shorter than
 32 samples are rejected, and the peak must exceed the largest other spectral
 feature by 2.5x so a washer's hole edges never read as a thread.
 
+### Wall schedules and the bore (from the butt-weld and nipple pages)
+
+The catalog's unthreaded (butt-weld) and thick-wall pages add a second
+dimension: wall thickness by schedule (10 thin-wall, 40 standard, 80 thick-wall;
+`PIPE_WALL_IN`), so a female or unthreaded fitting's bore is OD minus two walls
+(`pipe_id_mm(size, schedule | wall)`). The Measure tool now also reads the
+largest hole through the part (`bore_px`: the foreground's enclosed holes, from
+a border flood fill) and `size_consistency` compares it with the candidate's
+bore when the part names a wall or schedule, so an end-on photo of a coupling
+separates thin-wall from thick-wall look-alikes of the same nominal size.
+
+The page importer reads the layouts these pages use: two pipe sizes per row
+(reducing bushings and couplings, `pipe_size_b`), a max-psi cell in front of
+every column, wall thickness and the (C) dimension, flange OD and bolt columns,
+thread adapters (`thread_a`, `thread_b_type`, `thread_b` such as `M10 x 1.0`),
+pipe sold by the foot (`length: 3 ft`), and the section's "Connections:" line.
+
 ## Multi-photo queries and family answers
 
 Several photos of one part (different angles) are embedded independently and
