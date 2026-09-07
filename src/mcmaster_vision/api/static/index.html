@@ -48,6 +48,9 @@
   .imgwrap svg { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
   .imgwrap svg line { stroke:var(--yellow); stroke-width:3; stroke-linecap:round; }
   .imgwrap svg circle { fill:var(--yellow); stroke:var(--green); stroke-width:2; }
+  #coinsvg { pointer-events:none; cursor:default; }
+  #coinsvg circle { fill:none; stroke:var(--yellow); stroke-width:3; stroke-dasharray:8 6; }
+  #coinsvg text { fill:var(--yellow); font-size:14px; font-weight:700; paint-order:stroke; stroke:#000; stroke-width:3px; }
   .measurebox { margin-top:8px; padding:10px 12px; border:1px solid var(--yellow); border-radius:12px; background:var(--card); font-size:13px; }
   .measurebox .mrow { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; align-items:center; }
   .measurebox select, .measurebox input { padding:7px 8px; border-radius:8px; border:1px solid var(--line); font-size:13px; max-width:100%; background:var(--card); color:var(--ink); }
@@ -166,7 +169,7 @@
 
   <div class="row">
     <div class="preview" id="preview" hidden>
-      <div class="imgwrap"><img id="img" alt="query" onclick="lightbox(this.src, null, 'Your photo')"><svg id="msvg" style="display:none"></svg></div>
+      <div class="imgwrap"><img id="img" alt="query" onclick="lightbox(this.src, null, 'Your photo')"><svg id="msvg" style="display:none"></svg><svg id="coinsvg" style="display:none"></svg></div>
       <div class="thumbs" id="thumbs"></div>
       <div class="actions">
         <button type="button" class="ghost" onclick="document.getElementById('angle').click()">+ Add another angle</button><input type="file" id="angle" accept="image/*" capture="environment" hidden>
@@ -383,7 +386,7 @@ function setPreview(src) {  // revoke the previous photo's blob URLs; redraw the
 }
 img.addEventListener('load', () => { if (measuring) drawMeasure(); });
 function resetQuery() {  // every path that starts a new query goes through here
-  photos = []; constraints = {}; scale = null; refSeg = null; lastResult = null;
+  photos = []; constraints = {}; scale = null; refSeg = null; lastResult = null; coinRingOff();
   if (typeof measureOff === 'function') measureOff();
   return ++sendSeq;  // an in-flight send() for the old query must not render over the new one
 }
@@ -478,6 +481,7 @@ function render(res) {
   const t = res.timings_ms || {};
   html += `<details class="timings"><summary>${res.photos > 1 ? res.photos + ' photos · ' : ''}${t.total ? t.total + ' ms on server' : ''}${res._roundtrip ? ' · ' + res._roundtrip + ' ms round trip' : ''} · ${esc(res.model_version)}</summary>${Object.entries(t).map(([k,v]) => `${esc(k)} ${v} ms`).join(' · ')}</details>`;
   results.innerHTML = html;
+  if (res.coin_hint && !scale) drawCoinRing(res.coin_hint); else coinRingOff();
   updateCartBadge();
   loadStrips(res.candidates.slice(0, 5));
 }
@@ -524,9 +528,22 @@ async function search(q) {
 
 // ---- coin hint: the server saw a round blob; one tap makes it the reference ------
 const COINS = [['US quarter', 24.26], ['US nickel', 21.21], ['US penny', 19.05], ['US dime', 17.91], ['1 euro', 23.25], ['2 euro', 25.75], ['1 pound', 23.43]];
+// the detected coin, drawn on the photo so the user can see what would set the scale
+function coinRingOff() { const c = $('coinsvg'); if (c) { c.style.display = 'none'; c.innerHTML = ''; } }
+function drawCoinRing(c) {
+  const svg = $('coinsvg'); if (!svg || !img.naturalWidth) return;
+  const up = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));  // uploaded px -> preview px
+  const g = imgGeometry();
+  svg.setAttribute('viewBox', `0 0 ${g.box.width} ${g.box.height}`);
+  const cx = g.ox + (c.cx / up) * g.s, cy = g.oy + (c.cy / up) * g.s, r = (c.diameter_px / up / 2) * g.s;
+  svg.innerHTML = `<circle cx="${cx}" cy="${cy}" r="${r}"/><text x="${cx}" y="${cy - r - 6}" text-anchor="middle">coin?</text>`;
+  svg.style.display = 'block';
+}
+window.addEventListener('resize', () => { if (lastResult && lastResult.coin_hint && !scale) drawCoinRing(lastResult.coin_hint); });
 async function useCoin(mm) {
   mm = parseFloat(mm); const c = lastResult && lastResult.coin_hint;
   if (!(mm > 0) || !c) return;
+  coinRingOff();
   const r = c.diameter_px / 2;
   scale = mm / c.diameter_px;  // coin_hint is already in uploaded pixels
   refSeg = [c.cx - r, c.cy, c.cx + r, c.cy];

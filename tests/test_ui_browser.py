@@ -271,6 +271,33 @@ def test_measure_tool_sets_scale_and_matches_sizes(server, store, tmp_path):
         browser.close()
 
 
+def test_coin_hint_draws_a_ring_on_the_photo(server, store, tmp_path):
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    from PIL import ImageDraw
+
+    part = next(store.iter_parts(with_images_only=True))
+    render = Image.open(part.image_paths[0]).convert("RGB").resize((256, 256))
+    canvas = Image.new("RGB", (512, 256), (255, 255, 255))
+    ImageDraw.Draw(canvas).ellipse((40, 48, 200, 208), fill=(184, 172, 120))
+    canvas.paste(render, (256, 0))
+    path = tmp_path / "coin.png"
+    canvas.save(path)
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.goto(server + "/")
+        page.set_input_files("#file", str(path))
+        page.wait_for_selector("#coinpick", timeout=60_000)
+        page.wait_for_function("document.getElementById('coinsvg').style.display === 'block'")
+        assert page.locator("#coinsvg circle").count() == 1
+        page.select_option("#coinpick", "24.26")
+        page.wait_for_function("document.getElementById('coinsvg').style.display === 'none'")
+        page.wait_for_selector("text=Measured from your photo", timeout=60_000)
+        browser.close()
+
+
 def test_clear_scale_note_action(server, store, tmp_path):
     """When the marked reference is the only blob, the note offers 'clear scale' and using
     it removes the scale and re-queries."""
