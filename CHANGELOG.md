@@ -49,6 +49,8 @@
 - Phone UI: the header wraps under the cart badge on narrow phones instead of clipping the
   navigation; candidates that other customers bought, or whose photo was learned, carry a
   visible "bought before" / "seen before" chip; the part page has Add to cart.
+- `mcv selfcheck` gains a purchase-loop step: cart, checkout, the photo becomes a purchase
+  confirmation, `mcv learn` adds it to the index incrementally.
 - Calibration: when no threshold reaches a tier's precision target, the fit raises the
   threshold to the most precise supported one instead of keeping a default known to be
   wrong (never lowered); the tier-precision issue says when a stronger backbone is needed.

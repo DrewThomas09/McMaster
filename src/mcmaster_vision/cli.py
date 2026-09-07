@@ -724,7 +724,9 @@ def selfcheck(
     parts: int = typer.Option(60, help="Synthetic parts to build the check catalog from"),
 ) -> None:
     """One command that proves this machine can run the whole thing: environment, build,
-    identify, measure with a coin, feedback, backup, restore. Prints PASS or FAIL per step."""
+    identify, measure with a coin, feedback, the purchase loop (cart, checkout, learn),
+    backup, restore. Prints PASS or FAIL per step."""
+    import io
     import shutil
     import tempfile
     import time
@@ -762,7 +764,8 @@ def selfcheck(
         s = _demo_settings(
             data_dir, backbone=_best_offline_backbone(), checkpoint=None, train_epochs=0
         )
-        state["s"] = s
+        # the settings must say how the index was built, or a later learn would rebuild it
+        state["s"] = s.model_copy(update={"index_gallery_augment": 1})
         state["ident"] = _build_demo(s, parts=parts, images_per_part=2, gallery_augment=1)
         return f"{parts} parts, backbone {state['ident'].embedder.version}"
 
@@ -802,9 +805,43 @@ def selfcheck(
     def _feedback():
         s = state["s"]
         fs = FeedbackStore(s.queries_dir)
-        fb = fs.record(b"x", state["res"].request_id, state["part"].part_number)
+        buf = io.BytesIO()
+        state["img"].save(buf, "JPEG")
+        fb = fs.record(buf.getvalue(), state["res"].request_id, state["part"].part_number)
         n = fs.stats()["confirmed"]
         return f"{n} confirmed, stored at {Path(fb.image_path).parent.name}/"
+
+    def _purchase_loop():
+        """Cart -> checkout -> the photo is a purchase confirmation -> mcv learn adds it."""
+        from fastapi.testclient import TestClient
+
+        from mcmaster_vision.api import create_app
+        from mcmaster_vision.pipeline.learn import learn_index
+
+        s = state["s"].model_copy(update={"demo_mode": True})
+        pn = state["part"].part_number
+        with TestClient(create_app(s, identifier=state["ident"])) as client:
+            d = client.post(f"/demo/try/{pn}?tta=fast").json()
+            req = d["result"]["request_id"]
+            r = client.post(
+                "/cart", json={"client_id": "selfcheck", "part_number": pn, "request_id": req}
+            )
+            r.raise_for_status()
+            order = client.post("/checkout", json={"client_id": "selfcheck"})
+            order.raise_for_status()
+            if order.json()["learned"] != 1:
+                raise RuntimeError("the checkout did not file the photo as a confirmation")
+            a = client.get("/analytics").json()
+            if a["window"]["checkout"] != 1 or a["learning"]["new_purchases"] < 1:
+                raise RuntimeError(f"analytics did not see the purchase: {a['window']}")
+        res = learn_index(s)
+        if res["action"] != "index" or res["added"] < 1:
+            raise RuntimeError(f"learn did not add the bought photo: {res}")
+        state["ident"] = None  # the identifier below reloads from disk
+        return (
+            f"order {order.json()['order_id']}, {res['added']} photo(s) learned "
+            f"({res['how']}, {res['seconds']}s)"
+        )
 
     def _backup():
         s = state["s"]
@@ -837,6 +874,7 @@ def selfcheck(
         ("identify", _identify),
         ("coin hint + measure", _measure),
         ("feedback", _feedback),
+        ("purchase loop", _purchase_loop),
         ("backup", _backup),
         ("restore + load", _restore),
     ):
