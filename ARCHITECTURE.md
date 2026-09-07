@@ -309,9 +309,10 @@ votes, against 35/52 for the same photos without a coin and about 12/52 when the
 coin was left in the embedding; the part in the top 5 in 47/52 against 52/52,
 the cost of the part being smaller in a frame it shares with a coin. In the purchase-loop simulation with half the customers
 using a coin (`mcv simulate --customers 120 --coin-rate 0.5 --learn`, same
-model and demo), the bought part had been the top answer 88% of the time when
-the photo carried a measurement and 71% when it did not, and on new photos after
-learning 82% against 74%; the dashboard shows the same split live.
+model and demo, re-run on the colour-grown erase), the bought part had been the
+top answer 83% of the time when the photo carried a measurement and 71% when it
+did not, and on new photos after learning 80% against 76%; the dashboard shows
+the same split live.
 
 ## Pipe sizing and thread pitch (`pipeline/pipe.py`, `pipeline/threads.py`)
 
