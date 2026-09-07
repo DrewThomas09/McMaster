@@ -78,22 +78,36 @@ class Calibration:
         if not rows:
             return Calibration(**self.__dict__)
 
-        def best_threshold(target: float, need_margin: bool) -> float | None:
-            cands = sorted({round(p, 3) for p, _, _ in rows})
-            chosen = None
-            for thr in cands:  # lowest threshold that still meets the target = most coverage
-                sel = [
-                    ok
-                    for p, m, ok in rows
-                    if p >= thr and (m >= self.min_margin if need_margin else True)
-                ]
-                if len(sel) >= min_support and sum(sel) / len(sel) >= target:
-                    chosen = thr
-                    break
-            return chosen
+        def precision_at(thr: float, need_margin: bool) -> tuple[int, float]:
+            sel = [
+                ok
+                for p, m, ok in rows
+                if p >= thr and (m >= self.min_margin if need_margin else True)
+            ]
+            return len(sel), (sum(sel) / len(sel) if sel else 0.0)
 
-        exact = best_threshold(exact_precision, need_margin=True)
-        likely = best_threshold(likely_precision, need_margin=False)
+        def best_threshold(target: float, need_margin: bool, current: float) -> float | None:
+            cands = sorted({round(p, 3) for p, _, _ in rows})
+            for thr in cands:  # lowest threshold that still meets the target = most coverage
+                n, prec = precision_at(thr, need_margin)
+                if n >= min_support and prec >= target:
+                    return thr
+            # the target is out of reach for this model: raise the threshold to the most
+            # precise one that still has support, but only when it beats the current one
+            # (a tier that is wrong half the time must not keep claiming otherwise); a
+            # threshold is never lowered here
+            supported = [
+                (precision_at(t, need_margin)[1], -t)
+                for t in cands
+                if t > current and precision_at(t, need_margin)[0] >= min_support
+            ]
+            if not supported:
+                return None
+            prec, neg_t = max(supported)
+            return -neg_t if prec > precision_at(current, need_margin)[1] + 1e-9 else None
+
+        exact = best_threshold(exact_precision, True, self.exact_threshold)
+        likely = best_threshold(likely_precision, False, self.likely_threshold)
         new = Calibration(**self.__dict__)
         if exact is not None:
             new.exact_threshold = float(exact)

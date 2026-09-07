@@ -39,6 +39,9 @@
   `mcv retrain` trains on purchase-weighted photos but indexes each once; the usage prior
   is back on its tuned scale; event rows without a kind, half-written order lines and
   naive timestamps no longer break anything.
+- Calibration: when no threshold reaches a tier's precision target, the fit raises the
+  threshold to the most precise supported one instead of keeping a default known to be
+  wrong (never lowered); the tier-precision issue says when a stronger backbone is needed.
 - Synthetic catalog: pipe nipples, couplings, flanges, caps and hex reducing bushings with
   pipe size, thread type (NPT / NPTF / BSPT), gender, length and reduced-to attributes, so
   the pipe-sizing and thread-compatibility features have parts to act on (44 kinds).

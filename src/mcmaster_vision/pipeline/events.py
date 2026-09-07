@@ -234,7 +234,9 @@ def issues(a: dict) -> list[dict]:
                     "severity": "high",
                     "what": f"'{tier}' answers were right only {t['precision']:.0%} of the time "
                     f"when bought",
-                    "do": "recalibrate: `mcv evaluate --query-dir data/queries --fit-calibration`",
+                    "do": "recalibrate on real outcomes (`mcv learn` does it from confirmed "
+                    "photos); if the tier does not move, this backbone cannot separate the "
+                    "look-alikes: retrain, or a stronger backbone",
                 }
             )
     conf = a.get("confidence", {})

@@ -229,3 +229,35 @@ def test_learn_lock_and_rebuild_triggers(tmp_path, demo_dir, store, index):
     res = learn_index(s)
     assert res["action"] == "index" and res["photos"] == 1 and res["added"] == 0
     assert load_index(s.index_path).meta["learned_paths"] == [wanted]
+
+
+def test_thresholds_fall_back_to_best_achievable():
+    from mcmaster_vision.pipeline.calibration import Calibration
+
+    cal = Calibration(temperature=0.05, likely_threshold=0.6, exact_threshold=0.99)
+    # 40 queries: confident-and-right ones score high; a band of 0.6-0.7 answers is a coin
+    # toss, so no threshold reaches 90% precision with support 10 until p >= 0.8
+    score_lists, correct = [], []
+    for i in range(40):
+        if i < 12:
+            score_lists.append([1.0, 0.8]), correct.append(0)  # p0 ~ 0.98
+        elif i < 15:
+            score_lists.append([1.0, 0.8]), correct.append(1)
+        else:
+            score_lists.append([1.0, 0.97]), correct.append(0 if i % 2 else 1)  # p0 ~ 0.65
+    fitted = cal.fit_thresholds(score_lists, correct, likely_precision=0.9)
+    thr = fitted.likely_threshold
+    assert thr > 0.6
+    kept = [
+        ok
+        for sc, ci in zip(score_lists, correct, strict=True)
+        for ok in [ci == 0]
+        if cal.probabilities(sc)[0] >= thr
+    ]
+    assert len(kept) == 15 and abs(sum(kept) / len(kept) - 0.8) < 1e-9  # the coin-toss band is out
+    # when the current threshold is already the best achievable, nothing changes
+    same = Calibration(temperature=0.05, likely_threshold=thr, exact_threshold=0.99)
+    assert same.fit_thresholds(score_lists, correct).likely_threshold == thr
+    # a threshold is never lowered by the fallback
+    high = Calibration(temperature=0.05, likely_threshold=0.995, exact_threshold=0.999)
+    assert high.fit_thresholds(score_lists, correct).likely_threshold == 0.995
