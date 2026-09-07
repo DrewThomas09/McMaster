@@ -5,7 +5,10 @@
 - Size matching: a "Measure" tool in the phone UI (tap the two ends of a coin, a card edge
   or 1 inch on a ruler) gives the photo's scale; the object's extent is measured along its
   principal axes and compared with each candidate's catalog dimensions (length, OD, thread
-  size), which separates look-alike SKUs that share one catalog image. API: `mm_per_px`.
+  size), which separates look-alike SKUs that share one catalog image. The marked
+  reference is excluded from the measurement. API: `mm_per_px` and `ref`; CLI `mcv identify --mm-per-px`.
+- Service worker is network-first: phones no longer keep an old UI or a stale dashboard.
+- `mcv validate` / `bootstrap` report how many parts carry a parseable dimension.
 
 ## 0.3.1
 
