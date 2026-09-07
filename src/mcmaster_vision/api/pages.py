@@ -256,6 +256,25 @@ def dashboard(request: Request) -> str:
             f"<td>{best_html}</td><td>{conf}%</td><td>{e(r.get('latency_ms'))} ms</td></tr>"
         )
     stale = st.get("index_stale")
+    ev = (
+        (st.get("manifest") or {}).get("retrain_eval")
+        or (st.get("manifest") or {}).get("evaluation")
+        or {}
+    )
+    eval_html = ""
+    if ev.get("queries"):
+        r = ev.get("recall_at") or {}
+        cat_rows = "".join(
+            f"<tr><td>{e(c)}</td><td>{v['recall_1']:.0%}</td><td>{v['recall_5']:.0%}</td><td>{v['queries']}</td></tr>"
+            for c, v in list((ev.get("by_category") or {}).items())[:8]
+        )
+        eval_html = f"""<h2 class="page">Measured accuracy (last evaluation, {e(ev.get("queries"))} queries)</h2>
+<div class="card" style="padding:8px 12px"><table class="spec">
+<tr><td>Recall@1</td><td>{e(f"{float(r.get('1', r.get(1, 0))):.0%}")}</td></tr>
+<tr><td>Recall@5</td><td>{e(f"{float(r.get('5', r.get(5, 0))):.0%}")}</td></tr>
+<tr><td>Family Recall@1</td><td>{e(f"{float((ev.get('family_recall_at') or {}).get('1', 0)):.0%}")}</td></tr>
+<tr><td>MRR</td><td>{e(ev.get("mrr"))}</td></tr>
+</table>{f'<table class="spec" style="margin-top:8px"><tr><th>weakest categories</th><th>R@1</th><th>R@5</th><th>queries</th></tr>{cat_rows}</table>' if cat_rows else ""}</div>"""
     sto = st.get("storage") or {}
     storage_rows = ""
     for name, c in (sto.get("components") or {}).items():
@@ -285,6 +304,7 @@ def dashboard(request: Request) -> str:
 </div>
 <h2 class="page">Answer tiers (recent window)</h2><div class="card" style="padding:8px 12px"><table class="spec">{tier_rows or "<tr><td>No requests yet.</td></tr>"}</table></div>
 <h2 class="page">Recent identifications</h2><div class="card" style="padding:8px 12px;overflow-x:auto"><table class="spec"><tr><th>time</th><th>tier</th><th>best</th><th>conf.</th><th>latency</th></tr>{recent_rows or '<tr><td class="msg" colspan="5">None yet.</td></tr>'}</table></div>
+{eval_html}
 <h2 class="page">Storage</h2><div class="card" style="padding:8px 12px"><table class="spec"><tr><th>state</th><th>size</th><th>updated</th></tr>{storage_rows}</table>
 <p class="crumbs" id="backupline">{backup_line} · <button class="btn small" type="button" id="backupbtn">Back up now</button> <code>mcv backup</code> / <code>mcv restore</code></p></div>
 <script>

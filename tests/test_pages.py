@@ -144,3 +144,22 @@ def test_part_page_shows_pipe_dimensions_and_compatibility(index, embedder, tmp_
     page = client.get("/part/4464K13").text
     assert "0.675 in" in page and "0.493 in" in page and "18 NPT" in page and "19 BSP" in page
     assert "NPSM" in page  # NPT male fits female NPSM per the compatibility table
+
+
+def test_dashboard_shows_last_evaluation(identifier, tmp_path):
+    from mcmaster_vision.config import Settings as _S
+    from mcmaster_vision.pipeline.manifest import update_manifest
+
+    s = _S(data_dir=tmp_path, queries_dir=tmp_path / "q")
+    update_manifest(
+        s,
+        evaluation={
+            "queries": 40,
+            "recall_at": {"1": 0.55, "5": 0.9},
+            "family_recall_at": {"1": 0.7},
+            "mrr": 0.66,
+            "by_category": {"Fasteners": {"queries": 30, "recall_1": 0.5, "recall_5": 0.9}},
+        },
+    )
+    page = _client(identifier, tmp_path).get("/dashboard").text
+    assert "Measured accuracy" in page and "55%" in page and "Fasteners" in page

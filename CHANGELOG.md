@@ -32,7 +32,7 @@ finding below has a regression test.
   instead of failing on every photo; `mcv retrain` with a different backbone writes a
   sibling index and prints the switch, never clobbering the live one; `mcv up` reuses a
   demo index with the backbone it was built with.
-- Catalog: FTS maintenance was quadratic (20k re-ingest took 77 s; now index-backed); a
+- Catalog: FTS maintenance was quadratic (20k re-ingest took 77 s; now 2.7 s, index-backed); a
   quote-only search crashed; Excel "CSV UTF-8" (BOM) and ragged rows crashed ingest;
   `__MACOSX` / `.cache` clutter turned a photo folder into a folder-per-part source;
   `import-web` wiped existing images (now merges); robots.txt wildcards and stacked

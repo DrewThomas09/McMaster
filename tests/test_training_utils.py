@@ -66,3 +66,23 @@ def test_supcon_loss_is_fp16_safe():
     feats = torch.nn.functional.normalize(torch.randn(8, 2, 16), dim=-1).half()
     loss = supcon_loss(feats, torch.arange(8), 0.07)
     assert torch.isfinite(loss)
+
+
+def test_evaluation_breaks_down_by_category_and_lists_misses(identifier, store):
+    from mcmaster_vision.training import evaluate_retrieval
+
+    rep = evaluate_retrieval(identifier, store, max_queries=12)
+    assert rep.queries == 12
+    assert rep.by_category and all(
+        0 <= v["recall_1"] <= v["recall_5"] <= 1 for v in rep.by_category.values()
+    )
+    assert sum(v["queries"] for v in rep.by_category.values()) == 12
+    # weakest category first
+    r1 = [v["recall_1"] for v in rep.by_category.values()]
+    assert r1 == sorted(r1)
+    for m in rep.hardest:
+        assert m["truth"] and m["rank"] != 1
+    import json
+
+    d = json.loads(rep.to_json())
+    assert "by_category" in d and "hardest" in d and "score_lists" not in d

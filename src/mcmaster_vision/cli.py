@@ -973,6 +973,14 @@ def evaluate(
     with CatalogStore(s.catalog_db) as store:
         report = evaluate_retrieval(ident, store, query_dir=query_dir, max_queries=max_queries)
     typer.echo(report.to_json())
+    if report.by_category:
+        typer.echo("\nweakest categories first (Recall@1 / Recall@5 / queries):")
+        for cat, st in list(report.by_category.items())[:12]:
+            typer.echo(f"  {st['recall_1']:.2f}  {st['recall_5']:.2f}  {st['queries']:4d}  {cat}")
+    if report.hardest:
+        typer.echo("hardest queries (truth -> predicted, rank):")
+        for m in report.hardest[:8]:
+            typer.echo(f"  {m['truth']} -> {m['predicted']} (rank {m['rank'] or 'not retrieved'})")
     if fit_calibration:
         cal = Calibration.fit_temperature(report.score_lists, report.correct_idx)
         cal = cal.fit_thresholds(report.score_lists, report.correct_idx)

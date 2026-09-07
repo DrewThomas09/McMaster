@@ -140,6 +140,9 @@ shipped model also saw only 800 parts in training; retrain on the full catalog
 * Index build is streaming (batches of 256 images) so memory is flat; embedding
   2.1M images at 1,000 img/s on one GPU takes ~35 min.
 
+Ingest is index-bound: 20k parts load in 0.5 s and re-load (delete + insert through the
+FTS index) in 2.7 s on one core, so a 700k-part catalog is minutes, not hours.
+
 ## Data sourcing
 
 McMaster-Carr's catalog is proprietary and scraping violates their terms. The

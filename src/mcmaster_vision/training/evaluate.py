@@ -31,6 +31,10 @@ class EvalReport:
     tier_counts: dict[str, int] = field(default_factory=dict)
     tier_precision: dict[str, float] = field(default_factory=dict)
     mean_latency_ms: float = 0.0
+    # where the misses are: top-level category -> {queries, recall@1, recall@5}
+    by_category: dict[str, dict[str, float]] = field(default_factory=dict)
+    # the queries that missed top-1: (truth, predicted, rank or 0), worst first, capped
+    hardest: list[dict] = field(default_factory=list)
     score_lists: list[list[float]] = field(default_factory=list, repr=False)
     correct_idx: list[int] = field(default_factory=list, repr=False)
 
@@ -78,6 +82,8 @@ def evaluate_retrieval(
     latency = 0.0
     tier_counts: dict[str, int] = {}
     tier_correct: dict[str, int] = {}
+    cat_stats: dict[str, list[int]] = {}  # category -> [queries, hit@1, hit@5]
+    misses: list[dict] = []
     report = EvalReport()
 
     if query_items:
@@ -117,6 +123,21 @@ def evaluate_retrieval(
             tier_correct[tier] = tier_correct.get(tier, 0) + 1
         report.score_lists.append([c.score for c in res.candidates])
         report.correct_idx.append(rank - 1)
+        cat = part.category_path[0] if part.category_path else "(none)"
+        st = cat_stats.setdefault(cat, [0, 0, 0])
+        st[0] += 1
+        st[1] += int(rank == 1)
+        st[2] += int(0 < rank <= 5)
+        if rank != 1:
+            misses.append(
+                {
+                    "truth": part.part_number,
+                    "predicted": ranked[0] if ranked else None,
+                    "rank": rank,
+                    "family_rank": fam_rank,
+                    "tier": tier,
+                }
+            )
         n += 1
 
     report.queries = n
@@ -129,4 +150,10 @@ def evaluate_retrieval(
         report.tier_precision = {
             t: round(tier_correct.get(t, 0) / c, 4) for t, c in tier_counts.items()
         }
+        report.by_category = {
+            c: {"queries": q, "recall_1": round(h1 / q, 4), "recall_5": round(h5 / q, 4)}
+            for c, (q, h1, h5) in sorted(cat_stats.items(), key=lambda kv: kv[1][1] / kv[1][0])
+        }
+        # rank 0 (not retrieved at all) is the worst; then the deepest ranks
+        report.hardest = sorted(misses, key=lambda m: (m["rank"] != 0, -m["rank"]))[:20]
     return report
