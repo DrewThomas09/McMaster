@@ -185,3 +185,61 @@ Pipe Size     Pkg. Qty.     Couplings
     short = BUTT_WELD.replace('1/2 ........ 0.083" ...... 1-1/2"', '1/2 ........ 1-1/2"')
     e = _by_pn(short)["45735K211"].attributes
     assert "wall_thickness" not in e and e.get("dimension_c") == '1-1/2"'
+
+
+def test_importer_survives_ocr_like_junk_quickly():
+    import random
+    import string
+    import time
+
+    rng = random.Random(7)
+    frags = [
+        "1/8",
+        "1-1/2",
+        "36",
+        "to 36",
+        "5,000",
+        "5000",
+        '0.083"',
+        '1-1/2"',
+        "M10 x 1.0",
+        '9/16"-18',
+        "4464K381",
+        "$4.40",
+        ".....",
+        "Type 304 Stainless Steel",
+        "Pipe Size (A)",
+        "(B)",
+        "Max. psi @ 72° F",
+        "Wall Thick.",
+        "(C)",
+        "Flange OD",
+        "Qty.",
+        "Dia.",
+        "Female x Male",
+        "NPT (A) x BSPP (B)",
+        "Connections: NPT.",
+        "—",
+        "n/a",
+        "3 ft.",
+        "Lg.",
+        "Thread Size (B)",
+        "12345678901",
+        '"',
+        "S4.40",
+    ]
+    t = time.time()
+    for _ in range(300):
+        lines = []
+        for _ in range(rng.randint(1, 12)):
+            toks = [
+                rng.choice(frags)
+                if rng.random() < 0.85
+                else "".join(rng.choice(string.printable) for _ in range(rng.randint(1, 20)))
+                for _ in range(rng.randint(1, 14))
+            ]
+            lines.append(rng.choice(["", " ", "  "]).join(toks))
+        for p in parse_page("\n".join(lines), "f"):
+            assert p.part_number and p.name
+            assert all(isinstance(v, str) and len(v) < 200 for v in p.attributes.values())
+    assert time.time() - t < 20
