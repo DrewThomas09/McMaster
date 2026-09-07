@@ -19,6 +19,7 @@ from fractions import Fraction
 import numpy as np
 from PIL import Image
 
+from mcmaster_vision.pipeline.pipe import pipe_id_mm, pipe_od_mm
 from mcmaster_vision.pipeline.preprocess import foreground_mask
 from mcmaster_vision.schemas import Part
 
@@ -187,6 +188,7 @@ def _ratio_score(ratio: float, lo_ok: float, hi_ok: float, falloff: float = 1.6)
 # (pin, standoff, shaft).
 _LENGTH_KEYS = ("length", "overall_length")
 _DIAMETER_KEYS = ("od", "outside_diameter", "diameter", "width")
+_PIPE_KEYS = ("pipe_size", "pipe", "nominal_pipe_size")
 # (keys, band low, band high, falloff): lengths step 1/2" -> 3/4" -> 1" (x1.5), diameters
 # step 1/4" -> 5/16" -> 3/8" (x1.25), so a diameter one size off must already score -1
 _RULES: list[tuple[tuple[str, ...], float, float, float]] = [
@@ -205,6 +207,34 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
     has_length = any(k in attrs and parse_length_mm(attrs[k]) for k in _LENGTH_KEYS)
     votes: list[float] = []
     reasons: list[str] = []
+    # pipe size is nominal: a "3/8" fitting is 0.675" across male threads and 0.49" inside
+    # female ones. Compare the measured short axis with whichever the part's gender implies
+    # (either when unknown: a fitting body is at least the pipe OD wide).
+    pipe = next((attrs[k] for k in _PIPE_KEYS if k in attrs), None)
+    if pipe and (od := pipe_od_mm(pipe)):
+        text = " ".join([part.name.lower(), *attrs.values()]).lower()
+        female = "female" in text or "fpt" in text
+        male = "male" in text or "mpt" in text or "nipple" in text
+        targets = []
+        if male or not female:
+            targets.append(("pipe OD", od))
+        if female or not male:
+            pid = pipe_id_mm(pipe)
+            if pid:
+                targets.append(("pipe ID", pid))
+        # a fitting body (hex, elbow) is wider than its thread but never narrower: allow up
+        # to 1.5x the OD, and fall off fast below it (the next size down is 0.8x)
+        scores = []
+        for label, mm in targets:
+            r = meas.short_mm / mm
+            scores.append((_ratio_score(r, 0.9, 1.5, 1.25 if r < 0.9 else 1.4), label, mm))
+        if scores:
+            sc, label, mm = max(scores)
+            votes.append(sc)
+            verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
+            reasons.append(
+                f"measured {meas.short_mm:.0f} mm vs pipe size {pipe} ({label} {mm:.1f} mm): {verdict}"
+            )
     for keys, lo, hi, falloff in _RULES:
         for key in keys:
             if key not in attrs:
