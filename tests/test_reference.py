@@ -45,3 +45,19 @@ def test_coin_alone_and_tiny_images():
     # a round blob with nothing else in the frame is the part (a washer), not a reference
     assert find_coin(_scene(screw=False)) is None
     assert find_coin(Image.new("RGB", (3, 3), "white")) is None
+
+
+def test_flat_coin_preferred_over_a_round_screw_head():
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.reference import find_coin
+
+    img = Image.new("RGB", (600, 300), (250, 250, 250))
+    d = ImageDraw.Draw(img)
+    # a round button-head screw seen from the top: dark, with a darker hex socket
+    d.ellipse((60, 70, 220, 230), fill=(70, 70, 75))
+    d.ellipse((115, 125, 165, 175), fill=(20, 20, 20))
+    # a flat brass-coloured coin, the same size
+    d.ellipse((360, 70, 520, 230), fill=(196, 184, 128))
+    c = find_coin(img)
+    assert c is not None and abs(c.cx - 440) < 12 and abs(c.diameter_px - 160) < 12

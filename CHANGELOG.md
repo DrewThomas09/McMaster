@@ -96,6 +96,8 @@
   show bought-top-1 with and without a measurement.
 - Phone UI: the coin the server found is drawn on the photo as a dashed ring ("coin?") so
   the user can see what would set the scale before choosing the coin.
+- The coin finder prefers the flatter of two round blobs (even brightness), so a screw head
+  with a socket, a knob or a pulley next to a real coin is no longer offered as the coin.
 - Purchases by category: `/analytics` and the dashboard show which categories customers get
   wrong most (top-1 precision when bought) with an issue for the weakest; identify events
   carry the category. A `learner` service in both compose files runs `mcv learn` hourly.

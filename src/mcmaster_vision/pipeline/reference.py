@@ -83,6 +83,7 @@ def find_coin(
     long_side = max(small.size)
     best: CoinCandidate | None = None
     best_area = 0
+    best_score = -1.0
     for lab, area in sizes.items():
         if area < 30:
             continue
@@ -107,14 +108,20 @@ def find_coin(
             aspect < 0.9 or fill < 0.92 or circ < min_circularity
         ):  # hex nut: aspect 0.87; washer: fill < 0.9
             continue
+        # a coin is flat: its face is fairly even in brightness. A screw head with a
+        # socket, a knob with a hub or a pulley with a bore is round too, but marked by
+        # a dark centre or strong shading; prefer the flatter of two round blobs
+        lum = arr[labels == lab].mean(axis=1)
+        flatness = 1.0 - min(1.0, float(lum.std()) / 40.0)
         cand = CoinCandidate(
             cx=float(centre[0]) / s,
             cy=float(centre[1]) / s,
             diameter_px=(long_px + short_px) / 2 / s,
             circularity=round(circ, 3),
         )
-        if best is None or cand.circularity > best.circularity:
-            best, best_area = cand, area
+        score = 0.5 * circ + 0.5 * flatness
+        if best is None or score > best_score:
+            best, best_area, best_score = cand, area, score
     if best is not None:
         # a coin is a *reference next to* a part: with nothing else in the frame the round
         # blob is the part itself (a washer), and offering it as the coin would exclude it
