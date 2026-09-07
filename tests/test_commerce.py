@@ -242,3 +242,32 @@ def test_two_parts_from_one_photo_teach_nothing(identifier, tmp_path):
     # the cart budget is separate from the photo budget
     for _ in range(5):
         assert client.get("/cart?client_id=cmp").status_code == 200
+
+
+def test_confusion_pairs_know_the_catalog(tmp_path, store):
+    from mcmaster_vision.pipeline.events import enrich_confusions
+
+    parts = list(store.iter_parts(with_images_only=True))
+    same = [p for p in parts if p.family_id == parts[0].family_id]
+    a, b = parts[0], (same[1] if len(same) > 1 else parts[1])
+    ev = EventLog(tmp_path / "e.jsonl")
+    for i in range(2):
+        ev.log("identify", request_id=f"r{i}", best=a.part_number, candidates=[a.part_number])
+        ev.log(
+            "checkout",
+            order_id=f"o{i}",
+            items=[{"part_number": b.part_number, "request_id": f"r{i}"}],
+        )
+    an = enrich_confusions(analytics(ev), store)
+    c = an["confusions"][0]
+    assert (
+        c["predicted"] == a.part_number and "differ_by" in c and isinstance(c["same_family"], bool)
+    )
+    found = [i for i in issues(an) if a.part_number in i["what"]]
+    assert found and (
+        "identical" in found[0]["do"]
+        or "differ by" in found[0]["do"]
+        or "look-alikes" in found[0]["do"]
+    )
+    if c["differ_by"] == []:
+        assert "identical specifications" in found[0]["do"]

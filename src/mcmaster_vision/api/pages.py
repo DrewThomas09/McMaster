@@ -247,11 +247,13 @@ def _fits_with(part) -> str:
 def _learning_loop_html(request: Request) -> str:
     """The purchase funnel, what customers bought vs what was predicted, the issues the
     analytics found, and how much the model has learned from it."""
-    from mcmaster_vision.pipeline.events import analytics, issues
+    from mcmaster_vision.pipeline.events import analytics, enrich_confusions, issues
     from mcmaster_vision.pipeline.learn import learning_state
 
     st = request.app.state
     a = analytics(st.events, st.feedback.stats())
+    if getattr(st, "identifier", None) is not None:
+        enrich_confusions(a, st.identifier.store)
     found = issues(a)
     learn = learning_state(st.settings, st.feedback)
     w = a["window"]

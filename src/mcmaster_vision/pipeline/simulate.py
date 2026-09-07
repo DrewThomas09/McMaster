@@ -196,7 +196,7 @@ def simulate(
 
     from mcmaster_vision.api import create_app
     from mcmaster_vision.catalog import CatalogStore
-    from mcmaster_vision.pipeline.events import analytics, issues
+    from mcmaster_vision.pipeline.events import analytics, enrich_confusions, issues
     from mcmaster_vision.pipeline.learn import learn_index
 
     say = echo or (lambda *_: None)
@@ -224,6 +224,7 @@ def simulate(
             ident.feedback = prior
         out["before"] = rep.as_dict()
         a = analytics(app.state.events, app.state.feedback.stats())
+        enrich_confusions(a, ident.store)
         out["analytics"] = a
         out["issues"] = issues(a)
         say(

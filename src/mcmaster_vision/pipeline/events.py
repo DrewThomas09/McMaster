@@ -213,6 +213,22 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
     return out
 
 
+def enrich_confusions(a: dict, store) -> dict:
+    """Add what the catalog knows about each confusion pair: same family, and which
+    attributes differ. Two SKUs with identical specs cannot be told apart by any model
+    and the issue then points at the catalog data, not the model."""
+    for c in a.get("confusions", []):
+        p, b = store.get(c["predicted"]), store.get(c["bought"])
+        if p is None or b is None:
+            continue
+        keys = set(p.attributes) | set(b.attributes)
+        c["same_family"] = bool(p.family_id and p.family_id == b.family_id)
+        c["differ_by"] = sorted(
+            k for k in keys if str(p.attributes.get(k, "")) != str(b.attributes.get(k, ""))
+        )
+    return a
+
+
 def issues(a: dict) -> list[dict]:
     """Plain-language problems with a suggested action, from ``analytics()`` output.
     Each has ``severity`` (high / medium / low), ``what`` and ``do``."""
@@ -230,13 +246,29 @@ def issues(a: dict) -> list[dict]:
         )
     for c in a.get("confusions", [])[:5]:
         if c["times"] >= 2:
+            differ = c.get("differ_by")
+            if differ == []:
+                do = (
+                    "these two SKUs have identical specifications in the catalog: no model can "
+                    "tell them apart; add the attribute that differs (length, size, finish) to "
+                    "the catalog data"
+                )
+            elif differ:
+                do = (
+                    f"look-alikes that differ by {', '.join(differ[:3])}: the family answer asks "
+                    "for it; put a coin next to the part and Measure when it is a size"
+                )
+            else:
+                do = (
+                    "look-alikes: add a distinguishing attribute or photo for both, or let "
+                    "the size question / Measure tool decide"
+                )
             out.append(
                 {
                     "severity": "medium",
                     "what": f"predicted {c['predicted']} but customers bought {c['bought']} "
                     f"({c['times']}x)",
-                    "do": "look-alikes: add a distinguishing attribute or photo for both, or let "
-                    "the size question / Measure tool decide",
+                    "do": do,
                 }
             )
     tp = a.get("tier_precision_bought", {})

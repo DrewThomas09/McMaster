@@ -53,7 +53,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     from mcmaster_vision.api.commerce import router as commerce_router
     from mcmaster_vision.api.demo import router as demo_router
     from mcmaster_vision.api.pages import router as pages_router
-    from mcmaster_vision.pipeline.events import EventLog, analytics, issues
+    from mcmaster_vision.pipeline.events import EventLog, analytics, enrich_confusions, issues
 
     app.include_router(demo_router)
     app.include_router(pages_router)
@@ -413,6 +413,9 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         """The purchase funnel, confusion pairs, tier precision when bought, latency,
         errors, and a plain-language issues list."""
         a = analytics(app.state.events, app.state.feedback.stats())
+        ident = getattr(app.state, "identifier", None)
+        if ident is not None:
+            enrich_confusions(a, ident.store)
         a["issues"] = issues(a)
         a["learning"] = _learning_state()
         return a
