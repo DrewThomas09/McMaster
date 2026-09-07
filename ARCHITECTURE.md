@@ -243,6 +243,14 @@ Its 115 calibration samples (45 wrong) raised the exact threshold from 0.90 to
 answers had been right only 73% of the time when bought and "candidate" ones
 50%; the tighter tiers are what the customer sees as confidence.
 
+The retrain half of the loop was exercised on the same TinyCNN data: 232 new
+confirmations tripped the threshold, `mcv learn` ran a purchase-weighted
+`mcv retrain` (1 epoch, for the check), held out 110 purchase photos, and
+measured Recall@1 0.68 / Recall@5 0.74 / MRR 0.71 on them; because the new
+checkpoint's version differs from the served one, the index and calibration went
+to `index-tinycnn/` and `models-tinycnn/` and the served index's `learned_at`
+was left alone.
+
 The hash learn step was incremental (88 photos in 24 s, index rows 1976 -> 2064). The
 88 photos gave 88 calibration samples (51 wrong); the refit kept the temperature
 and the exact threshold and raised the "likely" threshold from 0.60 to 0.75,
