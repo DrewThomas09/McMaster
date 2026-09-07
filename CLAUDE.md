@@ -4,14 +4,16 @@ Photo -> McMaster-Carr part number. Retrieval pipeline (embed -> vector search -
 Read `ARCHITECTURE.md` for design and measured numbers, `RUNBOOK.md` for operating it.
 
 ## Commands
-- `pip install -e ".[dev]"` then `python3 -m pytest -q` (56+ tests; browser test skips without Playwright)
+- `pip install -e ".[dev]"` then `python3 -m pytest -q` (200+ tests; browser tests skip without Playwright Chromium)
+- `mcv selfcheck` proves a machine end to end (build, identify, coin measure, feedback, backup, restore)
 - `ruff check src tests && ruff format src tests`
 - `mcv demo --parts 300 --no-serve` end-to-end smoke on the synthetic catalog; `mcv --help` for the rest
 
 ## Layout
 `src/mcmaster_vision/`: `catalog/` (sources, web importer, intake, SQLite store), `data/` (augmentation, synthetic renderer),
 `models/` (hash | tinycnn | openclip | dinov2 | ensemble backbones), `index/` (numpy | FAISS, builder),
-`pipeline/` (preprocess, retrieve, rerank, calibrate, identify, feedback), `training/` (cached trainer, eval),
+`pipeline/` (preprocess, retrieve, rerank, calibrate, identify, feedback, measure/threads/pipe/reference for sizing, backup),
+`catalog/pages.py` (printed-catalog OCR importer), `training/` (cached trainer, eval with per-category breakdown),
 `api/` (FastAPI + one-photo UI), `cli.py` (`mcv`). Shipped model: `assets/tinycnn_synthetic.pt`.
 
 ## Conventions
