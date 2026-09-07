@@ -210,16 +210,40 @@ def bore_px(image: Image.Image, work: int = 160, exclude: Segment | None = None)
     holes = _fill_holes(mask) & ~mask
     if holes.sum() < 0.04 * mask.sum():
         return None
+    area = _largest_component(holes)
+    if area == 0:
+        return None
+    return 2.0 * float(np.sqrt(area / np.pi)) / s
+
+
+def _largest_component(mask: np.ndarray) -> int:
+    """Pixel count of the largest 4-connected component (a flange's centre bore, not its
+    bolt holes summed together)."""
     try:
         from scipy import ndimage
 
-        labels, n = ndimage.label(holes)
-        if n == 0:
-            return None
-        area = max(int((labels == i).sum()) for i in range(1, n + 1))
+        labels, n = ndimage.label(mask)
+        return max((int((labels == i).sum()) for i in range(1, n + 1)), default=0)
     except ImportError:
-        area = int(holes.sum())  # one hole is the common case
-    return 2.0 * float(np.sqrt(area / np.pi)) / s
+        left = mask.copy()
+        best = 0
+        while left.any():
+            ys, xs = np.nonzero(left)
+            comp = np.zeros_like(left)
+            comp[ys[0], xs[0]] = True
+            while True:
+                grown = comp.copy()
+                grown[1:, :] |= comp[:-1, :]
+                grown[:-1, :] |= comp[1:, :]
+                grown[:, 1:] |= comp[:, :-1]
+                grown[:, :-1] |= comp[:, 1:]
+                grown &= left
+                if (grown == comp).all():
+                    break
+                comp = grown
+            best = max(best, int(comp.sum()))
+            left &= ~comp
+        return best
 
 
 def measure(
@@ -392,7 +416,11 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
             wall_in = float(str(wall_txt).replace('"', "").strip()) if wall_txt else None
         except ValueError:
             wall_in = None
-        if (wall_in or schedule) and meas.bore_mm:
+        # only where the hole *is* the pipe bore: plain pipe, unthreaded (butt-weld)
+        # fittings, or a part whose spec gives the wall. A threaded female fitting's hole
+        # is the thread's minor diameter, not OD minus two walls
+        unthreaded = bool(re.search(r"butt.?weld|unthreaded|\bweld", text))
+        if meas.bore_mm and (wall_in or (schedule and (unthreaded or not (female and not male)))):
             inner = pipe_id_mm(pipe, schedule, wall_in)
             if inner:
                 rb = meas.bore_mm / inner

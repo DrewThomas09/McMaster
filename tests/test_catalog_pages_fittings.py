@@ -142,7 +142,46 @@ McMASTER-CARR
 def test_pipe_outlets_fit_a_size_range():
     parts = _by_pn(OUTLETS)
     o = parts["4565T31"]
-    assert o.attributes["pipe_size"] == "1/4 to 36" and o.attributes["outlet_pipe_size"] == "1/4"
+    # the outlet's own thread is the pipe size (what a photo shows); the range is separate
+    assert o.attributes["pipe_size"] == "1/4" and o.attributes["fits_pipe_size"] == "1/4 to 36"
+    assert o.attributes["outlet_pipe_size"] == "1/4"
     assert o.attributes["height"] == '3/4"' and o.attributes["max_psi"] == "3000"
     assert o.attributes["fitting_type"].startswith("Type 304")
     assert parts["4583T13"].attributes["fitting_type"].startswith("Type 316")
+
+
+def test_gender_words_are_not_thread_standards():
+    parts = _by_pn(BUSHINGS)
+    assert "thread_a" not in parts["4464K381"].attributes
+    text = ELBOWS_PSI.replace("90° Elbows, Female", "NPT (A) x BSPP (B)")
+    a = _by_pn(text)["51205K162"].attributes
+    assert a["thread_a"] == "NPT" and a["thread_b_type"] == "BSPP"
+
+
+def test_psi_without_comma_is_not_a_size_row():
+    parts = _by_pn(ELBOWS_PSI.replace("5,000", "5000").replace("6,000", "6000"))
+    assert set(parts) == {
+        "51205K162",
+        "51205K113",
+        "51205K119",
+        "51205K152",
+        "51205K112",
+        "51205K121",
+    }
+    assert parts["51205K113"].attributes["max_psi"] == "6000"
+    assert parts["51205K113"].attributes["pipe_size"] == "1/8"
+    assert all(p.attributes["pipe_size"] in ("1/8", "1/4") for p in parts.values())
+
+
+def test_named_fields_are_type_checked_and_qty_is_not_psi():
+    page = """Fittings
+Couplings
+Pipe Size     Pkg. Qty.     Couplings
+1/8 ........ 100 ...... 4464K351 ... $2.86
+"""
+    a = _by_pn(page)["4464K351"].attributes
+    assert a["bolt_qty"] == "100" and "max_psi" not in a
+    # a missing wall cell must not turn the (C) dimension into a wall thickness
+    short = BUTT_WELD.replace('1/2 ........ 0.083" ...... 1-1/2"', '1/2 ........ 1-1/2"')
+    e = _by_pn(short)["45735K211"].attributes
+    assert "wall_thickness" not in e and e.get("dimension_c") == '1-1/2"'

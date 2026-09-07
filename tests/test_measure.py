@@ -269,3 +269,34 @@ def test_bore_measured_and_matched_to_schedule():
     # no bore measured: the bore rule stays silent
     flat = Measurement(30.0, 30.0, 0.1)
     assert not any("bore" in r for r in size_consistency(flat, sch10)[1])
+
+
+def test_bore_is_the_largest_hole_and_threaded_females_are_spared():
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.measure import Measurement, measure, size_consistency
+    from mcmaster_vision.schemas import Part
+
+    img = Image.new("RGB", (400, 400), "white")
+    d = ImageDraw.Draw(img)
+    d.ellipse((20, 20, 380, 380), fill=(120, 120, 130))  # a flange: centre bore + 4 bolt holes
+    d.ellipse((160, 160, 240, 240), fill="white")
+    for cx, cy in ((80, 200), (320, 200), (200, 80), (200, 320)):
+        d.ellipse((cx - 15, cy - 15, cx + 15, cy + 15), fill="white")
+    m = measure(img, 0.1)
+    assert m.bore_mm and abs(m.bore_mm - 8.0) < 0.6  # the centre bore, not all holes summed
+    threaded = Part(
+        part_number="T",
+        name="Thick-Wall Female Coupling NPT",
+        category_path=["x"],
+        attributes={"pipe_size": "1/4", "schedule": "80"},
+    )
+    meas = Measurement(30.0, 30.0, 0.1, bore_mm=11.0)
+    assert not any("bore" in r for r in size_consistency(meas, threaded)[1])
+    welded = Part(
+        part_number="W",
+        name="Thick-Wall Butt-Weld Coupling",
+        category_path=["x"],
+        attributes={"pipe_size": "1/4", "schedule": "80"},
+    )
+    assert any("bore" in r for r in size_consistency(meas, welded)[1])

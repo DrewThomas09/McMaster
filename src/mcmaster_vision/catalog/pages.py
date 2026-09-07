@@ -31,7 +31,7 @@ SIZE_TOKEN = re.compile(
 )
 # a second "size ...." cell on the same line: two-column pages OCR into interleaved rows
 COLUMN_BREAK = re.compile(
-    r"(?<=\d\.\d\d)\s+(?=(?:\d+\s*[-\s]\s*)?\d+(?:/\d+)?\s*(?:\"|″|”)?\s*\.{2,})"
+    r"(?<=\d\.\d\d)\s+(?=(?:\d{1,2}\s*[-\s]\s*)?\d{1,2}(?:/\d+)?\s*(?:\"|″|”)?\s*\.{2,})"
 )
 PLACEHOLDER = re.compile(r"(?:—|–|-{2,}|n/a)", re.I)
 MATERIAL = re.compile(
@@ -42,7 +42,10 @@ MATERIAL = re.compile(
     re.I,
 )
 CONT = re.compile(r"\s*\((?:cont(?:inued)?\.?|continued.*?)\)\s*", re.I)
-HEADER = re.compile(r"^\s*(pipe\s+size|pipe\s*/\s*thread\s+size|size|thread\s+size)\b", re.I)
+HEADER = re.compile(
+    r"^\s*((?:fits\s+)?pipe\s+size(?:\s+range)?|pipe\s*/\s*thread\s+size|size|thread\s+size)\b",
+    re.I,
+)
 FOOTER = re.compile(r"mcmaster-?carr", re.I)
 NOISE_HEADINGS = {"pipe", "size", "lg.", "lg", "(a)", "(b)", "qty.", "dia."}
 # header cells that describe the row rather than name a product column, in the order
@@ -73,9 +76,8 @@ THREAD = re.compile(
     r"^(?:M\d+(?:\.\d+)?\s*[x×]\s*\d+(?:\.\d+)?|\d+(?:/\d+)?(?:\"|″|”)?\s*-\s*\d+|#\d+-\d+)$", re.I
 )
 FRACTION = re.compile(r"^(?:\d+\s*[-\s]\s*)?\d+/\d+\s*(?:\"|″|”)?$|^\d+(?:\.\d+)?\s*(?:\"|″|”)$")
-THREAD_PAIR = re.compile(
-    r"([A-Z][A-Z/]{2,}(?:\s+\([A-Z]\))?)\s*[x×]\s*([A-Z][A-Z/]{2,}(?:\s+\([A-Z]\))?)", re.I
-)
+_STD = r"(?:NPTF|NPT|NPS[MHLC]?|BSPP|BSPT|BSP|METRIC|UN/UNF|UNF|UNEF|UN|GHT|NH/NST|SAE|JIC|ORB)"
+THREAD_PAIR = re.compile(rf"\b({_STD}(?:\s+\([A-Z]\))?)\s*[x×]\s*({_STD}(?:\s+\([A-Z]\))?)\b", re.I)
 
 # OCR of the printed catalog: vulgar-fraction glyphs, "S" for "$", I/l/O inside part numbers
 _VULGAR = {
@@ -262,10 +264,25 @@ def _row_values(between: str, fields: list[str]) -> dict[str, str]:
     tokens = [t.strip(" .") for t in re.split(r"\s*\.{2,}\s*|\s{2,}", between)]
     tokens = [t for t in tokens if t]
     out: dict[str, str] = {}
-    named = [f for f in fields if f != "pipe_size"]
-    for i, tok in enumerate(tokens):
-        key = named[i] if i < len(named) else None
-        if key is None or (key == "pipe_size_b" and not FRACTION.match(tok) and not tok.isdigit()):
+    named = list(fields)
+    shape = {
+        "pipe_size_b": lambda t: bool(FRACTION.match(t)) or t.isdigit(),
+        "outlet_pipe_size": lambda t: bool(FRACTION.match(t)) or t.isdigit(),
+        "max_psi": lambda t: bool(PSI.match(t)),
+        "wall_thickness": lambda t: bool(WALL.match(t)),
+        "thread_b": lambda t: bool(THREAD.match(t)),
+    }
+    j = 0  # next header-named field to fill
+    for tok in tokens:
+        key = None
+        # the next named field whose shape accepts the token (a missing cell skips it)
+        while j < len(named):
+            cand = named[j]
+            j += 1
+            if cand not in shape or shape[cand](tok):
+                key = cand
+                break
+        if key is None:
             if PSI.match(tok):
                 key = "max_psi"
             elif WALL.match(tok):
@@ -294,10 +311,15 @@ def _row_parts(
     first_pn = hits[0][0]
     between = line[size_end : line.index(first_pn)].strip(" .")
     m_range = re.match(r"to\s+((?:\d+\s*[-\s]\s*)?\d+(?:/\d+)?)\s*(?:\"|″|”)?\s*[.\s]*", between)
-    if m_range:  # "1/4 to 36": a range of pipe sizes the part fits
-        size = f"{size} to {_norm_size(m_range.group(1))}"
+    fits_range = None
+    if m_range:  # "1/4 to 36": the range of pipe sizes the part fits (an outlet)
+        fits_range = f"{size} to {_norm_size(m_range.group(1))}"
         between = between[m_range.end() :].strip(" .")
     row_values = _row_values(between, ctx.fields) if between else {}
+    if fits_range:
+        row_values["fits_pipe_size"] = fits_range
+        # the thread the photo shows is the outlet's; the range is what it welds onto
+        size = row_values.get("outlet_pipe_size", size)
     # a max-psi cell in front of every column ("5,000 51205K162 $21.99  6,000 51205K113 ...")
     psi_by_hit: list[str | None] = []
     cursor_p = size_end
@@ -338,7 +360,7 @@ def _row_parts(
         elif column:
             attrs["fitting_type"] = column
         attrs.update(row_values)
-        if psi_by_hit[i]:
+        if psi_by_hit[i] and (not ctx.fields or "max_psi" in ctx.fields):
             attrs["max_psi"] = psi_by_hit[i]
         if ctx.connection:
             attrs["connection"] = ctx.connection

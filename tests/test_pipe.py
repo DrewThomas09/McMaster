@@ -104,3 +104,4 @@ def test_pipe_id_by_schedule_and_wall():
     assert abs(pipe_id_mm("1/2", wall_in=0.083) - 0.674 * 25.4) < 0.1
     assert pipe_id_mm("nope") is None and pipe_id_mm("1/2", "99") == pipe_id_mm("1/2")
     assert PIPE_WALL_IN["10"]["2"] == 0.109 and PIPE_WALL_IN["40"]["2"] == 0.154
+    assert abs(pipe_id_mm("1/4", "10") - (0.540 - 2 * 0.065) * 25.4) < 0.1

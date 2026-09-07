@@ -66,6 +66,13 @@
   the foot, and "Connections:" lines. Pipe wall schedules 10 / 40 / 80 give a fitting's bore
   (`pipe_id_mm`), the Measure tool reads the bore of an end-on part, size matching compares
   it with the candidate's schedule or wall, and the part page lists the bore.
+- Importer review: gender words are no longer read as thread standards; a max-psi cell
+  without its comma no longer starts a new size row; header-named row fields are
+  type-checked (a missing cell skips the field, a package quantity is not a pressure);
+  outlets keep their own thread as the pipe size and the range as `fits_pipe_size`; the
+  bore is the largest hole (a flange's centre bore, not its bolt holes) and the bore rule
+  applies only to plain pipe, unthreaded fittings and parts with a stated wall; schedule
+  10S walls for 1/8 - 3/8; the UI shows the bore in inches too.
 - Purchases by category: `/analytics` and the dashboard show which categories customers get
   wrong most (top-1 precision when bought) with an issue for the weakest; identify events
   carry the category. A `learner` service in both compose files runs `mcv learn` hourly.

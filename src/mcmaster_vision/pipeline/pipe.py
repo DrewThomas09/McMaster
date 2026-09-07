@@ -61,6 +61,9 @@ PIPE_ID_SCH40_IN: dict[str, float] = {
 # pipe OD minus two walls of its schedule.
 PIPE_WALL_IN: dict[str, dict[str, float]] = {
     "10": {
+        "1/8": 0.049,
+        "1/4": 0.065,
+        "3/8": 0.065,
         "1/2": 0.083,
         "3/4": 0.083,
         "1": 0.109,
