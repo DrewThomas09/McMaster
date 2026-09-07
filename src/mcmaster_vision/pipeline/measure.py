@@ -21,6 +21,7 @@ from PIL import Image
 
 from mcmaster_vision.pipeline.pipe import (
     THREADS_PER_INCH,
+    female_thread_id_mm,
     normalise_pipe_size,
     pipe_id_mm,
     pipe_od_mm,
@@ -420,7 +421,19 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
         # fittings, or a part whose spec gives the wall. A threaded female fitting's hole
         # is the thread's minor diameter, not OD minus two walls
         unthreaded = bool(re.search(r"butt.?weld|unthreaded|\bweld", text))
-        if meas.bore_mm and (wall_in or (schedule and (unthreaded or not (female and not male)))):
+        if meas.bore_mm and female and not male and not unthreaded and not wall_in:
+            # the catalog's female scale: measure the ID of the fitting, which is the
+            # thread's minor diameter for that nominal size
+            fid = female_thread_id_mm(pipe)
+            if fid:
+                rf = meas.bore_mm / fid
+                sf = _ratio_score(rf, 0.85, 1.15, 1.3)
+                votes.append(sf)
+                reasons.append(
+                    f"measured bore {meas.bore_mm:.0f} mm vs female thread ID {fid:.1f} mm: "
+                    f"{'consistent' if sf > 0.5 else 'off' if sf < -0.5 else 'close'}"
+                )
+        elif meas.bore_mm and (wall_in or (schedule and (unthreaded or not (female and not male)))):
             inner = pipe_id_mm(pipe, schedule, wall_in)
             if inner:
                 rb = meas.bore_mm / inner

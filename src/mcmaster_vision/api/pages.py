@@ -193,6 +193,7 @@ def _fits_with(part) -> str:
     from mcmaster_vision.pipeline.pipe import (
         THREADS_PER_INCH,
         compatible_threads,
+        female_thread_id_mm,
         normalise_pipe_size,
         pipe_id_mm,
         pipe_od_mm,
@@ -216,7 +217,10 @@ def _fits_with(part) -> str:
         if od:
             rows.append(("male thread / pipe OD", f"{od / 25.4:.3f} in ({od:.1f} mm)"))
         if pid:
-            rows.append(("female thread / pipe ID", f"{pid / 25.4:.3f} in ({pid:.1f} mm)"))
+            rows.append(("pipe ID (schedule 40)", f"{pid / 25.4:.3f} in ({pid:.1f} mm)"))
+        fid = female_thread_id_mm(key)
+        if fid:
+            rows.append(("female thread bore (end-on)", f"{fid / 25.4:.3f} in ({fid:.1f} mm)"))
         wall = attrs.get("wall_thickness") or attrs.get("wall")
         sched = attrs.get("schedule") or schedule_from_text(text)
         try:

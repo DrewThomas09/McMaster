@@ -82,6 +82,9 @@
   and says when it is rate limited; live-preview frames have their own rate budget so a
   minute of Live ID cannot 429 the next real photo; a confirmation re-uploads the photo
   only when the server says it no longer has it.
+- The catalog's female measuring rule: an end-on photo of a threaded female fitting is
+  matched by its bore against the nominal size's thread minor diameter (tap-drill size,
+  `FEMALE_THREAD_ID_IN`); the part page lists that bore next to the OD and the pipe ID.
 - Purchases by category: `/analytics` and the dashboard show which categories customers get
   wrong most (top-1 precision when bought) with an issue for the weakest; identify events
   carry the category. A `learner` service in both compose files runs `mcv learn` hourly.

@@ -292,7 +292,10 @@ def test_bore_is_the_largest_hole_and_threaded_females_are_spared():
         attributes={"pipe_size": "1/4", "schedule": "80"},
     )
     meas = Measurement(30.0, 30.0, 0.1, bore_mm=11.0)
-    assert not any("bore" in r for r in size_consistency(meas, threaded)[1])
+    # a threaded female is judged by its thread's minor diameter, never by OD - 2 walls
+    reasons_t = size_consistency(meas, threaded)[1]
+    assert not any("pipe ID" in r for r in reasons_t)
+    assert any("female thread ID" in r and "consistent" in r for r in reasons_t), reasons_t
     welded = Part(
         part_number="W",
         name="Thick-Wall Butt-Weld Coupling",
@@ -300,3 +303,29 @@ def test_bore_is_the_largest_hole_and_threaded_females_are_spared():
         attributes={"pipe_size": "1/4", "schedule": "80"},
     )
     assert any("bore" in r for r in size_consistency(meas, welded)[1])
+
+
+def test_female_thread_bore_rule():
+    from mcmaster_vision.pipeline.measure import Measurement, size_consistency
+    from mcmaster_vision.pipeline.pipe import female_thread_id_mm
+    from mcmaster_vision.schemas import Part
+
+    assert abs(female_thread_id_mm("1/2") - 0.719 * 25.4) < 0.1 and female_thread_id_mm("x") is None
+    half = Part(
+        part_number="H",
+        name="Female Coupling, NPT",
+        category_path=["x"],
+        attributes={"pipe_size": "1/2"},
+    )
+    quarter = Part(
+        part_number="Q",
+        name="Female Coupling, NPT",
+        category_path=["x"],
+        attributes={"pipe_size": "1/4"},
+    )
+    meas = Measurement(30.0, 30.0, 0.1, bore_mm=18.0)  # 1/2 NPT female bore ~ 18.3 mm
+    ok, r1 = size_consistency(meas, half)
+    bad, r2 = size_consistency(meas, quarter)
+    assert any("female thread ID" in r and "consistent" in r for r in r1), r1
+    assert any("female thread ID" in r and "off" in r for r in r2), r2
+    assert ok > bad

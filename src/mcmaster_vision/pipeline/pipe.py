@@ -110,6 +110,24 @@ PIPE_WALL_IN: dict[str, dict[str, float]] = {
     },
 }
 
+# what the hole of a FEMALE NPT fitting measures (the thread's minor diameter, i.e. the
+# tap-drill size), inches: the catalog's female measuring scale reads the ID
+FEMALE_THREAD_ID_IN: dict[str, float] = {
+    "1/16": 0.246,
+    "1/8": 0.344,
+    "1/4": 0.438,
+    "3/8": 0.578,
+    "1/2": 0.719,
+    "3/4": 0.922,
+    "1": 1.156,
+    "1-1/4": 1.500,
+    "1-1/2": 1.734,
+    "2": 2.219,
+    "2-1/2": 2.625,
+    "3": 3.250,
+    "4": 4.250,
+}
+
 # threads per inch by pipe size: (NPT, BSP)
 THREADS_PER_INCH: dict[str, tuple[float | None, float | None]] = {
     "1/16": (27, None),
@@ -268,4 +286,11 @@ def pipe_id_mm(size, schedule: str | None = None, wall_in: float | None = None) 
     if wall_in is not None:
         return round((od - 2 * wall_in) * INCH, 2)
     inner = PIPE_ID_SCH40_IN.get(key)
+    return round(inner * INCH, 2) if inner else None
+
+
+def female_thread_id_mm(size) -> float | None:
+    """The bore a female pipe thread of this nominal size shows end-on (tap-drill size)."""
+    key = normalise_pipe_size(size)
+    inner = FEMALE_THREAD_ID_IN.get(key) if key else None
     return round(inner * INCH, 2) if inner else None
