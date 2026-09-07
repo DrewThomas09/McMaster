@@ -260,3 +260,32 @@ def test_measure_tool_sets_scale_and_matches_sizes(server, store, tmp_path):
         page.wait_for_function("scale === null")
         assert page.locator("#msvg").is_hidden()
         browser.close()
+
+
+def test_clear_scale_note_action(server, store, tmp_path):
+    """When the marked reference is the only blob, the note offers 'clear scale' and using
+    it removes the scale and re-queries."""
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    part = next(store.iter_parts(with_images_only=True))
+    photo = tmp_path / "photo.jpg"
+    Image.open(part.image_paths[0]).convert("RGB").save(photo, format="JPEG", quality=90)
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 800})
+        page.goto(server + "/")
+        page.set_input_files("#camera", str(photo))
+        page.wait_for_selector(".verdict", timeout=30000)
+        # mark the part itself as the reference: nothing is left to measure
+        page.evaluate(
+            "(async () => { scale = 0.1; refSeg = [10, 128, 246, 128]; await send(); })()"
+        )
+        page.wait_for_function("document.body.innerText.includes('size not used')", timeout=30000)
+        assert page.locator("button:has-text('clear scale')").count() == 1
+        page.click("button:has-text('clear scale')")
+        page.wait_for_function(
+            "scale === null && !document.body.innerText.includes('size not used')",
+            timeout=30000,
+        )
+        browser.close()
