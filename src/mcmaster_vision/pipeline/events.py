@@ -134,7 +134,7 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
     bought: list[dict] = []
     for c in checkouts:
         for it in c.get("items", []):
-            bought.append({**it, "order_id": c.get("order_id")})
+            bought.append({**it, "order_id": c.get("order_id"), "at": c.get("at")})
     # what was predicted vs what was bought, per identification
     confusion: Counter = Counter()
     correct_bought = 0
@@ -208,9 +208,52 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
         ),
         "tiers": dict(Counter(r.get("tier") for r in ident)),
     }
+    out["daily"] = _daily(ident, bought, by_request, events.rows("learn"))
     if feedback_stats:
         out["feedback"] = feedback_stats
     return out
+
+
+def _daily(ident: list[dict], bought: list[dict], by_request: dict, learns: list[dict]) -> list:
+    """One row per UTC day: identifications, parts bought, how often the bought part was
+    the top answer, and learn / retrain events, so the loop's effect is visible over time."""
+    days: dict[str, dict] = {}
+
+    def row(at: str | None) -> dict | None:
+        if not at:
+            return None
+        return days.setdefault(
+            at[:10],
+            {
+                "day": at[:10],
+                "identify": 0,
+                "bought": 0,
+                "bought_top1": 0,
+                "learns": 0,
+                "retrains": 0,
+            },
+        )
+
+    for r in ident:
+        d = row(r.get("at"))
+        if d:
+            d["identify"] += 1
+    for it in bought:
+        src = by_request.get(it.get("request_id"))
+        d = row((src or {}).get("at") or it.get("at"))
+        if d:
+            d["bought"] += 1
+            if src and src.get("best") == it.get("part_number"):
+                d["bought_top1"] += 1
+    for r in learns:
+        d = row(r.get("at"))
+        if d:
+            d["retrains" if r.get("how") == "retrain" else "learns"] += 1
+    out = []
+    for d in sorted(days.values(), key=lambda x: x["day"]):
+        d["bought_top1_rate"] = round(d["bought_top1"] / d["bought"], 3) if d["bought"] else None
+        out.append(d)
+    return out[-30:]
 
 
 def enrich_confusions(a: dict, store) -> dict:

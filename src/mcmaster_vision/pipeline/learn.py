@@ -184,6 +184,7 @@ def _learn_index(settings: Settings, *, force: bool) -> dict[str, Any]:
         **({"calibration_from_purchases": calibrated} if calibrated else {}),
     )
     log.info("learned %d photos (%d new) of %d parts, %s", n_photos, added, len(labelled), how)
+    _event(settings, "learn", how=how, photos=n_photos, added=added, parts=len(labelled))
     return {
         "action": "index",
         "how": how,
@@ -300,6 +301,17 @@ def calibrate_from_samples(settings: Settings, rows: list[dict]) -> dict[str, An
     return out
 
 
+def _event(settings: Settings, kind: str, **fields: Any) -> None:
+    """A learn / retrain row in the same event log the API writes, so the analytics can
+    line accuracy up against when the model changed."""
+    from mcmaster_vision.pipeline.events import EventLog
+
+    try:
+        EventLog(settings.data_dir / "logs" / "events.jsonl", keep=1).log(kind, **fields)
+    except OSError:
+        pass
+
+
 def mark_retrained(
     settings: Settings, *, started_at: str | None = None, learned: bool = True, **fields: Any
 ) -> dict[str, Any]:
@@ -309,4 +321,5 @@ def mark_retrained(
     ``learned_at`` stays where it was and the next ``mcv learn`` still adds them."""
     now = started_at or datetime.now(timezone.utc).isoformat()
     stamp = {"retrained_at": now, **({"learned_at": now} if learned else {})}
+    _event(settings, "learn", how="retrain", served=learned, checkpoint=fields.get("checkpoint"))
     return update_manifest(settings, **stamp, **fields)

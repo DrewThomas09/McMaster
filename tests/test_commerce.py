@@ -271,3 +271,15 @@ def test_confusion_pairs_know_the_catalog(tmp_path, store):
     )
     if c["differ_by"] == []:
         assert "identical specifications" in found[0]["do"]
+
+
+def test_daily_trend_lines_up_learning_with_accuracy(tmp_path):
+    ev = EventLog(tmp_path / "e.jsonl")
+    for i in range(4):
+        ev.log("identify", request_id=f"r{i}", best="P" if i % 2 else "Q", candidates=["P", "Q"])
+        ev.log("checkout", order_id=f"o{i}", items=[{"part_number": "P", "request_id": f"r{i}"}])
+    ev.log("learn", how="incremental", added=4)
+    ev.log("learn", how="retrain", served=True)
+    (day,) = analytics(ev)["daily"]
+    assert day["identify"] == 4 and day["bought"] == 4 and day["bought_top1_rate"] == 0.5
+    assert day["learns"] == 1 and day["retrains"] == 1

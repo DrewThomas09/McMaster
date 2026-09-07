@@ -214,6 +214,11 @@ def test_learn_lock_and_rebuild_triggers(tmp_path, demo_dir, store, index):
     with _Lock(s), pytest.raises(LearnBusy):
         learn_index(s)
     assert learn_index(s)["how"] == "incremental"
+    from mcmaster_vision.pipeline.events import EventLog
+
+    assert [r["how"] for r in EventLog(s.data_dir / "logs" / "events.jsonl").rows("learn")] == [
+        "incremental"
+    ]
     # a corrected label removed the photo under the old part: only a rebuild drops the row
     fb.record(_photo(parts[0]), "r1", parts[1].part_number, source="tap")
     assert not (s.queries_dir / parts[0].part_number / "r1.jpg").exists()

@@ -56,6 +56,9 @@
   just-raised `likely` and needs a 5-point gain to move a threshold; confusion pairs compare
   name and category too and ignore price/url keys; the orders tail read keeps a complete
   first line; the chip says "confirmed before".
+- Analytics: a per-day trend (identifications, parts bought, bought-top-1 rate, learn and
+  retrain events, which `mcv learn` / `mcv retrain` now write to the event log) on
+  `/analytics` and the dashboard, so the loop's effect is visible over time.
 - `mcv selfcheck` gains a purchase-loop step: cart, checkout, the photo becomes a purchase
   confirmation, `mcv learn` adds it to the index incrementally.
 - Calibration: when no threshold reaches a tier's precision target, the fit raises the

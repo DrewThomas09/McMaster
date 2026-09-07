@@ -288,6 +288,16 @@ def _learning_loop_html(request: Request) -> str:
     )
     conf = a["confidence"]
     due = learn["retrain_due"]
+    day_rows = "".join(
+        f"<tr><td>{e(d['day'])}</td><td>{d['identify']}</td><td>{d['bought']}</td>"
+        f"<td>{pc(d['bought_top1_rate'])}</td><td>{d['learns']}{' + ' + str(d['retrains']) + ' retrain' if d['retrains'] else ''}</td></tr>"
+        for d in a.get("daily", [])[-14:]
+    )
+    daily_html = (
+        f'<div class="card" style="padding:8px 12px;margin-top:10px"><b>By day</b><table class="spec"><tr><th>day</th><th>identified</th><th>bought</th><th>bought top-1</th><th>learns</th></tr>{day_rows}</table></div>'
+        if day_rows
+        else ""
+    )
     return f"""<h2 class="page">Learning loop (photo &rarr; cart &rarr; checkout &rarr; model)</h2>
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
   <div class="card stat"><b>{w["identify"]}</b><span>identifications</span></div>
@@ -303,6 +313,7 @@ def _learning_loop_html(request: Request) -> str:
   <div class="card" style="padding:8px 12px;flex:1;min-width:260px"><b>When customers bought, was the tier right?</b><table class="spec"><tr><th>tier</th><th>bought</th><th>top-1 right</th></tr>{tier_rows or '<tr><td class="msg" colspan="3">Nothing bought yet.</td></tr>'}</table>
   <div class="crumbs">confidence when right {e(conf["when_right"] if conf["when_right"] is not None else "—")} · when wrong {e(conf["when_wrong"] if conf["when_wrong"] is not None else "—")} · p95 latency {e(a["latency_ms"]["p95"] or "—")} ms · errors {w["errors"]}</div></div>
 </div>
+{daily_html}
 <p class="crumbs" id="learnline">last learned {e((learn["learned_at"] or "never")[:19])} ({e(learn["learned_photos"] or 0)} photos) · {learn["since_retrain"]}/{learn["retrain_threshold"]} towards a retrain{' · <span class="tier candidate">retrain due: run mcv learn</span>' if due else ""} ·
 <button class="btn small" type="button" id="learnbtn">Learn now</button> <code>mcv learn</code> · <code>mcv simulate --learn</code> · <a href="/analytics">/analytics</a> · <a href="/orders">/orders</a></p>
 <script>
