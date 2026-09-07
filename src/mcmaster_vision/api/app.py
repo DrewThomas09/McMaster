@@ -89,6 +89,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     app.state.check_rate = check_rate
     app.state.get_identifier = lambda: get_identifier()
+    app.state.check_admin = lambda request: check_admin(request)
 
     async def record(result: IdentificationResult, photo: bytes | None) -> None:
         """Append to the request log and keep the photo, off the event loop."""
@@ -426,9 +427,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         """Fold new confirmations into the gallery now (`mcv learn --index-only`): the
         rebuilt index is picked up automatically."""
         check_admin(request)
-        from mcmaster_vision.pipeline.learn import learn_index
+        from mcmaster_vision.pipeline.learn import LearnBusy, learn_index
 
-        result = await run_in_threadpool(learn_index, settings)
+        try:
+            result = await run_in_threadpool(learn_index, settings)
+        except LearnBusy as e:
+            raise HTTPException(409, str(e)) from e
         return result
 
     @app.get("/feedback/stats")

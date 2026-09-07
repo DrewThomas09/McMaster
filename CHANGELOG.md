@@ -18,6 +18,30 @@
   `learned_at` / `retrained_at`.
 - `mcv simulate --customers N [--learn] [--json]`: synthetic customers walk the whole
   journey in-process and the analytics report what is wrong, then before/after learning.
+- Found by the simulation and fixed: a learned photo (similarity ~1.0 to its own gallery
+  row) could still lose to a look-alike with a category prior and a purchase history, so
+  the reranker adds a near-identical bonus (`w_exact`) that no prior can outweigh; the
+  tiers were wrong on real photos, so `mcv learn` scores every new confirmed photo before
+  it joins the gallery and refits temperature and thresholds once 30 samples exist
+  (`models/calibration_samples.jsonl`, `calibration_from_purchases` in the manifest);
+  "none of these" is counted in the funnel with its own issue.
+- Phone UI: **Buy now** on exact / likely answers (one tap from photo to placed order);
+  quantity changes replace the line (`set_quantity`) instead of remove-and-re-add; the order
+  confirmation reports what the server really learned.
+- Review fixes: `GET /orders` shows a phone only its own orders (the full list needs the
+  token); an unknown request id ties a cart line to no photo; carts live on disk so every
+  worker sees them and identify events are looked up in the shared log; commerce routes
+  are rate-limited; an add-to-cart files weight-1 evidence that a checkout upgrades;
+  `mcv simulate` runs on a scratch copy unless `--live` and reloads the learned index
+  before the after-run; `mcv learn` takes a lock, stamps `learned_at` before the work,
+  rebuilds when a corrected label deleted a learned photo, keeps a retrain's held-out
+  photos out of the gallery and refits calibration only with enough wrong samples;
+  `mcv retrain` trains on purchase-weighted photos but indexes each once; the usage prior
+  is back on its tuned scale; event rows without a kind, half-written order lines and
+  naive timestamps no longer break anything.
+- Synthetic catalog: pipe nipples, couplings, flanges, caps and hex reducing bushings with
+  pipe size, thread type (NPT / NPTF / BSPT), gender, length and reduced-to attributes, so
+  the pipe-sizing and thread-compatibility features have parts to act on (44 kinds).
 
 ## 0.3.6
 

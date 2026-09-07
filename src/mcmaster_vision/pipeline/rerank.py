@@ -45,6 +45,8 @@ class FusionReranker:
         w_ocr: float = 0.5,
         w_pop: float = 0.02,
         w_size: float = 0.2,
+        w_exact: float = 0.35,
+        exact_similarity: float = 0.99,
     ):
         self.w_sim, self.w_cat, self.w_hits, self.w_attr, self.w_ocr = (
             w_sim,
@@ -60,6 +62,12 @@ class FusionReranker:
         # a measured dimension is strong evidence between look-alikes: a full
         # "off" verdict costs as much as 0.2 of cosine similarity
         self.w_size = w_size
+        # a near-identical gallery image (in practice: this photo, or one like it, was
+        # confirmed or bought before and learned) outweighs every prior: the bonus ramps
+        # from 0 at ``exact_similarity`` to ``w_exact`` at 1.0, more than category prior,
+        # hits and usage prior can add together
+        self.w_exact = w_exact
+        self.exact_similarity = exact_similarity
 
     def rerank(
         self,
@@ -80,6 +88,12 @@ class FusionReranker:
                 continue
             reasons = [f"visual similarity {h.similarity:.2f}"]
             score = self.w_sim * h.similarity + self.w_hits * min(h.hits - 1, 3)
+            if self.w_exact and h.similarity > self.exact_similarity:
+                ramp = min(
+                    1.0, (h.similarity - self.exact_similarity) / (1 - self.exact_similarity)
+                )
+                score += self.w_exact * ramp
+                reasons.append("near-identical to a gallery photo")
             if h.category_prior:
                 score += self.w_cat * h.category_prior
                 if h.category_prior > 0.5:
@@ -99,7 +113,9 @@ class FusionReranker:
                 reasons.extend(size_reasons)
             n_conf = (popularity or {}).get(part.part_number, 0)
             if n_conf > 0 and self.w_pop:
-                score += self.w_pop * math.log1p(min(n_conf, 50))
+                # n_conf is weighted evidence (tap 2, purchase 3); /2 keeps the prior on
+                # the scale it was tuned for (one confirmation ~ one unit)
+                score += self.w_pop * math.log1p(min(n_conf / 2, 50))
                 # weighted evidence: a purchase counts 3, a tap 2 (FEEDBACK_WEIGHTS)
                 reasons.append(f"confirmed or bought before (evidence {n_conf})")
             out.append(Scored(part, h.similarity, float(score), reasons))

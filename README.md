@@ -309,9 +309,9 @@ build information.
 
 ## Purchase loop: the cart teaches the model
 
-The phone UI has **Add to cart** on the verdict and on every candidate, a cart
-drawer with quantities and the confidence each line came with, and one-tap
-checkout. Nothing is charged (it is a demo storefront), but a checkout is the
+The phone UI has **Add to cart** on the verdict and on every candidate, **Buy
+now** on exact and likely answers, a cart drawer with quantities and the
+confidence each line came with, and one-tap checkout. Nothing is charged (it is a demo storefront), but a checkout is the
 strongest signal there is about what the photo showed: every purchased item that
 came from an identification is filed as a `checkout` confirmation of that photo,
 weighted above a tap. `mcv learn` folds those photos into the index in seconds

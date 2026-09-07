@@ -58,6 +58,7 @@ _THREADS = [
     "M10",
 ]
 _LENGTHS = ['1/4"', '3/8"', '1/2"', '5/8"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"']
+_PIPE_SIZES = ['1/8"', '1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"']
 _ODS = ['1/4"', '3/8"', '1/2"', '5/8"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"']
 
 # kind -> (category path, display name, has_top_view)
@@ -151,6 +152,27 @@ _FAMILIES: dict[str, tuple[list[str], str, bool]] = {
         False,
     ),
     "pipe_tee": (["Pipe, Tubing, Hose & Fittings", "Pipe Fittings", "Tees"], "Pipe Tee", False),
+    "pipe_nipple": (
+        ["Pipe, Tubing, Hose & Fittings", "Pipe Nipples", "Threaded Pipe Nipples"],
+        "Threaded Pipe Nipple",
+        True,
+    ),
+    "pipe_coupling": (
+        ["Pipe, Tubing, Hose & Fittings", "Pipe Fittings", "Couplings"],
+        "Pipe Coupling",
+        True,
+    ),
+    "pipe_flange": (
+        ["Pipe, Tubing, Hose & Fittings", "Pipe Fittings", "Flanges"],
+        "Threaded Pipe Flange",
+        False,
+    ),
+    "pipe_cap": (["Pipe, Tubing, Hose & Fittings", "Pipe Fittings", "Caps"], "Pipe Cap", True),
+    "pipe_bushing": (
+        ["Pipe, Tubing, Hose & Fittings", "Pipe Fittings", "Bushings"],
+        "Hex Reducing Bushing",
+        True,
+    ),
     "l_bracket": (["Hardware", "Brackets", "Corner Brackets"], "Corner Bracket", False),
     "flat_bracket": (["Hardware", "Brackets", "Mending Plates"], "Mending Plate", False),
     "hinge": (["Hardware", "Hinges", "Butt Hinges"], "Butt Hinge", False),
@@ -719,6 +741,88 @@ def _pipe(d, c, r, color, p, kind):
             d.rectangle(box, fill=_dark(color, 0.75), outline=_dark(color, 0.45))
 
 
+def _pipe_nipple(d, c, r, color, p, top_view):
+    """Straight pipe threaded at both ends (the catalog's nipple page: length x pipe size)."""
+    w = int(r * (0.22 + p["inner"] * 0.2))
+    if top_view:  # looking into the bore
+        _shade_ellipse(d, [c - w, c - w, c + w, c + w], color)
+        d.ellipse([c - w * 0.7, c - w * 0.7, c + w * 0.7, c + w * 0.7], fill=_dark(color, 0.3))
+        return
+    L = min(int(r * p["length_frac"] * 0.55), 2 * c - 12)
+    box = [c - L // 2, c - w // 2, c + L // 2, c + w // 2]
+    _shade_rect(d, box, color, "y")
+    tl = max(w // 2, int(L * 0.18))
+    for x0, x1 in ((box[0], box[0] + tl), (box[2] - tl, box[2])):
+        for x in range(x0 + 3, x1, max(3, int(p["pitch"]) // 2 + 2)):
+            d.line([x, box[1], x, box[3]], fill=_dark(color, 0.5), width=1)
+            d.line([x + 1, box[1], x + 1, box[3]], fill=_light(color, 0.5), width=1)
+
+
+def _pipe_coupling(d, c, r, color, p, top_view):
+    """Short sleeve with internal threads; the cap and bushing share the body."""
+    w = int(r * 0.45)
+    if top_view:
+        _shade_ellipse(d, [c - w, c - w, c + w, c + w], color)
+        d.ellipse([c - w * 0.6, c - w * 0.6, c + w * 0.6, c + w * 0.6], fill=_dark(color, 0.35))
+        _threads(d, [c - w * 0.6, c - w * 0.6, c + w * 0.6, c + w * 0.6], 4, color, 0.0)
+        return
+    L = int(r * 0.6)
+    box = [c - L // 2, c - w // 2, c + L // 2, c + w // 2]
+    _shade_rect(d, box, color, "y")
+    d.rectangle([box[0], box[1], box[0] + 4, box[3]], fill=_dark(color, 0.3))
+    d.rectangle([box[2] - 4, box[1], box[2], box[3]], fill=_dark(color, 0.3))
+    d.line([c, box[1], c, box[3]], fill=_dark(color, 0.6), width=2)
+
+
+def _pipe_cap(d, c, r, color, p, top_view):
+    w = int(r * 0.42)
+    if top_view:
+        _shade_ellipse(d, [c - w, c - w, c + w, c + w], color)
+        d.ellipse([c - w * 0.15, c - w * 0.15, c + w * 0.15, c + w * 0.15], fill=_dark(color, 0.5))
+        return
+    L = int(r * 0.4)
+    box = [c - L // 2, c - w // 2, c + L // 2, c + w // 2]
+    _shade_rect(d, box, color, "y")
+    d.rounded_rectangle(
+        [box[2] - L // 3, box[1] - 2, box[2] + 2, box[3] + 2],
+        radius=w // 4,
+        fill=_light(color, 0.15),
+        outline=_dark(color, 0.45),
+        width=2,
+    )
+
+
+def _pipe_bushing(d, c, r, color, p, top_view):
+    """Hex head on a shorter threaded body: reduces one pipe size to a smaller one."""
+    rr = r * 0.45
+    if top_view:
+        _hex_top(d, c, rr, color, p["rot"])
+        hole = rr * (0.35 + p["inner"] * 0.3)
+        d.ellipse([c - hole, c - hole, c + hole, c + hole], fill=_dark(color, 0.35))
+        return
+    hw, hh = int(rr * 0.95), int(rr * 0.35)
+    _shade_rect(d, [c - hw, c - hh - rr * 0.3, c + hw, c - rr * 0.3 + hh], color, "y")
+    bw = int(rr * (0.45 + p["inner"] * 0.3))
+    body = [c - bw, c - rr * 0.3 + hh, c + bw, c + rr * 0.6]
+    _shade_rect(d, body, color, "x")
+    _threads(d, body, max(3, int(p["pitch"]) // 2 + 2), color)
+
+
+def _pipe_flange(d, c, r, color, p):
+    """Round threaded flange: disc, four bolt holes, raised hub with the bore."""
+    ro = r * 0.55
+    _shade_ellipse(d, [c - ro, c - ro, c + ro, c + ro], color)
+    hub = ro * 0.5
+    _shade_ellipse(d, [c - hub, c - hub, c + hub, c + hub], _light(color, 0.1))
+    bore = hub * (0.45 + p["inner"] * 0.3)
+    d.ellipse([c - bore, c - bore, c + bore, c + bore], fill=_dark(color, 0.35))
+    _threads(d, [c - bore, c - bore, c + bore, c + bore], 4, color, 0.0)
+    hole = max(3, int(ro * 0.09))
+    for a in range(0, 360, 90):
+        x, y = _polar(c, c, ro * 0.78, a + p["rot"] * 0.5)
+        d.ellipse([x - hole, y - hole, x + hole, y + hole], fill=_dark(color, 0.3))
+
+
 def _knob(d, c, r, color, p):
     ro = r * 0.5
     for a in range(0, 360, 360 // max(5, p["teeth"])):
@@ -840,6 +944,16 @@ class SyntheticCatalog:
             _hose_clamp(d, c, r, color, p)
         elif kind in ("pipe_elbow", "pipe_tee"):
             _pipe(d, c, r, color, p, kind)
+        elif kind == "pipe_nipple":
+            _pipe_nipple(d, c, r, color, p, top_view)
+        elif kind == "pipe_coupling":
+            _pipe_coupling(d, c, r, color, p, top_view)
+        elif kind == "pipe_cap":
+            _pipe_cap(d, c, r, color, p, top_view)
+        elif kind == "pipe_bushing":
+            _pipe_bushing(d, c, r, color, p, top_view)
+        elif kind == "pipe_flange":
+            _pipe_flange(d, c, r, color, p)
         elif kind == "knob":
             _knob(d, c, r, color, p)
         elif kind == "hex_key":
@@ -948,6 +1062,16 @@ class SyntheticCatalog:
             a["teeth"] = p["teeth"]
         if kind in ("pipe_elbow", "pipe_tee"):
             a["pipe_size"] = self.rng.choice(['1/8"', '1/4"', '3/8"', '1/2"', '3/4"', '1"'])
+        if kind in ("pipe_nipple", "pipe_coupling", "pipe_cap", "pipe_bushing", "pipe_flange"):
+            # the catalog's fitting tables: pipe size x thread type x (length | reduced size)
+            a["pipe_size"] = self.rng.choice(_PIPE_SIZES)
+            a["thread_type"] = self.rng.choice(("NPT", "NPT", "NPTF", "BSPT"))
+            a["gender"] = "male" if kind == "pipe_nipple" else "female"
+        if kind == "pipe_nipple":
+            a["length"] = self.rng.choice(['1-1/8"', '1-1/2"', '2"', '2-1/2"', '3"', '4"', '6"'])
+        if kind == "pipe_bushing":
+            sizes = _PIPE_SIZES[: _PIPE_SIZES.index(a["pipe_size"])] or _PIPE_SIZES[:1]
+            a["reduced_to"] = self.rng.choice(sizes)
         if kind in ("l_bracket", "flat_bracket", "hinge"):
             a["holes"] = p["holes"] * (2 if kind != "flat_bracket" else 1) + (
                 1 if kind == "flat_bracket" else 0

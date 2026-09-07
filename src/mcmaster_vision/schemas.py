@@ -174,4 +174,5 @@ class Order(BaseModel):
     client_id: str
     items: list[CartItem]
     total_usd: float | None = None
+    learned: int = Field(0, description="Items whose photo was filed as a checkout confirmation")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

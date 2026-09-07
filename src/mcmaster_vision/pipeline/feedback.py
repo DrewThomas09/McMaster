@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from mcmaster_vision.schemas import Feedback
@@ -112,7 +113,17 @@ class FeedbackStore:
         e = self.entries()
         if not when:
             return e
-        return [x for x in e if x.created_at.isoformat() > when]
+        try:
+            since = datetime.fromisoformat(str(when).replace("Z", "+00:00"))
+        except ValueError:
+            return e
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+
+        def aware(t: datetime) -> datetime:
+            return t if t.tzinfo is not None else t.replace(tzinfo=timezone.utc)
+
+        return [x for x in e if aware(x.created_at) > since]
 
     def mtime(self) -> float:
         try:

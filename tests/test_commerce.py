@@ -39,18 +39,31 @@ def test_cart_add_remove_and_validation(identifier, tmp_path):
     # the cart line knows what the identification said about it
     if d["rank"] == 1:
         assert item["confidence"] is not None and item["tier"] == d["result"]["tier"]
-    # adding again merges quantities
+    # adding again merges quantities; set_quantity replaces the line
     r = client.post("/cart", json={"client_id": "phone-1", "part_number": pn, "quantity": 2})
     assert [it["quantity"] for it in r.json()] == [3]
+    body = {"client_id": "phone-1", "part_number": pn, "quantity": 5, "set_quantity": True}
+    assert [it["quantity"] for it in client.post("/cart", json=body).json()] == [5]
+    # the cart is on disk: a second app (another worker) sees it
+    other = TestClient(create_app(client.app.state.settings, identifier=identifier))
+    assert [it["quantity"] for it in other.get("/cart?client_id=phone-1").json()] == [5]
     assert (
         client.post("/cart", json={"client_id": "phone-1", "part_number": "NOPE"}).status_code
         == 404
     )
+    # an unknown request id ties the line to no photo
+    r = client.post("/cart", json={"client_id": "p9", "part_number": pn, "request_id": "nope"})
+    assert r.json()[0]["request_id"] is None
     assert client.delete(f"/cart/{pn}?client_id=phone-1").json() == []
     assert client.post("/checkout", json={"client_id": "phone-1"}).status_code == 400  # empty
     ev = client.app.state.events
-    assert [e["kind"] for e in ev.rows()][-2:] == ["cart_add", "cart_remove"]
+    kinds = [e["kind"] for e in ev.rows()]
+    assert kinds.count("cart_add") == 3 and kinds[-1] == "cart_remove"  # set_quantity logs nothing
     assert ev.rows("cart_add")[0]["rank"] == d["rank"]
+    assert ev.identify_row(req)["request_id"] == req and ev.identify_row("nope") is None
+    # the cart add with a photo behind it already filed weak (weight 1) evidence
+    fb = client.app.state.feedback
+    assert [x.source for x in fb.entries()] == ["cart"] and fb.entries()[0].weight == 1
 
 
 def test_checkout_files_purchase_confirmations(identifier, tmp_path):
@@ -64,12 +77,16 @@ def test_checkout_files_purchase_confirmations(identifier, tmp_path):
     assert r.status_code == 200, r.text
     order = r.json()
     assert len(order["order_id"]) == 10 and len(order["items"]) == 2
-    assert client.get("/cart?client_id=p2").json() == []
+    assert client.get("/cart?client_id=p2").json() == [] and order["learned"] == 1
     # persisted
     lines = (tmp_path / "logs" / "orders.jsonl").read_text().splitlines()
     assert json.loads(lines[-1])["order_id"] == order["order_id"]
-    assert client.get("/orders").json()[0]["order_id"] == order["order_id"]
-    # the photographed item became a checkout confirmation; the other could not
+    # a phone sees its own orders; the full list needs the token
+    assert client.get("/orders").status_code in (401, 403)
+    assert client.get("/orders?client_id=p2").json()[0]["order_id"] == order["order_id"]
+    assert client.get("/orders?client_id=someone-else").json() == []
+    assert client.get("/orders", headers={"X-API-Token": "tok"}).json()[0]["client_id"] == "p2"
+    # the photographed item went cart (weight 1) -> checkout (weight 3); the other could not
     fb = client.app.state.feedback
     entries = fb.entries()
     assert len(entries) == 1 and entries[0].source == "checkout" and entries[0].weight == 3
@@ -108,10 +125,44 @@ def test_admin_learn_requires_token_and_reports(identifier, tmp_path, monkeypatc
     assert called["settings"].queries_dir == s.queries_dir
 
 
-def test_error_events_are_logged(identifier, tmp_path):
+def test_error_events_are_logged(identifier, tmp_path, monkeypatch):
     client, _ = _client(identifier, tmp_path)
-    r = client.get("/analytics")
-    assert r.status_code == 200 and r.json()["window"]["errors"] == 0
+    assert client.get("/analytics").json()["window"]["errors"] == 0
+    monkeypatch.setattr(identifier, "identify", lambda *a, **k: 1 / 0)
+    client = TestClient(client.app, raise_server_exceptions=False)
+    r = client.post("/identify", files={"file": ("a.png", _png(), "image/png")})
+    assert r.status_code == 500
+    a = client.get("/analytics").json()
+    assert a["window"]["errors"] == 1 and "500 /identify" in a["errors"]
+
+
+def _png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), "gray").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_event_log_survives_odd_rows(tmp_path):
+    path = tmp_path / "e.jsonl"
+    path.write_text('{"foo": 1}\n[]\n{"kind": "identify", "request_id": "r1", "best": "P"}\n')
+    ev = EventLog(path)
+    assert ev.rows() == [{"kind": "identify", "request_id": "r1", "best": "P"}]
+    assert ev.identify_row("r1")["best"] == "P"
+    # a row another worker wrote is found in the file
+    with open(path, "a") as fh:
+        fh.write('{"kind": "identify", "request_id": "r2", "best": "Q"}\n')
+    assert ev.identify_row("r2")["best"] == "Q"
+    # the file is compacted when it is far longer than the window
+    small = EventLog(tmp_path / "s.jsonl", keep=5)
+    for i in range(20):
+        small.log("identify", request_id=f"x{i}")
+    again = EventLog(tmp_path / "s.jsonl", keep=5)
+    assert again.total == 20 and len(again.rows()) == 5
+    assert len((tmp_path / "s.jsonl").read_text().splitlines()) == 5
 
 
 def test_analytics_and_issues_from_events(tmp_path):
@@ -138,6 +189,7 @@ def test_analytics_and_issues_from_events(tmp_path):
         "checkout": 12,
         "items_bought": 12,
         "feedback": 0,
+        "none_of_these": 0,
         "errors": 3,
     }
     assert a["funnel"]["identify_to_cart"] == 1.0 and a["bought_top1_rate"] == 0.0
@@ -159,3 +211,14 @@ def test_issues_quiet_on_empty(tmp_path):
     a = analytics(EventLog(tmp_path / "none.jsonl"))
     assert a["bought_top1_rate"] is None and a["funnel"]["identify_to_cart"] is None
     assert issues(a) == []
+
+
+def test_none_of_these_issue(tmp_path):
+    ev = EventLog(tmp_path / "e.jsonl")
+    for i in range(20):
+        ev.log("identify", request_id=f"r{i}", tier="candidate", best="P1", candidates=["P1"])
+        if i % 2 == 0:
+            ev.log("feedback", request_id=f"r{i}", part_number=None, source="tap", correct=False)
+    a = analytics(ev)
+    assert a["window"]["none_of_these"] == 10 and a["funnel"]["none_of_these"] == 0.5
+    assert any("found nothing" in i["what"] for i in issues(a))

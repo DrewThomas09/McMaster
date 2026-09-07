@@ -433,7 +433,7 @@ function render(res) {
       ${navigator.share ? `<button type="button" class="iconbtn" onclick="shareResult()">Share</button>` : ''}
       <a class="iconbtn" href="https://www.mcmaster.com/${encodeURIComponent(res.best.part_number)}/" target="_blank" rel="noopener">mcmaster.com &nearr;</a></div>
       <div class="name">${esc(res.best.name)} &middot; ${pct(res.best.confidence)} confidence</div>
-      <div class="confirm"><button type="button" class="buy" data-buy="${esc(res.best.part_number)}" onclick="addToCart(${js(res.best.part_number)}, this)">&#128722; Add to cart</button></div>
+      <div class="confirm"><button type="button" class="buy" data-buy="${esc(res.best.part_number)}" onclick="addToCart(${js(res.best.part_number)}, this)">&#128722; Add to cart</button>${(res.tier === 'exact' || res.tier === 'likely') ? `<button type="button" class="buy" onclick="buyNow(${js(res.best.part_number)}, this)">&#9889; Buy now</button>` : ''}</div>
       <div class="name">${esc(res.best.category_path.join(' › '))}</div>${specTable(res.best.attributes)}`;
   } else {
     html += `<div class="name">Try another angle, closer, on a plain background &mdash; or search by text.</div>`;
@@ -619,11 +619,8 @@ async function setQty(pn, delta) {
   const it = cart.find(i => i.part_number === pn); if (!it) return;
   const q = it.quantity + delta;
   if (q <= 0) return removeFromCart(pn);
-  const add = n => fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: pn, quantity: n, request_id: it.request_id }) }).catch(() => null);
-  let r;
-  if (delta > 0) r = await add(delta);            // the server adds to the line
-  else { await removeFromCart(pn, true); r = await add(q); }
-  if (r && r.ok) cart = await r.json();
+  const r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: pn, quantity: q, set_quantity: true, request_id: it.request_id }) }).catch(() => null);
+  if (r && r.ok) cart = await r.json(); else toast(r ? 'Could not change the quantity' : 'No connection');
   updateCartBadge(); renderCart();
 }
 async function removeFromCart(pn, quiet) {
@@ -646,6 +643,12 @@ function renderCart() {
   $('checkoutrow').hidden = false; $('cartorder').hidden = true;
 }
 function openCart() { renderCart(); $('cart').classList.add('on'); }
+async function buyNow(pn, btn) {  // one tap from a confident answer to a placed order
+  if (btn) btn.disabled = true;
+  await addToCart(pn, null);
+  if (cart.some(it => it.part_number === pn)) { openCart(); await checkout(); }
+  if (btn) btn.disabled = false;
+}
 function closeCart() { $('cart').classList.remove('on'); }
 async function checkout() {
   const b = $('checkoutbtn'); b.disabled = true; b.textContent = 'Placing order…';
@@ -654,7 +657,7 @@ async function checkout() {
   b.disabled = false; b.textContent = 'Check out';
   if (!r || !r.ok) { let why = ''; try { why = (await r.json()).detail || ''; } catch (_) {} toast(r ? 'Checkout failed' + (why ? ': ' + why : '') : 'No connection'); return; }
   const o = await r.json();
-  const learned = o.items.filter(it => it.request_id).length;
+  const learned = o.learned || 0;  // what the server really filed as confirmations
   cart = []; updateCartBadge();
   $('cartitems').innerHTML = ''; $('checkoutrow').hidden = true;
   const ord = $('cartorder'); ord.hidden = false;

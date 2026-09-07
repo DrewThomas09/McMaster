@@ -24,9 +24,8 @@ router = APIRouter(tags=["demo"])
 
 
 def _ident(request: Request) -> Identifier:
-    ident = getattr(request.app.state, "identifier", None)
-    if ident is None:
-        raise HTTPException(503, "index not built yet")
+    # through the app's accessor so a rebuilt index (mcv learn / retrain) is picked up
+    ident = request.app.state.get_identifier()
     if not request.app.state.settings.demo_mode:
         raise HTTPException(404, "demo mode is off (MCV_DEMO_MODE=true)")
     return ident

@@ -50,9 +50,8 @@ def layout(title: str, body: str, *, active: str = "", head: str = "", status: s
 
 
 def _ident(request: Request) -> Identifier:
-    ident = getattr(request.app.state, "identifier", None)
-    if ident is None:
-        raise HTTPException(503, "index not built yet")
+    # through the app's accessor so a rebuilt index (mcv learn / retrain) is picked up
+    ident = request.app.state.get_identifier()
     return ident
 
 
@@ -249,9 +248,14 @@ def _learning_loop_html(request: Request) -> str:
         )
         or '<tr><td class="msg" colspan="3">No problems found in this window.</td></tr>'
     )
+    from urllib.parse import quote
+
+    def part_link(pn: str) -> str:
+        return f'<a href="/part/{quote(pn)}">{e(pn)}</a>' if pn and pn != "(none)" else e(pn)
+
     conf_rows = "".join(
-        f'<tr><td><a href="/part/{e(c["predicted"])}">{e(c["predicted"])}</a></td>'
-        f'<td><a href="/part/{e(c["bought"])}">{e(c["bought"])}</a></td><td>{c["times"]}</td></tr>'
+        f"<tr><td>{part_link(c['predicted'])}</td><td>{part_link(c['bought'])}</td>"
+        f"<td>{c['times']}</td></tr>"
         for c in a["confusions"][:6]
     )
     tier_rows = "".join(

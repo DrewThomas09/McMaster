@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from mcmaster_vision.config import Settings
@@ -137,9 +138,40 @@ def run_customers(
     return rep
 
 
+def _pc(x: float | None) -> str:
+    return f"{x:.0%}" if x is not None else "n/a"
+
+
 def _top1(ranks: dict[str, int | None], who: set[str]) -> float:
     hit = [ranks.get(c) == 1 for c in who if c in ranks]
     return round(sum(hit) / len(hit), 3) if hit else 0.0
+
+
+def scratch_settings(settings: Settings, root: str | Path) -> Settings:
+    """A copy of the deployment to simulate against: the catalog is shared read-only,
+    the index and calibration are copied (learning rewrites them), and events, orders
+    and confirmed photos go to the scratch directory, so synthetic customers never
+    become real purchases, real training data or a real retrain trigger."""
+    import shutil
+
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    index_dir = root / "index"
+    if settings.index_dir.exists() and not index_dir.exists():
+        shutil.copytree(settings.index_dir, index_dir)
+    model_dir = root / "models"
+    if settings.model_dir.exists() and not model_dir.exists():
+        shutil.copytree(settings.model_dir, model_dir)
+    s = settings.model_copy(
+        update={
+            "data_dir": root,
+            "index_dir": index_dir,
+            "model_dir": model_dir,
+            "queries_dir": root / "queries",
+        }
+    )
+    s.ensure_dirs()
+    return s
 
 
 def simulate(
@@ -151,10 +183,15 @@ def simulate(
     top_n: int = 5,
     tta: str = "fast",
     echo=None,
+    live: bool = False,
+    scratch: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Run customers against an in-process API on ``settings``; with ``learn`` fold the
-    purchases into the index and run the same customers again (same photos: what the
-    loop promises) plus new photos of the same parts (what generalises)."""
+    """Run customers against an in-process API; with ``learn`` fold the purchases into
+    the index and run the same customers again (same photos: what the loop promises)
+    plus new photos of the same parts (what generalises). Runs on a scratch copy of the
+    deployment unless ``live`` (then the synthetic purchases become real data)."""
+    import tempfile
+
     from fastapi.testclient import TestClient
 
     from mcmaster_vision.api import create_app
@@ -163,6 +200,10 @@ def simulate(
     from mcmaster_vision.pipeline.learn import learn_index
 
     say = echo or (lambda *_: None)
+    if not live:
+        scratch = scratch or tempfile.mkdtemp(prefix="mcv-simulate-")
+        settings = scratch_settings(settings, scratch)
+        say(f"scratch copy of the deployment in {scratch} (use --live to write real data)")
     s = settings.model_copy(update={"demo_mode": True, "rate_limit_per_minute": 100_000})
     with CatalogStore(s.catalog_db) as store:
         pns = [p.part_number for p in store.iter_parts(with_images_only=True)]
@@ -179,8 +220,9 @@ def simulate(
         out["analytics"] = a
         out["issues"] = issues(a)
         say(
-            f"  found in list {rep.found_rate:.0%}, top-1 {rep.top1_rate:.0%}, "
+            f"  found in list {_pc(rep.found_rate)}, top-1 {_pc(rep.top1_rate)}, "
             f"{rep.carts} carts, {rep.checkouts} checkouts, {rep.none_of_these} 'none of these'"
+            + (f", {len(rep.errors)} errors (first: {rep.errors[0]})" if rep.errors else "")
         )
         for it in out["issues"]:
             say(f"  [{it['severity']}] {it['what']} -> {it['do']}")
@@ -190,6 +232,11 @@ def simulate(
             out["learn"] = res
             say(f"  {res}")
             if res.get("action") == "index":
+                # serve the learned index now (the API polls meta.json every 15 s)
+                app.state.last_index_check = 0.0
+                app.state.identifier = app.state.get_identifier()
+                served = len(app.state.identifier.index)
+                out["served_rows_after_learn"] = served
                 same = run_customers(client, crowd, top_n=top_n, tta=tta)
                 fresh_crowd = make_customers(pns, customers, seed=seed + 1, photo_seed_base=50_000)
                 # same parts as before, new photos: what the gallery photos generalise to
@@ -207,9 +254,9 @@ def simulate(
                 }
                 out["after_new_photos"] = fresh.as_dict()
                 say(
-                    f"  after: the {len(buyers)} bought photos top-1 {after_b:.0%} (was "
-                    f"{before_b:.0%}); all photos top-1 {same.top1_rate:.0%} (was "
-                    f"{rep.top1_rate:.0%}); new photos of the same parts top-1 "
-                    f"{fresh.top1_rate:.0%}, found {fresh.found_rate:.0%}"
+                    f"  after: the {len(buyers)} bought photos top-1 {_pc(after_b)} (was "
+                    f"{_pc(before_b)}); all photos top-1 {_pc(same.top1_rate)} (was "
+                    f"{_pc(rep.top1_rate)}); new photos of the same parts top-1 "
+                    f"{_pc(fresh.top1_rate)}, found {_pc(fresh.found_rate)}"
                 )
     return out

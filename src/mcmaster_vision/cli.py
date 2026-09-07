@@ -434,22 +434,26 @@ def retrain(
     cfg["output_dir"] = str(s.model_dir / "retrain")
     # purchases count more than taps (weighted photos repeat); the held-out split sees
     # each photo once so the evaluation is honest
+    from datetime import datetime, timezone
+
+    started_at = datetime.now(timezone.utc).isoformat()
     fstore = FeedbackStore(s.queries_dir)
     extra, held_out = _split_feedback(fstore.labelled_images())
     weights = {
         str(Path(x.image_path).resolve()): x.weight for x in fstore.entries() if x.image_path
     }
-    extra = {
+    # training sees a photo as often as its evidence weight; the gallery holds it once
+    train_extra = {
         pn: [x for x in v for _ in range(max(1, weights.get(x, 2)))] for pn, v in extra.items()
     }
-    n_train_photos = sum(len(set(v)) for v in extra.values())
+    n_train_photos = sum(len(v) for v in extra.values())
     typer.echo(
         f"1/3 training on catalog + {n_train_photos} confirmed photos, purchase-weighted "
         f"({len(held_out)} held out) ..."
     )
     live = s
     with CatalogStore(s.catalog_db) as store:
-        ckpt = _train(store, cfg, extra_images=extra)
+        ckpt = _train(store, cfg, extra_images=train_extra)
         s = s.model_copy(
             update={
                 "backbone_checkpoint": ckpt,
@@ -511,6 +515,8 @@ def retrain(
 
     mark_retrained(
         s,
+        started_at=started_at,
+        held_out_paths=[path for _, path in held_out],
         checkpoint=str(ckpt),
         index=idx.stats().model_dump(mode="json"),
         index_with_feedback=bool(extra),
@@ -667,9 +673,15 @@ def simulate(
     top_n: int = typer.Option(5),
     tta: str = typer.Option("fast"),
     as_json: bool = typer.Option(False, "--json", help="Print the full report as JSON"),
+    live: bool = typer.Option(
+        False,
+        "--live",
+        help="Write into the real data directory (synthetic purchases become real evidence)",
+    ),
 ) -> None:
     """Self-run the demo: customers identify, add to the cart and check out in-process,
-    then the analytics name what went wrong. With --learn, shows before/after."""
+    then the analytics name what went wrong. With --learn, shows before/after. Runs on
+    a scratch copy of the index and calibration unless --live."""
     from mcmaster_vision.pipeline.simulate import simulate as _simulate
 
     s = _settings(config)
@@ -681,6 +693,7 @@ def simulate(
         top_n=top_n,
         tta=tta,
         echo=None if as_json else typer.echo,
+        live=live,
     )
     if as_json:
         typer.echo(json.dumps(out, indent=2, default=str))

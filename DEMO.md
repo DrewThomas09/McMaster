@@ -33,10 +33,16 @@ accept the certificate warning once on the phone.
    measured size and every candidate says whether its catalog length / OD fits.
 5c. **Threads:** with the scale set, a threaded part also shows its pitch
    ("thread pitch ≈ 1.27 mm, 20 tpi"); a 1/4"-28 look-alike drops in the list.
-6. **Learning loop:** tap **This is it** on the right candidate. Then open
-   `/metrics` on the laptop: the confirmed top-1 rate is the live scorecard,
-   and `mcv retrain` folds those photos into the next model.
-7. **Paper demo:** tap **print a sheet**, print it, and photograph the paper
+6. **Buy it:** tap **Add to cart** on the right candidate (or **Buy now** on an
+   exact answer), open the cart from the header badge, **Check out**. The order
+   confirmation says how many photos now teach the model. Nothing is charged.
+7. **Learning loop:** open `/dashboard` on the laptop: the **Learning loop**
+   panel shows the funnel (photo -> cart -> checkout), what was predicted vs
+   what was bought, and a plain-language issues list. Press **Learn now** (or
+   run `mcv learn`): the bought photos join the gallery in seconds and the
+   phone finds the same part again from that angle. `mcv simulate --customers
+   40 --learn` shows the whole loop, before and after, with no phone at all.
+8. **Paper demo:** tap **print a sheet**, print it, and photograph the paper
    with the phone: the same pipeline, real camera, real lighting.
 
 ## What to say

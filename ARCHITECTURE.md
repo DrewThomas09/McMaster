@@ -206,15 +206,21 @@ holds each photo once because retrieval max-pools over a part's rows.
 `learn_index` appends only the photos the index does not hold yet
 (`meta.learned_paths`) with the deployment's own embedder, so the running API
 accepts and picks up the result within seconds; a foreign or older index is
-rebuilt once. The manifest records `learned_at` / `retrained_at`, and the
-dashboard's "Learning loop" panel shows the funnel, the confusion pairs, the
-issue list and how far the next retrain is.
+rebuilt once. Before a new photo joins the gallery it is identified once against the
+current index and its candidate scores are kept as a calibration sample; from
+30 samples on, `mcv learn` refits the temperature and the exact / likely
+thresholds on those real outcomes (`calibration_from_purchases` in the
+manifest), so the tiers track what customers actually bought instead of
+synthetic renders. A learned photo scores ~1.0 against its own gallery row, and
+the reranker's near-identical bonus (`w_exact`, ramping above similarity 0.99)
+makes sure no category or usage prior can overturn it. The manifest records
+`learned_at` / `retrained_at`, and the dashboard's "Learning loop" panel shows
+the funnel, the confusion pairs, the issue list and how far the next retrain is.
 
-Measured on the 200-part synthetic demo (hash backbone, 40 simulated customers,
-2026-09-07): the photos customers bought were the top answer 88% of the time
-before learning and 96% after; new photos of the same parts went from 65% to
-55%-70% top-1 depending on the seed, i.e. the gallery photo helps the exact
-angle most and generalises modestly, which is why the full retrain exists.
+Measured numbers for the loop come from `mcv simulate --customers 120 --learn`
+on a clean 200-part synthetic demo and are recorded below once a run finishes
+on the current code (earlier runs were contaminated by learned photos left in
+the demo index and are not quoted).
 
 ## Durability (nothing learned at run time is lost)
 

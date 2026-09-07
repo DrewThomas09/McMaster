@@ -80,8 +80,22 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
 * **Self-run the demo before customers do.** `mcv simulate --customers 40 --learn` walks
   synthetic customers through photo -> cart -> checkout in-process, prints the issues the
   analytics found, learns from the purchases and reports before/after top-1 on the bought
-  photos and on new photos of the same parts. Run it after any change to the reranker,
-  calibration or index settings; `--json` for a machine-readable report.
+  photos and on new photos of the same parts. It runs on a scratch copy of the index and
+  calibration (the catalog is shared read-only), so synthetic purchases never become real
+  evidence; `--live` writes into the deployment on purpose. Run it after any change to the
+  reranker, calibration or index settings; `--json` for a machine-readable report.
+* **What a purchase is worth.** A checkout files the photo with weight 3, a "This is it"
+  tap 2, an add-to-cart 1 (an abandoned cart still teaches a little; the checkout upgrades
+  the same photo). The usage prior, `mcv learn` and `mcv retrain` all read those weights;
+  the gallery holds each photo once. Before a photo joins the gallery it is scored once
+  against the current index; from 30 such samples with at least 5 wrong answers among
+  them, `mcv learn` refits the tiers on real outcomes (`models/calibration_samples.jsonl`).
+* **Carts and orders.** Carts are one small file per phone under `data/logs/carts/`
+  (every worker sees them, pruned after 14 days); orders append to `data/logs/orders.jsonl`.
+  `GET /orders?client_id=...` shows a phone its own orders; the full list needs the API
+  token. A request id is a random token only the phone that took the photo holds, which
+  is what lets a purchase label that photo. Two learns cannot overlap (`data/learn.lock`;
+  the dashboard button answers 409 while cron's `mcv learn` runs).
 * **New SKUs**: `mcv ingest new_parts.jsonl && mcv build-index --only-new` embeds only the additions.
   `GET /status` reports `index_stale: true` whenever the catalog changed after the
   index was built. Index writes are atomic (temp dir + swap), so rebuilding while

@@ -26,29 +26,54 @@ class EventLog:
     def __init__(self, path: str | Path, keep: int = 20000):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.keep = keep
         self._recent: deque[dict] = deque(maxlen=keep)
+        self._by_request: dict[str, dict] = {}  # identify rows by request_id (bounded)
         self._lock = threading.Lock()
         self.total = 0
         self._load()
 
+    def _remember(self, row: dict) -> None:
+        self._recent.append(row)
+        if row.get("kind") == "identify" and row.get("request_id"):
+            self._by_request[row["request_id"]] = row
+            if len(self._by_request) > self.keep:
+                self._by_request.pop(next(iter(self._by_request)))
+
     def _load(self) -> None:
+        """Read the file at boot, keeping the last ``keep`` rows; a file more than twice
+        that long is compacted so boots stay fast and the disk bounded."""
         if not self.path.exists():
             return
+        rows: list[dict] = []
         try:
             with open(self.path, encoding="utf-8") as fh:
                 for ln in fh:
                     try:
-                        self._recent.append(json.loads(ln))
-                        self.total += 1
+                        r = json.loads(ln)
                     except json.JSONDecodeError:
                         continue
+                    if isinstance(r, dict) and r.get("kind"):
+                        rows.append(r)
         except OSError:
             return
+        self.total = len(rows)
+        for r in rows[-self.keep :]:
+            self._remember(r)
+        if len(rows) > 2 * self.keep:
+            try:
+                tmp = self.path.with_suffix(".tmp")
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    for r in rows[-self.keep :]:
+                        fh.write(json.dumps(r, default=str) + "\n")
+                tmp.replace(self.path)
+            except OSError:
+                pass
 
     def log(self, kind: str, **fields: Any) -> dict:
         row = {"kind": kind, "at": datetime.now(timezone.utc).isoformat(), **fields}
         with self._lock:
-            self._recent.append(row)
+            self._remember(row)
             self.total += 1
             with open(self.path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, default=str) + "\n")
@@ -57,7 +82,30 @@ class EventLog:
     def rows(self, kind: str | None = None) -> list[dict]:
         with self._lock:
             rows = list(self._recent)
-        return [r for r in rows if kind is None or r["kind"] == kind]
+        return [r for r in rows if kind is None or r.get("kind") == kind]
+
+    def identify_row(self, request_id: str | None) -> dict | None:
+        """The identify event for a request id: this process's window first, then the
+        shared file (another worker may have served the photo)."""
+        if not request_id:
+            return None
+        with self._lock:
+            row = self._by_request.get(request_id)
+        if row is not None:
+            return row
+        needle = f'"request_id": "{request_id}"'
+        found = None
+        try:
+            with open(self.path, encoding="utf-8") as fh:
+                for ln in fh:
+                    if needle in ln and '"kind": "identify"' in ln:
+                        try:
+                            found = json.loads(ln)
+                        except json.JSONDecodeError:
+                            continue
+        except OSError:
+            return None
+        return found if isinstance(found, dict) else None
 
 
 def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
@@ -101,6 +149,7 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
     lat = [r["latency_ms"] for r in ident if r.get("latency_ms") is not None]
     ranks = [it.get("rank") for it in carts if it.get("rank")]
     n_ident = len(ident)
+    n_none = len([r for r in fb if r.get("part_number") is None and r.get("source") == "tap"])
     n_cart_sessions = len({r.get("request_id") for r in carts if r.get("request_id")})
     n_checkout_sessions = len({it.get("request_id") for it in bought if it.get("request_id")})
     out = {
@@ -110,14 +159,16 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
             "checkout": len(checkouts),
             "items_bought": len(bought),
             "feedback": len(fb),
+            "none_of_these": n_none,
             "errors": len(errors),
         },
         "funnel": {
             "identify_to_cart": round(n_cart_sessions / n_ident, 3) if n_ident else None,
-            "cart_to_checkout": round(n_checkout_sessions / n_cart_sessions, 3)
+            "cart_to_checkout": round(min(1.0, n_checkout_sessions / n_cart_sessions), 3)
             if n_cart_sessions
             else None,
             "identify_to_checkout": round(n_checkout_sessions / n_ident, 3) if n_ident else None,
+            "none_of_these": round(n_none / n_ident, 3) if n_ident else None,
         },
         "bought_top1_rate": round(correct_bought / (correct_bought + wrong_bought), 3)
         if (correct_bought + wrong_bought)
@@ -210,14 +261,25 @@ def issues(a: dict) -> list[dict]:
         top = next(iter(a.get("errors", {}).items()), ("?", 0))
         out.append(
             {
-                "severity": "high"
-                if any(k.startswith("5") for k in a.get("errors", {}))
-                else "low",
-                "what": f"{w['errors']} errors, most often {top[0]} ({top[1]}x)",
+                "severity": "high",
+                "what": f"{w['errors']} server errors, most often {top[0]} ({top[1]}x)",
                 "do": "see data/logs/events.jsonl and the server log",
             }
         )
     f = a.get("funnel", {})
+    if (
+        f.get("none_of_these") is not None
+        and w.get("identify", 0) >= 20
+        and f["none_of_these"] > 0.25
+    ):
+        out.append(
+            {
+                "severity": "high",
+                "what": f"{f['none_of_these']:.0%} of customers found nothing in the list",
+                "do": "the part is not in the top candidates: retrain (`mcv learn` once enough "
+                "purchases arrived), raise top_n, and label the photos under data/queries/_unknown",
+            }
+        )
     if (
         f.get("identify_to_cart") is not None
         and w.get("identify", 0) >= 20
