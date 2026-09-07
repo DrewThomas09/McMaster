@@ -98,6 +98,9 @@
   the user can see what would set the scale before choosing the coin.
 - The coin finder prefers the flatter of two round blobs (even brightness), so a screw head
   with a socket, a knob or a pulley next to a real coin is no longer offered as the coin.
+- `mcv report`: the purchase-loop analytics (funnel, bought-top-1, measured vs not, tiers,
+  weakest categories, latency, learning state, daily trend, issues) from the event log on
+  disk, for operators without the dashboard; `--json` for scripts.
 - Purchases by category: `/analytics` and the dashboard show which categories customers get
   wrong most (top-1 precision when bought) with an issue for the weakest; identify events
   carry the category. A `learner` service in both compose files runs `mcv learn` hourly.

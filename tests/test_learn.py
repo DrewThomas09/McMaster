@@ -143,6 +143,16 @@ def test_cli_simulate_and_learn(tmp_path, demo_dir, index):
     )
     assert r.exit_code == 0, r.output
     assert '"before"' in r.output
+    # the live report reads the same event log the API and the dashboard use
+    r = CliRunner().invoke(
+        app, ["simulate", "--customers", "4", "--tta", "none", "--live"], env=env
+    )
+    assert r.exit_code == 0, r.output
+    r = CliRunner().invoke(app, ["report"], env=env)
+    assert r.exit_code == 0, r.output
+    assert "identifications" in r.output and "towards a retrain" in r.output
+    r = CliRunner().invoke(app, ["report", "--json"], env=env)
+    assert r.exit_code == 0 and '"funnel"' in r.output
 
 
 def test_exact_gallery_hit_beats_priors():

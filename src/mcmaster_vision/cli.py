@@ -692,6 +692,68 @@ def learn(
 
 
 @app.command()
+def report(
+    config: Path | None = _config_opt,
+    as_json: bool = typer.Option(False, "--json", help="Machine-readable analytics"),
+) -> None:
+    """What the purchase loop says: funnel, bought-top-1, confusion pairs, weakest
+    categories, tier precision, latency, learning state and the issues list, from the
+    event log on disk (the same numbers as GET /analytics and the dashboard)."""
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.pipeline.events import EventLog, analytics, enrich_confusions, issues
+    from mcmaster_vision.pipeline.feedback import FeedbackStore
+    from mcmaster_vision.pipeline.learn import learning_state
+
+    s = _settings(config)
+    ev = EventLog(s.data_dir / "logs" / "events.jsonl")
+    fb = FeedbackStore(s.queries_dir)
+    a = analytics(ev, fb.stats())
+    if s.catalog_db.exists():
+        with CatalogStore(s.catalog_db) as store:
+            enrich_confusions(a, store)
+    a["issues"] = issues(a)
+    a["learning"] = learning_state(s, fb)
+    if as_json:
+        typer.echo(json.dumps(a, indent=2, default=str))
+        return
+    w, f = a["window"], a["funnel"]
+
+    def pc(x):
+        return f"{x:.0%}" if x is not None else "-"
+
+    typer.echo(
+        f"{w['identify']} identifications -> {pc(f['identify_to_cart'])} added to cart -> "
+        f"{pc(f['cart_to_checkout'])} checked out; {w['items_bought']} parts bought, "
+        f"bought the top answer {pc(a['bought_top1_rate'])}; none-of-these {pc(f['none_of_these'])}"
+    )
+    for k, v in a.get("measured_precision_bought", {}).items():
+        typer.echo(f"  {k}: top answer bought {pc(v['precision'])} ({v['bought']})")
+    for t, v in a.get("tier_precision_bought", {}).items():
+        typer.echo(f"  tier {t}: right {pc(v['precision'])} when bought ({v['bought']})")
+    for c, v in list(a.get("category_precision_bought", {}).items())[:4]:
+        typer.echo(f"  {c}: right {pc(v['precision'])} when bought ({v['bought']})")
+    lat = a["latency_ms"]
+    typer.echo(f"latency p50 {lat['p50']} ms, p95 {lat['p95']} ms; server errors {w['errors']}")
+    lr = a["learning"]
+    typer.echo(
+        f"learned {lr['learned_at'] or 'never'}; {lr['new_confirmations']} new confirmations "
+        f"({lr['new_purchases']} purchases); {lr['since_retrain']}/{lr['retrain_threshold']} "
+        f"towards a retrain{' (due)' if lr['retrain_due'] else ''}"
+    )
+    for d in a.get("daily", [])[-7:]:
+        typer.echo(
+            f"  {d['day']}: {d['identify']} identified, {d['bought']} bought, top-1 "
+            f"{pc(d['bought_top1_rate'])}, learns {d['learns']}"
+        )
+    if a["issues"]:
+        typer.echo("issues:")
+        for i in a["issues"]:
+            typer.echo(f"  [{i['severity']}] {i['what']} -> {i['do']}")
+    else:
+        typer.echo("no issues found in this window")
+
+
+@app.command()
 def simulate(
     config: Path | None = _config_opt,
     customers: int = typer.Option(40, help="Synthetic customers to run through the journey"),

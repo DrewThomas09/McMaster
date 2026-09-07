@@ -132,6 +132,9 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 
 | command | purpose |
 |---|---|
+| `mcv report [--json]` | the purchase-loop analytics and issues list from the event log, same numbers as `/analytics` and the dashboard |
+| `mcv simulate --customers N [--learn] [--coin-rate R]` | self-run the journey on a scratch copy; before/after learning; `--live` writes real data |
+| `mcv learn [--index-only] [--retrain-after N] [--epochs N]` | fold confirmed and bought photos into the index; retrain when enough arrived |
 | `mcv selfcheck` | one command on a fresh machine: environment, build, identify, coin + measure, feedback, backup, restore; PASS/FAIL per step |
 | `mcv doctor` (`--json`) | optional deps, GPU, checkpoint, index/backbone match, index freshness, calibration, disk |
 | `mcv status` / `GET /status` | what is built, from what, and how well it measured |
