@@ -707,6 +707,9 @@ def simulate(
         "--live",
         help="Write into the real data directory (synthetic purchases become real evidence)",
     ),
+    coin_rate: float = typer.Option(
+        0.0, help="Share of customers who photograph the part next to a quarter (0-1)"
+    ),
 ) -> None:
     """Self-run the demo: customers identify, add to the cart and check out in-process,
     then the analytics name what went wrong. With --learn, shows before/after. Runs on
@@ -723,6 +726,7 @@ def simulate(
         tta=tta,
         echo=None if as_json else typer.echo,
         live=live,
+        coin_rate=coin_rate,
     )
     if as_json:
         typer.echo(json.dumps(out, indent=2, default=str))

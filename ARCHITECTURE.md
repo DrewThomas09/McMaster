@@ -298,6 +298,14 @@ match. Per 1280 px photo on one core (hash backbone, fast TTA): identify alone 2
 with a scale and reference (size + thread pitch) 67 ms; with the coin hint
 (no scale yet) 42 ms. Nothing is measured when no scale is supplied.
 
+The reference object must not vote on looks: when a segment is given, the disc it
+spans is filled with the surrounding bench (median colour, matched noise) before
+the photo is embedded (`erase_reference`), and only the measurement sees the
+coin. On 60 synthetic parts with the shipped TinyCNN (2026-09-07), photos with a
+quarter beside the part were top-1 51/60 with the erase and the size votes,
+against 44/60 for the same photos without a coin and 12/60 when the coin was
+left in the embedding.
+
 ## Pipe sizing and thread pitch (`pipeline/pipe.py`, `pipeline/threads.py`)
 
 The catalog's own measuring pages are encoded as tables: nominal pipe size to

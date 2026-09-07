@@ -140,8 +140,8 @@ class PhotoAugmenter:
         shadow = shadow.filter(ImageFilter.GaussianBlur(self.rng.uniform(3, 9)))
         canvas.alpha_composite(shadow)
 
-    def _perspective(self, img: Image.Image) -> Image.Image:
-        w, h = img.size
+    def _perspective_coeffs(self, size: tuple[int, int]) -> list[float]:
+        w, h = size
         p = self.cfg.perspective
         jit = lambda: self.rng.uniform(-p, p)  # noqa: E731
         src = [(0, 0), (w, 0), (w, h), (0, h)]
@@ -151,13 +151,21 @@ class PhotoAugmenter:
             (w * (1 + jit()), h * (1 + jit())),
             (w * jit(), h * (1 + jit())),
         ]
-        coeffs = _find_coeffs(dst, src)
+        return _find_coeffs(dst, src)
+
+    def _perspective(self, img: Image.Image, coeffs: list[float] | None = None) -> Image.Image:
+        coeffs = coeffs or self._perspective_coeffs(img.size)
         return img.transform(
             img.size, Image.Transform.PERSPECTIVE, coeffs, Image.Resampling.BICUBIC
         )
 
     # --------------------------------------------------------------- main
-    def __call__(self, img: Image.Image, out_size: int | None = None) -> Image.Image:
+    def __call__(
+        self, img: Image.Image, out_size: int | None = None, mask: Image.Image | None = None
+    ) -> Image.Image | tuple[Image.Image, Image.Image]:
+        """``mask`` (same size as ``img``) rides along through the geometry only (rotate,
+        scale, perspective, placement), so a caller knows where something in the photo
+        ended up; returns (photo, mask) when given."""
         cfg, rng = self.cfg, self.rng
         img = ImageOps.exif_transpose(img)
         if "A" in img.getbands() or "transparency" in img.info:
@@ -170,14 +178,24 @@ class PhotoAugmenter:
         out_size = out_size or max(img.size)
 
         fg = self._white_to_alpha(img)
+        m = mask.convert("L").resize(img.size) if mask is not None else None
         scale = rng.uniform(*cfg.scale_range)
         angle = rng.uniform(-cfg.rotate_deg, cfg.rotate_deg)
         fg = fg.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True)
+        if m is not None:
+            m = m.rotate(angle, resample=Image.Resampling.BILINEAR, expand=True)
         fw = max(8, int(out_size * scale * fg.width / max(fg.size)))
         fh = max(8, int(out_size * scale * fg.height / max(fg.size)))
         fg = fg.resize((fw, fh), Image.Resampling.LANCZOS)
+        if m is not None:
+            m = m.resize((fw, fh), Image.Resampling.BILINEAR)
         if cfg.perspective > 0:
-            fg = self._perspective(fg)
+            coeffs = self._perspective_coeffs(fg.size)
+            fg = self._perspective(fg, coeffs)
+            if m is not None:
+                m = m.transform(
+                    m.size, Image.Transform.PERSPECTIVE, coeffs, Image.Resampling.BILINEAR
+                )
 
         use_bg = rng.random() < cfg.background_prob
         canvas = (
@@ -192,6 +210,10 @@ class PhotoAugmenter:
         if use_bg and rng.random() < cfg.shadow_prob:
             self._shadow(canvas, alpha, (off[0] + rng.randint(2, 12), off[1] + rng.randint(2, 12)))
         canvas.paste(fg, off, alpha)
+        mask_out = None
+        if m is not None:
+            mask_out = Image.new("L", (out_size, out_size), 0)
+            mask_out.paste(m, off)
 
         if rng.random() < cfg.occlusion_prob:
             ow, oh = (
@@ -221,7 +243,7 @@ class PhotoAugmenter:
             out = ImageOps.grayscale(out).convert("RGB")
         if rng.random() < cfg.jpeg_prob:
             out = _jpeg_roundtrip(out, rng.randint(*cfg.jpeg_quality))
-        return out
+        return (out, mask_out) if mask_out is not None else out
 
 
 def _jpeg_roundtrip(img: Image.Image, quality: int) -> Image.Image:

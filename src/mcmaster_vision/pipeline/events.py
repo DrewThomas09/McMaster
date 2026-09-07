@@ -143,6 +143,7 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
     conf_when_wrong: list[float] = []
     tier_outcomes: dict[str, list[int]] = {}
     cat_outcomes: dict[str, list[int]] = {}
+    meas_outcomes: dict[str, list[int]] = {"measured": [0, 0], "unmeasured": [0, 0]}
     for it in bought:
         src = by_request.get(it.get("request_id"))
         if not src:
@@ -158,6 +159,9 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
         cat_outcomes.setdefault(cat, [0, 0])
         cat_outcomes[cat][0] += 1
         cat_outcomes[cat][1] += ok
+        mkey = "measured" if src.get("measured") else "unmeasured"
+        meas_outcomes[mkey][0] += 1
+        meas_outcomes[mkey][1] += ok
         if ok:
             correct_bought += 1
             conf_when_right.append(float(src.get("confidence") or 0))
@@ -196,6 +200,11 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
         "tier_precision_bought": {
             t: {"bought": n, "top1_right": k, "precision": round(k / n, 3)}
             for t, (n, k) in tier_outcomes.items()
+        },
+        "measured_precision_bought": {
+            k: {"bought": n, "top1_right": r, "precision": round(r / n, 3)}
+            for k, (n, r) in meas_outcomes.items()
+            if n
         },
         "category_precision_bought": {
             c: {"bought": n, "top1_right": k, "precision": round(k / n, 3)}

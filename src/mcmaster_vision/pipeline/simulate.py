@@ -25,6 +25,7 @@ class Customer:
     client_id: str
     abandons: bool = False  # adds to the cart, never checks out
     walks_away: bool = False  # never even taps "none of these"
+    coin: bool = False  # photographs the part next to a quarter (the size lever)
 
 
 @dataclass
@@ -33,6 +34,8 @@ class SimReport:
     identified: int = 0
     found_in_list: int = 0
     top1: int = 0
+    measured: int = 0  # identifications where the coin set a scale
+    measured_top1: int = 0
     carts: int = 0
     checkouts: int = 0
     none_of_these: int = 0
@@ -56,6 +59,15 @@ class SimReport:
             "found_rate": self.found_rate,
             "top1": self.top1,
             "top1_rate": self.top1_rate,
+            "measured": self.measured,
+            "measured_top1_rate": round(self.measured_top1 / self.measured, 3)
+            if self.measured
+            else None,
+            "unmeasured_top1_rate": round(
+                (self.top1 - self.measured_top1) / (self.identified - self.measured), 3
+            )
+            if self.identified > self.measured
+            else None,
             "carts": self.carts,
             "checkouts": self.checkouts,
             "none_of_these": self.none_of_these,
@@ -71,6 +83,7 @@ def make_customers(
     abandon_rate: float = 0.15,
     walk_away_rate: float = 0.3,
     photo_seed_base: int = 0,
+    coin_rate: float = 0.0,
 ) -> list[Customer]:
     rng = random.Random(seed)
     out = []
@@ -82,6 +95,7 @@ def make_customers(
                 client_id=f"sim-{seed}-{i}",
                 abandons=rng.random() < abandon_rate,
                 walks_away=rng.random() < walk_away_rate,
+                coin=rng.random() < coin_rate,
             )
         )
     return out
@@ -93,7 +107,10 @@ def run_customers(
     """Drive ``customers`` through a TestClient (or anything with .get/.post) of the API."""
     rep = SimReport(customers=len(customers))
     for c in customers:
-        r = client.post(f"/demo/try/{c.part_number}?seed={c.photo_seed}&top_n={top_n}&tta={tta}")
+        r = client.post(
+            f"/demo/try/{c.part_number}?seed={c.photo_seed}&top_n={top_n}&tta={tta}"
+            + ("&coin=true" if c.coin else "")
+        )
         if r.status_code != 200:
             rep.errors.append(f"try {c.part_number}: {r.status_code} {r.text[:80]}")
             continue
@@ -101,6 +118,9 @@ def run_customers(
         rep.identified += 1
         rank = d.get("rank")
         rep.ranks[c.client_id] = rank
+        if d.get("coin"):
+            rep.measured += 1
+            rep.measured_top1 += int(rank == 1)
         req = d["result"]["request_id"]
         if rank is None:
             if not c.walks_away:
@@ -185,6 +205,7 @@ def simulate(
     echo=None,
     live: bool = False,
     scratch: str | Path | None = None,
+    coin_rate: float = 0.0,
 ) -> dict[str, Any]:
     """Run customers against an in-process API; with ``learn`` fold the purchases into
     the index and run the same customers again (same photos: what the loop promises)
@@ -212,7 +233,7 @@ def simulate(
     app = create_app(s)
     out: dict[str, Any] = {"seed": seed, "customers": customers}
     with TestClient(app) as client:
-        crowd = make_customers(pns, customers, seed=seed)
+        crowd = make_customers(pns, customers, seed=seed, coin_rate=coin_rate)
         say(f"{len(crowd)} customers on {len(pns)} parts ...")
         # the baseline is scored without the usage prior: otherwise customer N would be
         # helped by the purchases of customers 1..N-1 made moments earlier
@@ -232,6 +253,12 @@ def simulate(
             f"{rep.carts} carts, {rep.checkouts} checkouts, {rep.none_of_these} 'none of these'"
             + (f", {len(rep.errors)} errors (first: {rep.errors[0]})" if rep.errors else "")
         )
+        if rep.measured:
+            say(
+                f"  with a coin ({rep.measured} customers) top-1 "
+                f"{_pc(rep.as_dict()['measured_top1_rate'])} vs without "
+                f"{_pc(rep.as_dict()['unmeasured_top1_rate'])}"
+            )
         for it in out["issues"]:
             say(f"  [{it['severity']}] {it['what']} -> {it['do']}")
         if learn:
@@ -248,7 +275,9 @@ def simulate(
                 served = len(app.state.identifier.index)
                 out["served_rows_after_learn"] = served
                 same = run_customers(client, crowd, top_n=top_n, tta=tta)
-                fresh_crowd = make_customers(pns, customers, seed=seed + 1, photo_seed_base=50_000)
+                fresh_crowd = make_customers(
+                    pns, customers, seed=seed + 1, photo_seed_base=50_000, coin_rate=coin_rate
+                )
                 # same parts as before, new photos: what the gallery photos generalise to
                 for f, c in zip(fresh_crowd, crowd, strict=True):
                     f.part_number = c.part_number

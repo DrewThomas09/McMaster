@@ -20,7 +20,7 @@ from mcmaster_vision.models.backbone import load_backbone
 from mcmaster_vision.models.embedder import PartEmbedder
 from mcmaster_vision.pipeline.calibration import Calibration
 from mcmaster_vision.pipeline.feedback import FeedbackStore
-from mcmaster_vision.pipeline.measure import Measurement, measure
+from mcmaster_vision.pipeline.measure import Measurement, erase_reference, measure
 from mcmaster_vision.pipeline.ocr import OCREngine
 from mcmaster_vision.pipeline.preprocess import decode_image, preprocess
 from mcmaster_vision.pipeline.reference import find_coin
@@ -197,10 +197,15 @@ class Identifier:
         request_id = uuid.uuid4().hex[:12]
         notes: list[str] = []
 
-        # 1. preprocess
-        query_imgs = [preprocess(im, size=self.image_size, segment=self.segment) for im in images]
-        query_img = query_imgs[0]
+        # 1. preprocess (the reference object, when marked, is erased before embedding:
+        # a coin next to the part sets the scale and must not vote on looks)
         image = images[0]
+        embed_first = erase_reference(image, reference) if reference else image
+        query_imgs = [
+            preprocess(im, size=self.image_size, segment=self.segment)
+            for im in [embed_first, *images[1:]]
+        ]
+        query_img = query_imgs[0]
         size: Measurement | None = None
         coin_hint: dict[str, float] | None = None
         if mm_per_px:

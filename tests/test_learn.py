@@ -91,8 +91,14 @@ def test_simulate_reports_and_learns(tmp_path, demo_dir, store, index):
     s = _settings(tmp_path, demo_dir, index)
     crowd = make_customers(["A", "B"], 5, seed=1)
     assert len({c.client_id for c in crowd}) == 5 and all(c.part_number in "AB" for c in crowd)
-    out = simulate(s, customers=8, seed=3, learn=True, tta="none", scratch=tmp_path / "sim")
+    coins = make_customers(["A"], 40, seed=2, coin_rate=0.5)
+    assert 8 < sum(c.coin for c in coins) < 32
+    out = simulate(
+        s, customers=8, seed=3, learn=True, tta="none", scratch=tmp_path / "sim", coin_rate=0.5
+    )
     b = out["before"]
+    assert b["measured"] >= 1 and "measured_top1_rate" in b
+    assert "measured_precision_bought" in out["analytics"]
     assert b["identified"] == 8 and b["carts"] >= b["checkouts"]
     assert b["found_in_list"] <= b["identified"] and not b["errors"], b["errors"]
     assert isinstance(out["issues"], list) and out["analytics"]["window"]["identify"] == 8

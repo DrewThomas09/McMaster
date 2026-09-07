@@ -15,7 +15,7 @@ import random
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from mcmaster_vision.data.augment import AugmentConfig, PhotoAugmenter
 from mcmaster_vision.pipeline.identify import Identifier
@@ -78,6 +78,89 @@ def query_image(part_number: str, seed: int = Query(0, ge=0), ident: Identifier 
     return Response(buf.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
+COIN_MM = 24.26  # a US quarter
+
+
+def with_coin(
+    render: Image.Image, part_mm: float, seed: int = 0
+) -> tuple[Image.Image, Image.Image] | None:
+    """The catalog render next to a quarter at the scale the part's own dimension
+    implies, so a coin-and-part photo is as consistent as a real one: the part's long
+    axis is ``part_mm`` long, the coin ``COIN_MM`` across. None when the render has no
+    measurable silhouette."""
+    import numpy as np
+
+    from mcmaster_vision.pipeline.measure import object_extent_px
+
+    render = render.convert("RGB")
+    ext = object_extent_px(render)
+    if ext is None or part_mm <= 0:
+        return None
+    # crop the render to its content so the coin and the part fill the frame together,
+    # as a phone photo taken close would
+    arr = np.asarray(render)
+    ink = (arr < 245).any(axis=-1)
+    ys, xs = np.nonzero(ink)
+    if len(xs):
+        pad = 6
+        render = render.crop(
+            (
+                max(0, xs.min() - pad),
+                max(0, ys.min() - pad),
+                min(render.size[0], xs.max() + pad),
+                min(render.size[1], ys.max() + pad),
+            )
+        )
+    mm_per_px = part_mm / ext[0]
+    coin_px = COIN_MM / mm_per_px
+    margin = 30
+    total = coin_px + render.size[0] + 3 * margin
+    f = min(2.0, 480 / total)
+    coin_d = max(12, int(coin_px * f))
+    part_img = render.resize((max(1, int(render.size[0] * f)), max(1, int(render.size[1] * f))))
+    canvas = Image.new("RGB", (512, 512), (255, 255, 255))
+    mask = Image.new("RGB", (512, 512), (0, 0, 0))
+    rng = random.Random(seed)
+    tint = (196 + rng.randint(-10, 10), 184 + rng.randint(-10, 10), 128 + rng.randint(-10, 10))
+    cy = 256
+    cx = margin + coin_d // 2
+    box = (cx - coin_d // 2, cy - coin_d // 2, cx + coin_d // 2, cy + coin_d // 2)
+    draw = ImageDraw.Draw(canvas)
+    draw.ellipse(box, fill=tint)
+    draw.ellipse((box[0] + 3, box[1] + 3, box[2] - 3, box[3] - 3), outline=(160, 150, 100), width=2)
+    ImageDraw.Draw(mask).ellipse(box, fill=(255, 255, 255))
+    px = margin * 2 + coin_d
+    canvas.paste(part_img, (px, cy - part_img.size[1] // 2))
+    return canvas, mask
+
+
+def coin_segment(mask: Image.Image) -> tuple[float, float, float, float] | None:
+    """The segment a user would draw across the coin: the horizontal diameter of the
+    bright disc in the (augmented) coin mask."""
+    import numpy as np
+
+    m = np.asarray(mask.convert("L")) > 128
+    if m.sum() < 30:
+        return None
+    ys, xs = np.nonzero(m)
+    cx, cy = float(xs.mean()), float(ys.mean())
+    d = 2.0 * float(np.sqrt(m.sum() / np.pi))
+    return (cx - d / 2, cy, cx + d / 2, cy)
+
+
+def part_long_mm(part) -> float | None:
+    """The part's stated long dimension (a length, else an OD / width) in mm."""
+    from mcmaster_vision.pipeline.measure import parse_length_mm
+
+    attrs = {k.lower(): str(v) for k, v in part.attributes.items()}
+    for k in ("length", "overall_length", "od", "outside_diameter", "diameter", "width"):
+        if k in attrs:
+            mm = parse_length_mm(attrs[k])
+            if mm:
+                return mm
+    return None
+
+
 @router.post("/demo/try/{part_number}")
 async def try_part(
     request: Request,
@@ -85,6 +168,7 @@ async def try_part(
     seed: int = Query(0, ge=0),
     top_n: int = Query(5, ge=1, le=20),
     tta: str = Query("full", pattern="^(full|fast|none)$"),
+    coin: bool = Query(False, description="Photograph the part next to a quarter and use it"),
     ident: Identifier = Depends(_ident),
 ) -> dict:
     """Identify a photo-style render of a catalog part; returns the result and whether it was right."""
@@ -93,9 +177,30 @@ async def try_part(
         raise HTTPException(404, "unknown part")
     request.app.state.check_rate(request)  # same limits and CPU gate as /identify
     aug = PhotoAugmenter(AugmentConfig.evaluation(), seed=seed)
-    img = aug(Image.open(part.image_paths[seed % len(part.image_paths)]), out_size=512)
+    src = Image.open(part.image_paths[seed % len(part.image_paths)])
+    ref = None
+    coin_mask = None
+    if coin:
+        mm = part_long_mm(part)
+        staged = with_coin(src, mm, seed) if mm else None
+        if staged is not None:
+            src, coin_mask = staged
+    if coin_mask is not None:
+        # the coin mask rides through the same geometry: the segment is where the user
+        # would draw it across the coin they put down
+        img, moved = aug(src, out_size=512, mask=coin_mask)
+        ref = coin_segment(moved)
+    else:
+        img = aug(src, out_size=512)
+    measured_with_coin = ref is not None
     async with request.app.state.gate:
-        res = await run_in_threadpool(ident.identify, img, top_n=top_n, tta=tta)
+        if ref is not None:
+            d = ref[2] - ref[0]
+            res = await run_in_threadpool(
+                ident.identify, img, top_n=top_n, tta=tta, mm_per_px=COIN_MM / d, reference=ref
+            )
+        else:
+            res = await run_in_threadpool(ident.identify, img, top_n=top_n, tta=tta)
     # a sample is a real identification: log it and keep the render so a "This is it"
     # on it files feedback like any photo
     buf = io.BytesIO()
@@ -106,6 +211,7 @@ async def try_part(
         "truth": part.part_number,
         "rank": ranked.index(part.part_number) + 1 if part.part_number in ranked else None,
         "query_image": f"/demo/query/{part.part_number}?seed={seed}",
+        "coin": measured_with_coin,
         "result": res.model_dump(mode="json"),
     }
 

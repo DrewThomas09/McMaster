@@ -329,3 +329,43 @@ def test_female_thread_bore_rule():
     assert any("female thread ID" in r and "consistent" in r for r in r1), r1
     assert any("female thread ID" in r and "off" in r for r in r2), r2
     assert ok > bad
+
+
+def test_erase_reference_removes_the_coin_and_keeps_the_part():
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.measure import erase_reference
+
+    # a bench-coloured coin (invisible to a colour-difference mask) next to a dark part
+    img = Image.new("RGB", (400, 300), (190, 170, 130))
+    d = ImageDraw.Draw(img)
+    d.ellipse((30, 100, 130, 200), fill=(205, 190, 140))  # the coin
+    d.rectangle((200, 120, 360, 180), fill=(40, 40, 45))  # the part
+    out = erase_reference(img, (30, 150, 130, 150))
+    a = np.asarray(out).astype(int)
+    coin = a[150, 80]
+    assert abs(coin - np.array([190, 170, 130])).max() < 30  # filled with the bench
+    assert (a[150, 280] < 60).all()  # the part is untouched
+    assert out.size == img.size
+    # a segment on nothing (zero length) leaves the photo alone
+    assert erase_reference(img, (50, 50, 50, 50)) is img
+
+
+def test_augmenter_carries_a_mask_through_the_geometry():
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.data.augment import AugmentConfig, PhotoAugmenter
+
+    canvas = Image.new("RGB", (256, 256), "white")
+    mask = Image.new("L", (256, 256), 0)
+    ImageDraw.Draw(canvas).ellipse((40, 100, 100, 160), fill=(200, 60, 60))
+    ImageDraw.Draw(mask).ellipse((40, 100, 100, 160), fill=255)
+    out, moved = PhotoAugmenter(AugmentConfig.evaluation(), seed=5)(canvas, out_size=512, mask=mask)
+    assert out.size == (512, 512) and moved.size == (512, 512)
+    m = np.asarray(moved) > 128
+    red = np.asarray(out).astype(int)
+    reddish = (red[..., 0] > 120) & (red[..., 1] < 120)
+    # the warped mask sits on the warped red disc
+    assert m.sum() > 200 and (m & reddish).sum() / m.sum() > 0.8

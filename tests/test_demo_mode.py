@@ -72,3 +72,20 @@ def test_cors_when_configured(identifier, tmp_path):
         "/health", headers={"Origin": "https://app.example", "Access-Control-Request-Method": "GET"}
     )
     assert r.headers.get("access-control-allow-origin") == "https://app.example"
+
+
+def test_demo_try_with_a_coin_measures_the_part(identifier, tmp_path):
+    from mcmaster_vision.api.demo import part_long_mm
+
+    client = _client(identifier, tmp_path)
+    parts = [p for p in identifier.store.iter_parts(with_images_only=True) if part_long_mm(p)]
+    assert parts, "the synthetic catalog has parts with a length or OD"
+    pn = parts[0].part_number
+    d = client.post(f"/demo/try/{pn}?seed=2&tta=none&coin=true").json()
+    assert d["coin"] is True and d["result"]["measured"]
+    mm = part_long_mm(parts[0])
+    assert 0.6 < d["result"]["measured"]["long_mm"] / mm < 1.7  # the coin set a sane scale
+    row = client.app.state.events.identify_row(d["result"]["request_id"])
+    assert row["measured"] is True
+    plain = client.post(f"/demo/try/{pn}?seed=2&tta=none").json()
+    assert plain["coin"] is False and not plain["result"].get("measured")

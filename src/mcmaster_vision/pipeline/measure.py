@@ -247,6 +247,76 @@ def _largest_component(mask: np.ndarray) -> int:
         return best
 
 
+def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> Image.Image:
+    """The photo with the reference object (the blob under the segment the user drew
+    across the coin, card or ruler) painted over in the background colour, so the
+    embedding sees the part alone: the coin sets the scale, it must not vote on looks."""
+    w, h = image.size
+    k = float(image.info.get("upload_scale", 1.0) or 1.0)
+    seg = tuple(v / k for v in reference)
+    s = min(1.0, work / max(w, h))
+    small = image.convert("RGB").resize((max(1, round(w * s)), max(1, round(h * s))))
+    arr = np.asarray(small, dtype=np.float32)
+    mask = foreground_mask(arr)
+    mask = mask.astype(bool) if mask is not None else np.zeros(arr.shape[:2], dtype=bool)
+    # the disc the segment spans, and only that: growing a blob through the foreground
+    # mask would cross into a part that touches the coin's shadow, and a coin the colour
+    # of the bench is invisible to the mask anyway
+    x1, y1, x2, y2 = (v * s for v in seg)
+    half = 0.5 * float(np.hypot(x2 - x1, y2 - y1))
+    if half < 1.5:
+        return image
+    yy, xx = np.mgrid[0 : mask.shape[0], 0 : mask.shape[1]]
+    d2 = (xx - (x1 + x2) / 2) ** 2 + (yy - (y1 + y2) / 2) ** 2
+    comp = d2 <= (1.12 * half) ** 2
+    for _ in range(3):  # a little beyond the edge, for the anti-aliased rim and shadow
+        d = comp.copy()
+        d[1:, :] |= comp[:-1, :]
+        d[:-1, :] |= comp[1:, :]
+        d[:, 1:] |= comp[:, :-1]
+        d[:, :-1] |= comp[:, 1:]
+        comp = d
+    # fill the hole with the bench around it: the median colour and the noise level of a
+    # ring just outside the erased region (never the part's pixels, which would streak
+    # into the hole), so a textured or noisy background stays a background to the crop
+    full = (
+        np.asarray(
+            Image.fromarray((comp * 255).astype(np.uint8)).resize((w, h), Image.Resampling.BILINEAR)
+        )
+        > 127
+    )
+    out = np.asarray(image.convert("RGB"), dtype=np.float32).copy()
+    ring = full.copy()
+    for _ in range(max(2, int(6 / s))):  # ~6 working pixels outward
+        d = ring.copy()
+        d[1:, :] |= ring[:-1, :]
+        d[:-1, :] |= ring[1:, :]
+        d[:, 1:] |= ring[:, :-1]
+        d[:, :-1] |= ring[:, 1:]
+        ring = d
+    fg_full = (
+        np.asarray(
+            Image.fromarray((mask * 255).astype(np.uint8)).resize((w, h), Image.Resampling.NEAREST)
+        )
+        > 127
+    )
+    ring &= ~full
+    ring &= ~fg_full
+    if ring.sum() < 20:
+        ring = ~full & ~fg_full
+    if ring.sum() < 20:
+        return image
+    samples = out[ring]
+    base = np.median(samples, axis=0)
+    sigma = np.clip(samples.std(axis=0), 0, 12)
+    rng = np.random.default_rng(int(x1 * 7 + y1 * 13))
+    n = int(full.sum())
+    out[full] = base + rng.normal(0, 1, (n, 3)) * sigma
+    result = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+    result.info.update(image.info)
+    return result
+
+
 def measure(
     image: Image.Image, mm_per_px: float, reference: Segment | None = None
 ) -> Measurement | None:

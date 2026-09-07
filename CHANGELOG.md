@@ -85,6 +85,15 @@
 - The catalog's female measuring rule: an end-on photo of a threaded female fitting is
   matched by its bore against the nominal size's thread minor diameter (tap-drill size,
   `FEMALE_THREAD_ID_IN`); the part page lists that bore next to the OD and the pipe ID.
+- The coin no longer votes on looks: when a reference segment is given, the disc it spans
+  is painted over with the surrounding bench (colour and noise matched) before the photo
+  is embedded, so the coin only sets the scale. Measured on 60 demo parts with the shipped
+  model: photos with a coin were top-1 51/60 against 44/60 for the same photos without one
+  (before the fix, the coin in frame had cost 30 points).
+- `mcv simulate --coin-rate R`: that share of customers photograph the part next to a
+  quarter (`POST /demo/try?coin=true` composes it at the part's true scale and carries the
+  coin through the photo-style warp via an augmenter mask); the report and `/analytics`
+  show bought-top-1 with and without a measurement.
 - Purchases by category: `/analytics` and the dashboard show which categories customers get
   wrong most (top-1 precision when bought) with an issue for the weakest; identify events
   carry the category. A `learner` service in both compose files runs `mcv learn` hourly.
