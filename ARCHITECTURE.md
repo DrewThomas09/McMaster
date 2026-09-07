@@ -304,7 +304,11 @@ the photo is embedded (`erase_reference`), and only the measurement sees the
 coin. On 60 synthetic parts with the shipped TinyCNN (2026-09-07), photos with a
 quarter beside the part were top-1 51/60 with the erase and the size votes,
 against 44/60 for the same photos without a coin and 12/60 when the coin was
-left in the embedding.
+left in the embedding. In the purchase-loop simulation with half the customers
+using a coin (`mcv simulate --customers 120 --coin-rate 0.5 --learn`, same
+model and demo), the bought part had been the top answer 88% of the time when
+the photo carried a measurement and 71% when it did not, and on new photos after
+learning 82% against 74%; the dashboard shows the same split live.
 
 ## Pipe sizing and thread pitch (`pipeline/pipe.py`, `pipeline/threads.py`)
 
