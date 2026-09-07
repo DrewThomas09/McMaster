@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.3
+
+Bug-hunt release: four independent reviews plus API fuzzing and concurrency probes; every
+finding below has a regression test.
+
+- Security: quotes in catalog strings could break out of inline handlers (stored XSS);
+  `/feedback` accepted unlimited uploads for any id; 500s leaked paths; thumbnails wrote
+  unbounded cache files; part numbers are now URL-encoded everywhere.
+- Serving: the CPU gate no longer exhausts the thread pool (health checks and pages stayed
+  responsive under load); logging and photo storage run off the event loop; batch requests
+  are charged per photo by the rate limiter; IPv6 clients are bucketed per /64; concurrent
+  backups serialise; a rebuilt or restored index with a different backbone is refused
+  instead of failing on every photo; `mcv retrain` with a different backbone writes a
+  sibling index and prints the switch, never clobbering the live one; `mcv up` reuses a
+  demo index with the backbone it was built with.
+- Catalog: FTS maintenance was quadratic (20k re-ingest took 77 s; now index-backed); a
+  quote-only search crashed; Excel "CSV UTF-8" (BOM) and ragged rows crashed ingest;
+  `__MACOSX` / `.cache` clutter turned a photo folder into a folder-per-part source;
+  `import-web` wiped existing images (now merges); robots.txt wildcards and stacked
+  user-agents; JSON-LD `ImageObject` and breadcrumb shapes; unsafe page-supplied part
+  numbers could write outside the image directory; redirected pages resolve links
+  against their final URL.
+- Index and training: FAISS asserted on an empty index; ids/vector counts are checked on
+  load; ensemble members no longer all load one checkpoint; calibration keeps LIKELY
+  below EXACT; the cached trainer crashed on the sampler's tail batch; grayscale
+  confirmation photos and lower-case feedback folders are handled; the Claude reranker's
+  schema was being rejected by structured outputs (now closed, no bounds, no refs).
+
 ## 0.3.2
 
 - Size matching: a "Measure" tool in the phone UI (tap the two ends of a coin, a card edge

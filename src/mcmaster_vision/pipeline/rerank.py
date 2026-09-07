@@ -111,7 +111,7 @@ class FusionReranker:
 # ---------------------------------------------------------------------------
 class _RankedCandidate(BaseModel):
     part_number: str
-    match_probability: float = Field(ge=0, le=1)
+    match_probability: float = Field(description="0 (certainly not) to 1 (certainly this part)")
     reason: str
 
 
@@ -119,6 +119,31 @@ class _RerankVerdict(BaseModel):
     ranking: list[_RankedCandidate]
     extracted: ExtractedAttributes
     none_match: bool = Field(description="True if the photo shows none of the candidates")
+
+
+def _strict_schema(model: type[BaseModel]) -> dict:
+    """A JSON schema structured outputs accept: refs inlined, every object closed
+    (``additionalProperties: false`` with all properties required) and numeric bounds /
+    defaults removed (they are rejected); bounds are enforced client-side instead."""
+    raw = model.model_json_schema()
+    defs = raw.pop("$defs", {})
+    dropped = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "default", "title"}
+
+    def walk(node):
+        if isinstance(node, list):
+            return [walk(n) for n in node]
+        if not isinstance(node, dict):
+            return node
+        if "$ref" in node:
+            name = node["$ref"].rsplit("/", 1)[-1]
+            return walk(defs[name])
+        out = {k: walk(v) for k, v in node.items() if k not in dropped}
+        if out.get("type") == "object" and "properties" in out:
+            out["additionalProperties"] = False
+            out["required"] = list(out["properties"])
+        return out
+
+    return walk(raw)
 
 
 _SYSTEM_PROMPT = (
@@ -205,7 +230,7 @@ class ClaudeVisionReranker:
                 betas=["server-side-fallback-2026-07-01"],
                 fallbacks="default",
                 output_config={
-                    "format": {"type": "json_schema", "schema": _RerankVerdict.model_json_schema()},
+                    "format": {"type": "json_schema", "schema": _strict_schema(_RerankVerdict)},
                     "effort": "medium",
                 },
             )
@@ -225,6 +250,8 @@ class ClaudeVisionReranker:
             return {}, None, False
         allowed = {c.part.part_number for c in candidates}
         ranking = {
-            r.part_number: r.match_probability for r in verdict.ranking if r.part_number in allowed
+            r.part_number: min(1.0, max(0.0, r.match_probability))
+            for r in verdict.ranking
+            if r.part_number in allowed
         }
         return ranking, verdict.extracted, verdict.none_match

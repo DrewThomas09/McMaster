@@ -229,3 +229,31 @@ def test_fusion_usage_prior_is_a_tie_breaker():
     clear = [Hit("A", 0.80, 1, 0.1), Hit("B", 0.60, 1, 0.1)]
     out = FusionReranker().rerank(clear, parts, popularity={"B": 1000})
     assert out[0].part.part_number == "A"
+
+
+def test_reranker_schema_is_accepted_by_structured_outputs():
+    """Structured outputs reject numeric bounds, open objects and $ref: the schema sent
+    must be closed and self-contained, or the reranker silently degrades to a no-op."""
+    import json
+
+    from mcmaster_vision.pipeline.rerank import _RerankVerdict, _strict_schema
+
+    schema = _strict_schema(_RerankVerdict)
+    blob = json.dumps(schema)
+    assert "$ref" not in blob and "$defs" not in blob
+    assert "minimum" not in blob and "maximum" not in blob and '"default"' not in blob
+
+    def objects(node):
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                yield node
+            for v in node.values():
+                yield from objects(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from objects(v)
+
+    for obj in objects(schema):
+        assert obj.get("additionalProperties") is False
+        assert set(obj["required"]) == set(obj["properties"])
+    assert "ranking" in schema["properties"] and "extracted" in schema["properties"]
