@@ -31,6 +31,8 @@ def _components(settings: Settings) -> dict[str, Path]:
         "catalog": settings.catalog_db,
         "index": settings.index_path,
         "calibration": settings.model_dir / "calibration.json",
+        # the confirmed-photo scores the tiers were fitted on: evidence, not derivable
+        "calibration_samples": settings.model_dir / "calibration_samples.jsonl",
         "queries": settings.queries_dir,
         "logs": settings.data_dir / "logs",
         "manifest": settings.data_dir / "manifest.json",

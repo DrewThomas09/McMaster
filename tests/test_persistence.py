@@ -271,3 +271,32 @@ def test_only_new_does_not_overcount_feedback_photos(store, embedder, tmp_path):
         extra_images={pn: [parts[0].image_paths[0]]},
     )
     assert again.meta["extra_images"] == 0
+
+
+def test_backup_carries_calibration_samples(tmp_path, demo_dir, index):
+    from mcmaster_vision.config import Settings
+    from mcmaster_vision.pipeline.backup import create_backup, read_inventory, restore_backup
+
+    s = Settings(
+        data_dir=tmp_path,
+        catalog_db=demo_dir / "catalog.sqlite",
+        index_dir=tmp_path / "index",
+        model_dir=tmp_path / "models",
+        queries_dir=tmp_path / "q",
+    )
+    s.ensure_dirs()
+    index.save(s.index_path)
+    (s.model_dir / "calibration_samples.jsonl").write_text('{"scores": [1.0], "correct": 0}\n')
+    archive = create_backup(s, tmp_path / "backups")
+    assert "calibration_samples" in read_inventory(archive)["components"]
+    other = tmp_path / "restored"
+    s2 = s.model_copy(
+        update={
+            "data_dir": other,
+            "index_dir": other / "index",
+            "model_dir": other / "m",
+            "queries_dir": other / "q",
+        }
+    )
+    restore_backup(s2, archive)
+    assert (other / "m" / "calibration_samples.jsonl").read_text().startswith('{"scores"')
