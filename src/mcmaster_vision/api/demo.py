@@ -13,6 +13,7 @@ import io
 import random
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response
 from PIL import Image
 
@@ -66,7 +67,7 @@ def samples(
 
 
 @router.get("/demo/query/{part_number}")
-def query_image(part_number: str, seed: int = 0, ident: Identifier = Depends(_ident)):
+def query_image(part_number: str, seed: int = Query(0, ge=0), ident: Identifier = Depends(_ident)):
     """A photo-style augmented render of the part (what the demo identifies)."""
     part = ident.store.get(part_number)
     if part is None or not part.image_paths:
@@ -79,9 +80,10 @@ def query_image(part_number: str, seed: int = 0, ident: Identifier = Depends(_id
 
 
 @router.post("/demo/try/{part_number}")
-def try_part(
+async def try_part(
+    request: Request,
     part_number: str,
-    seed: int = 0,
+    seed: int = Query(0, ge=0),
     top_n: int = Query(5, ge=1, le=20),
     tta: str = Query("full", pattern="^(full|fast|none)$"),
     ident: Identifier = Depends(_ident),
@@ -90,9 +92,11 @@ def try_part(
     part = ident.store.get(part_number)
     if part is None or not part.image_paths:
         raise HTTPException(404, "unknown part")
+    request.app.state.check_rate(request)  # same limits and CPU gate as /identify
     aug = PhotoAugmenter(AugmentConfig.evaluation(), seed=seed)
     img = aug(Image.open(part.image_paths[seed % len(part.image_paths)]), out_size=512)
-    res = ident.identify(img, top_n=top_n, tta=tta)
+    async with request.app.state.gate:
+        res = await run_in_threadpool(ident.identify, img, top_n=top_n, tta=tta)
     ranked = [c.part_number for c in res.candidates]
     return {
         "truth": part.part_number,

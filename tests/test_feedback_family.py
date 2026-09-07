@@ -119,13 +119,22 @@ def test_api_multi_file_and_feedback(identifier, store, tmp_path):
         ).status_code
         == 404
     )
-    # "none of these" with the photo re-sent
+    # "none of these" with the photo re-sent (the server no longer holds it): accepted only
+    # for a request id this server issued, so /feedback is not a free file drop
+    later = client.post("/identify", files={"file": ("q.png", _png(part), "image/png")}).json()
+    client.app.state.recent._path(later["request_id"]).unlink()
     r = client.post(
         "/feedback",
-        data={"request_id": "later"},
+        data={"request_id": later["request_id"]},
         files={"file": ("q.png", _png(part), "image/png")},
     )
     assert r.status_code == 200 and r.json()["part_number"] is None
+    r = client.post(
+        "/feedback",
+        data={"request_id": "neverissued"},
+        files={"file": ("q.png", _png(part), "image/png")},
+    )
+    assert r.status_code == 404
 
 
 def test_identifier_reads_confirmations_as_a_prior(store, index, embedder, tmp_path):

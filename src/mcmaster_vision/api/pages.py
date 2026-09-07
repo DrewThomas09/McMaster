@@ -7,8 +7,10 @@ the pages cacheable; the identify app itself lives in ``static/index.html``.
 from __future__ import annotations
 
 import html
+import json
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -156,7 +158,7 @@ def part_page(part_number: str, request: Request) -> str:
         demo = f'<a class="ghost" href="/?try={pn}">Identify a photo-style render</a> '
     body = f"""<div class="crumbs">{crumbs or "&nbsp;"}</div>
 <h1 class="page">{pn} <span style="font-weight:400;color:var(--muted)">{e(part.name)}</span></h1>
-<p>{demo}<a class="ghost" href="https://www.mcmaster.com/{pn}/" target="_blank" rel="noopener">Open on mcmaster.com ↗</a> <button class="ghost" onclick="navigator.clipboard&&navigator.clipboard.writeText('{pn}')">Copy part number</button></p>
+<p>{demo}<a class="ghost" href="https://www.mcmaster.com/{quote(part.part_number, safe="")}/" target="_blank" rel="noopener">Open on mcmaster.com ↗</a> <button class="ghost" onclick="navigator.clipboard&&navigator.clipboard.writeText({e(json.dumps(part.part_number))})">Copy part number</button></p>
 <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">{gallery}</div>
 <h2 class="page">Specifications</h2><div class="card" style="padding:8px 12px"><table class="spec">{specs or '<tr><td class="msg" colspan="2">No attributes recorded.</td></tr>'}</table>{f'<p class="crumbs">{e(part.description)}</p>' if part.description else ""}</div>
 {fam_html}"""

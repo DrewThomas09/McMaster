@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import sqlite3
 import tarfile
@@ -78,7 +79,9 @@ def create_backup(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "components": {},
     }
-    tmp = out.with_suffix(out.suffix + ".tmp")
+    fd, tmp_name = tempfile.mkstemp(prefix=".mcv-backup-", suffix=".tmp", dir=out.parent)
+    os.close(fd)
+    tmp = Path(tmp_name)
     with tarfile.open(tmp, "w:gz") as tar, tempfile.TemporaryDirectory(prefix="mcv-bk-") as td:
         for name, path in comps.items():
             if not path.exists():
@@ -94,6 +97,10 @@ def create_backup(
         info = tarfile.TarInfo(INVENTORY)
         info.size = len(blob)
         tar.addfile(info, io.BytesIO(blob))
+    if out.exists():  # two backups in the same second: keep both
+        out = out.with_name(
+            out.stem.replace(".tar", "") + f"-{os.getpid()}-{tmp.name[-8:-4]}.tar.gz"
+        )
     tmp.replace(out)
     return out
 

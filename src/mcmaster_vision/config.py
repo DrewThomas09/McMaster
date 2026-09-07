@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     api_token: str | None = None  # protects /admin/* when set (header X-API-Token)
     warm_up: bool = True  # load catalog/index/backbone at API startup
     auto_reload: bool = True  # pick up a rebuilt index on disk without a restart
+    forwarded_allow_ips: str = "127.0.0.1"  # proxies whose X-Forwarded-For is trusted ("*")
     demo_mode: bool = False  # /demo/* endpoints (sample parts, printable sheet)
     cors_origins: str = (
         ""  # comma-separated origins allowed to call the API (native apps, other hosts)

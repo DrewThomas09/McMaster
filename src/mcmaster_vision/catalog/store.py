@@ -214,9 +214,13 @@ class CatalogStore:
             ).fetchall()
             return [self._row_to_part(r) for r in rows]
         head = json.dumps(prefix)[:-1]  # '["A", "B"' matches '["A", "B"]' and '["A", "B", ...'
+        # substr() is an exact, case-sensitive prefix test (LIKE would treat % and _ in a
+        # category name as wildcards and fold ASCII case, disagreeing with the taxonomy counts)
+        deeper = head + ", "
         rows = self._conn.execute(
-            "SELECT * FROM parts WHERE category_path = ? OR category_path LIKE ? ORDER BY part_number LIMIT ? OFFSET ?",
-            (head + "]", head + ", %", limit, offset),
+            "SELECT * FROM parts WHERE category_path = ? OR substr(category_path, 1, ?) = ? "
+            "ORDER BY part_number LIMIT ? OFFSET ?",
+            (head + "]", len(deeper), deeper, limit, offset),
         ).fetchall()
         return [self._row_to_part(r) for r in rows]
 

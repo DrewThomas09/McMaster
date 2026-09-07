@@ -10,10 +10,16 @@ GET  /                   upload UI
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
+import os
+import secrets
+import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -31,6 +37,7 @@ from mcmaster_vision.schemas import Feedback, IdentificationResult, IndexStats, 
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
+THUMB_SIZES = (96, 200, 400)
 
 
 def create_app(settings: Settings | None = None, identifier: Identifier | None = None) -> FastAPI:
@@ -62,21 +69,29 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     from mcmaster_vision.api.ratelimit import RateLimiter
 
     limiter = RateLimiter(settings.rate_limit_per_minute)
-    import os
-    import threading
-
     # CPU-bound identifications are serialised to the core count: more threads than cores
-    # only adds contention, and a phone's live preview must not starve a real photo.
-    gate = threading.BoundedSemaphore(settings.max_concurrency or max(1, os.cpu_count() or 1))
+    # only adds contention, and a phone's live preview must not starve a real photo. The
+    # gate is awaited *before* taking a threadpool worker, so queued identifications never
+    # exhaust the pool and stall health checks, thumbnails and pages.
+    app.state.gate = asyncio.Semaphore(settings.max_concurrency or max(1, os.cpu_count() or 1))
+    backup_lock = threading.Lock()
 
-    def identify_gated(fn, *args, **kwargs):
-        with gate:
-            return fn(*args, **kwargs)
-
-    def check_rate(request: Request) -> None:
+    def check_rate(request: Request, cost: int = 1) -> None:
         client = request.client.host if request.client else "unknown"
-        if not limiter.allow(client):
+        if not limiter.allow(RateLimiter.bucket(client), cost):
             raise HTTPException(429, "rate limit exceeded; try again in a minute")
+
+    app.state.check_rate = check_rate
+
+    async def record(result: IdentificationResult, photo: bytes | None) -> None:
+        """Append to the request log and keep the photo, off the event loop."""
+
+        def _do() -> None:
+            app.state.requests.log(result)
+            if photo is not None:
+                app.state.recent.put(result.request_id, photo)
+
+        await run_in_threadpool(_do)
 
     def _load() -> Identifier:
         ident = load_identifier(settings)
@@ -169,7 +184,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     def check_admin(request: Request) -> None:
         token = settings.api_token
-        if token and request.headers.get("x-api-token") != token:
+        if token and not secrets.compare_digest(request.headers.get("x-api-token", ""), token):
             raise HTTPException(401, "bad or missing X-API-Token")
 
     @app.post("/admin/reload")
@@ -193,7 +208,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         check_admin(request)
         from mcmaster_vision.pipeline.backup import create_backup, read_inventory
 
-        path = await run_in_threadpool(create_backup, settings)
+        if not backup_lock.acquire(blocking=False):
+            raise HTTPException(409, "a backup is already running")
+        try:
+            path = await run_in_threadpool(create_backup, settings)
+        finally:
+            backup_lock.release()
         inv = read_inventory(path)
         return {
             "path": str(path),
@@ -268,6 +288,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         limit = settings.max_upload_mb * 1024 * 1024
         blobs = []
         for u in uploads:
+            if u.size is not None and u.size > limit:  # refuse before buffering it
+                raise HTTPException(413, f"upload exceeds {settings.max_upload_mb} MB")
             data = await u.read()
             if len(data) > limit:
                 raise HTTPException(413, f"upload exceeds {settings.max_upload_mb} MB")
@@ -275,27 +297,26 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 raise HTTPException(400, "empty upload")
             blobs.append(data)
         try:
-            result = await run_in_threadpool(
-                identify_gated,
-                ident.identify_many_bytes,
-                blobs,
-                top_n=top_n,
-                use_llm=use_llm,
-                constraints=cons,
-                tta=tta,
-                mm_per_px=mm_per_px,
-                reference=reference,
-            )
+            async with app.state.gate:
+                result = await run_in_threadpool(
+                    ident.identify_many_bytes,
+                    blobs,
+                    top_n=top_n,
+                    use_llm=use_llm,
+                    constraints=cons,
+                    tta=tta,
+                    mm_per_px=mm_per_px,
+                    reference=reference,
+                )
         except (OSError, ValueError) as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
-        if log:
-            app.state.requests.log(result)
-            # keep the first photo so /feedback can file it under the confirmed part
-            app.state.recent.put(result.request_id, blobs[0])
+        if log:  # keep the first photo so /feedback can file it under the confirmed part
+            await record(result, blobs[0])
         return result
 
     @app.post("/feedback", response_model=Feedback)
     async def feedback(
+        request: Request,
         request_id: str = Form(...),
         part_number: str | None = Form(
             None, description="Confirmed part number, or omit for 'none of these'"
@@ -305,18 +326,36 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         file: UploadFile | None = File(None, description="Photo, if the server no longer holds it"),
         ident: Identifier = Depends(get_identifier),
     ) -> Feedback:
+        check_rate(request)
         data = app.state.recent.get(request_id)
         if data is None and file is not None:
+            # a resent photo is accepted only for an id this server actually issued, and
+            # within the upload limit: /feedback must not be a free file drop
+            if not app.state.requests.known(request_id):
+                raise HTTPException(404, "unknown request_id")
+            limit = settings.max_upload_mb * 1024 * 1024
+            if file.size is not None and file.size > limit:
+                raise HTTPException(413, f"upload exceeds {settings.max_upload_mb} MB")
             data = await file.read()
+            if len(data) > limit:
+                raise HTTPException(413, f"upload exceeds {settings.max_upload_mb} MB")
         if not data:
             raise HTTPException(
                 404, "photo for this request_id is no longer available; resend it as 'file'"
             )
         if part_number and ident.store.get(part_number.upper()) is None:
             raise HTTPException(404, "unknown part number")
-        return app.state.feedback.record(
-            data, request_id, part_number, predicted=predicted, tier=tier
-        )
+        try:
+            return await run_in_threadpool(
+                app.state.feedback.record,
+                data,
+                request_id,
+                part_number,
+                predicted=predicted,
+                tier=tier,
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
 
     @app.get("/feedback/stats")
     def feedback_stats() -> dict:
@@ -339,7 +378,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         """Identify many *different* parts in one call; returns one row per photo."""
         if len(files) > 200:
             raise HTTPException(400, "at most 200 photos per batch")
-        check_rate(request)
+        check_rate(request, cost=len(files))
         rows = []
         limit = settings.max_upload_mb * 1024 * 1024
         for u in files:
@@ -349,14 +388,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 rows.append({"file": u.filename, "error": msg})
                 continue
             try:
-                res = await run_in_threadpool(
-                    identify_gated, ident.identify_bytes, data, top_n=top_n
-                )
+                async with app.state.gate:
+                    res = await run_in_threadpool(ident.identify_bytes, data, top_n=top_n)
             except (OSError, ValueError):
                 rows.append({"file": u.filename, "error": "could not decode image"})
                 continue
-            app.state.requests.log(res)
-            app.state.recent.put(res.request_id, data)
+            await record(res, data)
             rows.append(
                 {
                     "file": u.filename,
@@ -400,9 +437,11 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         src = Path(part.image_paths[i])
         if not src.exists():
             raise HTTPException(404, "no image")
+        size = min(THUMB_SIZES, key=lambda s: abs(s - size))  # a few sizes, not 465 files
         cache = settings.data_dir / "cache" / "thumbs"
         cache.mkdir(parents=True, exist_ok=True)
-        out = cache / f"{part.part_number}_{i}_{size}.jpg"
+        key = hashlib.sha1(part.part_number.encode("utf-8")).hexdigest()[:16]
+        out = cache / f"{key}_{i}_{size}.jpg"
         if not out.exists() or out.stat().st_mtime < src.stat().st_mtime:
             from PIL import Image, ImageOps
 
@@ -411,7 +450,9 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 im.thumbnail((size, size))
                 canvas = Image.new("RGB", (size, size), (255, 255, 255))
                 canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2))
-                canvas.save(out, format="JPEG", quality=85, optimize=True)
+                tmp = out.with_name(f".{out.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+                canvas.save(tmp, format="JPEG", quality=85, optimize=True)
+                tmp.replace(out)  # readers never see a half-written thumbnail
         return FileResponse(
             out, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=604800"}
         )
@@ -421,12 +462,13 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         part = ident.store.get(part_number)
         if part is None:
             raise HTTPException(404, "unknown part number")
-        n = sum(1 for p in part.image_paths if Path(p).exists())
+        present = [i for i, p in enumerate(part.image_paths) if Path(p).exists()]
+        pn = quote(part.part_number, safe="")
         return {
             "part_number": part.part_number,
-            "count": n,
-            "thumbs": [f"/parts/{part.part_number}/thumb?i={i}" for i in range(n)],
-            "images": [f"/parts/{part.part_number}/image?i={i}" for i in range(n)],
+            "count": len(present),
+            "thumbs": [f"/parts/{pn}/thumb?i={i}" for i in present],
+            "images": [f"/parts/{pn}/image?i={i}" for i in present],
         }
 
     @app.get("/categories")
@@ -469,7 +511,10 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
         log.exception("unhandled error")
-        return JSONResponse(status_code=500, content={"detail": str(exc)})
+        # no internals (paths, messages) leave the server; the log has the traceback
+        return JSONResponse(
+            status_code=500, content={"detail": "internal error; see the server log"}
+        )
 
     return app
 
@@ -576,6 +621,9 @@ def run(
         print("Open on your phone (same network): " + "  ".join(urls))
         if qr:
             print_qr(urls[0])
+    # behind Caddy / nginx the client address comes from X-Forwarded-For; only trusted
+    # proxies may set it (MCV_FORWARDED_ALLOW_IPS="*" in the compose deployment)
+    proxy = {"proxy_headers": True, "forwarded_allow_ips": settings.forwarded_allow_ips}
     if workers > 1:
         # Each worker process loads its own copy of the index; size RAM accordingly.
         uvicorn.run(
@@ -584,7 +632,8 @@ def run(
             host=host,
             port=port,
             workers=workers,
+            **proxy,
             **ssl,
         )
     else:
-        uvicorn.run(create_app(settings), host=host, port=port, **ssl)
+        uvicorn.run(create_app(settings), host=host, port=port, **proxy, **ssl)

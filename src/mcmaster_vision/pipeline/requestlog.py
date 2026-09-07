@@ -62,6 +62,11 @@ class RequestLog:
                 fh.write(json.dumps(row) + "\n")
                 fh.flush()
 
+    def known(self, request_id: str) -> bool:
+        """Was this id issued recently (the window)? Guards /feedback uploads."""
+        with self._lock:
+            return any(r.get("request_id") == request_id for r in self._recent)
+
     def recent(self, n: int = 50) -> list[dict]:
         with self._lock:
             rows = list(self._recent)

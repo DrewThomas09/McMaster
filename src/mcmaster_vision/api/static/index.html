@@ -198,7 +198,11 @@ let scale = null;         // mm per pixel of the *uploaded* (downscaled) photo, 
 let refSeg = null;        // the reference line in uploaded pixels, so the coin is not measured as the part
 let tta = 'full';
 let queryDataUrl = null;  // small preview of the first photo (history, lightbox compare)
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// a JS string literal that is safe inside a double-quoted HTML attribute: JSON-quote, then HTML-escape
+// (the HTML parser decodes entities before the JS runs, so HTML-escaping alone is not enough)
+const js = s => esc(JSON.stringify(String(s ?? '')));
+const enc = s => encodeURIComponent(String(s ?? ''));
 const pct = x => (x * 100).toFixed(0) + '%';
 const ABBREV = { od: 'OD', id: 'ID', pipe_size: 'pipe size (NPT)' };
 const label = k => ABBREV[k] || k.replace(/_/g, ' ');
@@ -220,7 +224,7 @@ async function loadSamples() {
     const r = await fetch(`/demo/samples?n=14&seed=${sampleSeed}`); if (!r.ok) return;
     const items = await r.json();
     $('samples').hidden = !items.length;
-    $('samplestrip').innerHTML = items.map(it => `<figure><img src="${it.thumb}" alt="" loading="lazy" title="${esc(it.name)}" onclick="trySample('${esc(it.part_number)}')"><figcaption>${esc(it.category)}</figcaption></figure>`).join('');
+    $('samplestrip').innerHTML = items.map(it => `<figure><img src="${esc(it.thumb)}" alt="" loading="lazy" title="${esc(it.name)}" onclick="trySample(${js(it.part_number)})"><figcaption>${esc(it.category)}</figcaption></figure>`).join('');
   } catch (_) {}
 }
 $('moresamples').addEventListener('click', () => { sampleSeed++; loadSamples(); });
@@ -338,8 +342,10 @@ async function addPhotos(files) {
   queryDataUrl = await tinyDataUrl(photos[0]);
   await send();
 }
+let sendSeq = 0;
 async function send() {
   if (!photos.length) return;
+  const seq = ++sendSeq;
   const t0 = performance.now();
   results.innerHTML = '<p><span class="spinner"></span>Identifying' + (photos.length > 1 ? ` from ${photos.length} photos` : '') + '&hellip;</p>';
   const fd = new FormData();
@@ -350,6 +356,7 @@ async function send() {
   let r;
   try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
   catch (e) { results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
+  if (seq !== sendSeq) return;  // superseded by a newer query
   if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(d)}</p>`; return; }
   lastResult = await r.json();
   lastResult._roundtrip = Math.round(performance.now() - t0);
@@ -370,7 +377,7 @@ function render(res) {
   let html = `<div class="card verdict"><span class="tier ${res.tier}">${esc(tierText)}</span>`;
   if (res.best) {
     html += `<div class="pn"><a href="/part/${encodeURIComponent(res.best.part_number)}" style="color:inherit;text-decoration:none">${esc(res.best.part_number)}</a>
-      <button type="button" class="iconbtn" onclick="copyText('${esc(res.best.part_number)}')">Copy</button>
+      <button type="button" class="iconbtn" onclick="copyText(${js(res.best.part_number)})">Copy</button>
       ${navigator.share ? `<button type="button" class="iconbtn" onclick="shareResult()">Share</button>` : ''}
       <a class="iconbtn" href="https://www.mcmaster.com/${encodeURIComponent(res.best.part_number)}/" target="_blank" rel="noopener">mcmaster.com &nearr;</a></div>
       <div class="name">${esc(res.best.name)} &middot; ${pct(res.best.confidence)} confidence</div>
@@ -385,14 +392,14 @@ function render(res) {
   html += `<div class="confirm"><button type="button" onclick="confirm(null, this)">None of these</button></div></div>`;
   for (const n of (res.notes || [])) html += `<div class="family">${esc(n)} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear filters</button></div>`;
   if (res.family) {
-    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(label(k))}:</span> ${v.map(val => `<button type="button" onclick='refine(${JSON.stringify(k)}, ${JSON.stringify(val)})'>${esc(val)}</button>`).join('')}</div>`).join('');
+    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(label(k))}:</span> ${v.map(val => `<button type="button" onclick="refine(${js(k)}, ${js(val)})">${esc(val)}</button>`).join('')}</div>`).join('');
     html += `<div class="family">Looks like <b>${esc(res.family.name)}</b> (${pct(res.family.probability)} across ${res.family.part_numbers.length} look-alike SKUs).${diffs ? ' Tap what you can read off the part:' + diffs : ''}</div>`;
   }
   if (Object.keys(res.constraints || {}).length) html += `<div class="family">Filtered by ${Object.entries(res.constraints).map(([k, v]) => `<b>${esc(k)}</b> = ${esc(v)}`).join(', ')} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear</button></div>`;
   res.candidates.forEach((c, ci) => {
-    const pn = encodeURIComponent(c.part_number);
+    const pn = enc(c.part_number);
     html += `<div class="card cand" data-pn="${esc(c.part_number)}">
-      <img class="main" src="/parts/${pn}/thumb?size=200" loading="${ci < 3 ? 'eager' : 'lazy'}" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${pn}/image', queryDataUrl && document.getElementById('img').src, '${esc(c.part_number)} vs your photo')">
+      <img class="main" src="/parts/${pn}/thumb?size=200" loading="${ci < 3 ? 'eager' : 'lazy'}" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${pn}/image', queryDataUrl && document.getElementById('img').src, ${js(c.part_number + ' vs your photo')})">
       <div style="flex:1;min-width:0">
         <div class="pn"><a href="/part/${pn}" style="color:inherit;text-decoration:none">${esc(c.part_number)}</a> <span style="font-weight:400">&mdash; ${esc(c.name)}</span></div>
         <div class="meta">${esc(c.category_path.join(' › '))}</div>
@@ -401,7 +408,7 @@ function render(res) {
         <div class="meta">confidence ${(c.confidence*100).toFixed(1)}% · similarity ${c.similarity.toFixed(3)} · <a class="link" href="/part/${pn}">details</a> · <a class="link" href="https://www.mcmaster.com/${pn}/" target="_blank" rel="noopener">mcmaster.com</a></div>
         <div class="strip" data-strip="${esc(c.part_number)}"></div>
         <ul class="reasons">${c.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
-        <div class="confirm"><button type="button" class="yes" onclick="confirm('${esc(c.part_number)}', this)">&#10003; This is it</button></div>
+        <div class="confirm"><button type="button" class="yes" onclick="confirm(${js(c.part_number)}, this)">&#10003; This is it</button></div>
       </div></div>`;
   });
   const t = res.timings_ms || {};
@@ -415,7 +422,7 @@ async function loadStrips(cands) {
       const r = await fetch(`/parts/${encodeURIComponent(c.part_number)}/images`); if (!r.ok) continue;
       const d = await r.json(); if (d.count < 2) continue;
       const el = document.querySelector(`.strip[data-strip="${CSS.escape(c.part_number)}"]`); if (!el) continue;
-      el.innerHTML = d.thumbs.map((t, i) => `<img src="${t}&size=96" loading="lazy" alt="" onclick="lightbox('${d.images[i]}', document.getElementById('img').src, '${esc(c.part_number)} view ${i + 1} vs your photo')">`).join('');
+      el.innerHTML = d.thumbs.map((t, i) => `<img src="${esc(t)}&size=96" loading="lazy" alt="" onclick="lightbox(${js(d.images[i])}, document.getElementById('img').src, ${js(c.part_number + ' view ' + (i + 1) + ' vs your photo')})">`).join('');
     } catch (_) {}
   }
 }
@@ -438,7 +445,7 @@ async function search(q) {
   const parts = await r.json();
   if (!parts.length) { results.innerHTML = '<p>No catalog entries match.</p>'; return; }
   results.innerHTML = parts.map(p => `<div class="card cand">
-      <img class="main" src="/parts/${encodeURIComponent(p.part_number)}/thumb?size=200" loading="lazy" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${encodeURIComponent(p.part_number)}/image', null, '${esc(p.part_number)}')">
+      <img class="main" src="/parts/${encodeURIComponent(p.part_number)}/thumb?size=200" loading="lazy" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${encodeURIComponent(p.part_number)}/image', null, ${js(p.part_number)})">
       <div style="flex:1;min-width:0"><div class="pn">${esc(p.part_number)} <span style="font-weight:400">&mdash; ${esc(p.name)}</span></div>
       <div class="meta">${esc(p.category_path.join(' › '))}</div>${specTable(p.attributes)}
       <div class="meta" style="margin-top:6px"><a class="link" href="https://www.mcmaster.com/${encodeURIComponent(p.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div></div></div>`).join('');
@@ -576,7 +583,7 @@ function renderHistory() {
   try {
     const h = JSON.parse(localStorage.getItem('mcv.history') || '[]');
     $('history').hidden = !h.length;
-    $('hist').innerHTML = h.map(e => `<button type="button" onclick="${e.pn ? `search('${esc(e.pn)}')` : 'void 0'}"><img src="${e.img || '/static/icon.svg'}" alt=""><span>${esc(e.pn || e.tier)}</span></button>`).join('');
+    $('hist').innerHTML = h.map(e => `<button type="button" onclick="${e.pn ? `search(${js(e.pn)})` : 'void 0'}"><img src="${esc(e.img || '/static/icon.svg')}" alt=""><span>${esc(e.pn || e.tier)}</span></button>`).join('');
   } catch (_) {}
 }
 renderHistory();

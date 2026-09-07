@@ -18,6 +18,7 @@ services:
       MCV_INDEX_DIR: /data/index
       MCV_MODEL_DIR: /data/models
       MCV_QUERIES_DIR: /data/queries
+      MCV_FORWARDED_ALLOW_IPS: "*"  # Caddy sets X-Forwarded-For; rate limits are per phone
       MCV_RATE_LIMIT_PER_MINUTE: "120"
     volumes:
       - ../data:/data

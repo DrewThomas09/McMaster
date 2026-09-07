@@ -13,7 +13,20 @@ class RateLimiter:
         self._hits: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
 
-    def allow(self, key: str) -> bool:
+    @staticmethod
+    def bucket(host: str) -> str:
+        """IPv6 clients get a /64 bucket (one subscriber), IPv4 the address itself."""
+        if ":" in host:
+            try:
+                import ipaddress
+
+                net = ipaddress.ip_network(f"{host}/64", strict=False)
+                return str(net)
+            except ValueError:
+                return host
+        return host
+
+    def allow(self, key: str, cost: int = 1) -> bool:
         if self.per_minute <= 0:
             return True
         now = time.monotonic()
@@ -21,7 +34,12 @@ class RateLimiter:
             q = self._hits.setdefault(key, deque())
             while q and now - q[0] > 60:
                 q.popleft()
-            if len(q) >= self.per_minute:
+            if len(q) + cost > self.per_minute:
+                if not q:
+                    del self._hits[key]
                 return False
-            q.append(now)
+            q.extend([now] * max(1, cost))
+            if len(self._hits) > 50_000:  # forget idle clients instead of growing forever
+                for k in [k for k, d in self._hits.items() if not d or now - d[-1] > 60]:
+                    del self._hits[k]
             return True
