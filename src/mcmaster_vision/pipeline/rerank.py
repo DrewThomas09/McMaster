@@ -20,6 +20,7 @@ from PIL import Image
 from pydantic import BaseModel, Field
 
 from mcmaster_vision.pipeline.attributes import attribute_consistency
+from mcmaster_vision.pipeline.measure import Measurement, size_consistency
 from mcmaster_vision.pipeline.retrieve import Hit
 from mcmaster_vision.schemas import ExtractedAttributes, Part
 
@@ -43,6 +44,7 @@ class FusionReranker:
         w_attr: float = 0.12,
         w_ocr: float = 0.5,
         w_pop: float = 0.02,
+        w_size: float = 0.2,
     ):
         self.w_sim, self.w_cat, self.w_hits, self.w_attr, self.w_ocr = (
             w_sim,
@@ -55,6 +57,9 @@ class FusionReranker:
         # log1p keeps it a tie-breaker (10 confirmations ~ +0.05, a fraction of one
         # similarity step), never a substitute for visual evidence.
         self.w_pop = w_pop
+        # a measured dimension is strong evidence between look-alikes: a full
+        # "off" verdict costs as much as 0.2 of cosine similarity
+        self.w_size = w_size
 
     def rerank(
         self,
@@ -65,6 +70,7 @@ class FusionReranker:
         ocr_part_numbers: list[str] | None = None,
         llm_ranking: dict[str, float] | None = None,
         popularity: dict[str, int] | None = None,
+        size: Measurement | None = None,
     ) -> list[Scored]:
         ocr = set(ocr_part_numbers or [])
         out: list[Scored] = []
@@ -87,6 +93,10 @@ class FusionReranker:
             if llm_ranking and part.part_number in llm_ranking:
                 score += 0.3 * llm_ranking[part.part_number]
                 reasons.append(f"vision-LLM rank score {llm_ranking[part.part_number]:.2f}")
+            if size is not None:
+                size_score, size_reasons = size_consistency(size, part)
+                score += self.w_size * size_score
+                reasons.extend(size_reasons)
             n_conf = (popularity or {}).get(part.part_number, 0)
             if n_conf > 0 and self.w_pop:
                 score += self.w_pop * math.log1p(min(n_conf, 50))

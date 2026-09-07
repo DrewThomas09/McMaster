@@ -107,6 +107,10 @@ class IdentificationResult(BaseModel):
         default_factory=list, description="Caveats about how the answer was produced"
     )
     photos: int = 1
+    measured: dict[str, float] | None = Field(
+        None,
+        description="Object size from the first photo when a scale was given: long_mm, short_mm",
+    )
     ocr_part_numbers: list[str] = Field(default_factory=list)
     extracted: ExtractedAttributes | None = None
     timings_ms: dict[str, float] = Field(default_factory=dict)

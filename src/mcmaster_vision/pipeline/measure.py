@@ -1,0 +1,171 @@
+"""Size from a photo with a known scale.
+
+Look-alike SKUs in a family mostly differ by a dimension the camera cannot judge
+without a reference: length, outside diameter, thread size. McMaster-Carr often
+uses one image for a whole family, so no amount of visual retrieval can tell a
+1" from a 1-1/4" screw. Given the scale of the photo (``mm_per_px``: the user
+marks a coin, a card or a ruler in the app) the object's extent along its
+principal axes is measured from the foreground mask and compared with each
+candidate's catalog dimensions.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+from dataclasses import dataclass
+from fractions import Fraction
+
+import numpy as np
+from PIL import Image
+
+from mcmaster_vision.pipeline.preprocess import foreground_mask
+from mcmaster_vision.schemas import Part
+
+INCH = 25.4
+# ANSI numbered screw sizes -> major diameter (inches)
+_GAUGE_IN = {
+    0: 0.060,
+    1: 0.073,
+    2: 0.086,
+    3: 0.099,
+    4: 0.112,
+    5: 0.125,
+    6: 0.138,
+    8: 0.164,
+    10: 0.190,
+    12: 0.216,
+    14: 0.242,
+}
+_UNIT_MM = {
+    "mm": 1.0,
+    "millimeter": 1.0,
+    "millimeters": 1.0,
+    "cm": 10.0,
+    "m": 1000.0,
+    "in": INCH,
+    "inch": INCH,
+    "inches": INCH,
+    '"': INCH,
+    "″": INCH,
+    "”": INCH,
+    "ft": 12 * INCH,
+}
+_NUM = re.compile(
+    r"(?P<whole>\d+(?:\.\d+)?)?\s*(?:[- ]\s*)?(?P<frac>\d+/\d+)?\s*"
+    r"(?P<unit>mm|millimeters?|cm|m\b|in\b|inch(?:es)?|\"|″|”|ft\b)",
+    re.IGNORECASE,
+)
+
+
+def parse_length_mm(text) -> float | None:
+    """``1/2"`` -> 12.7, ``1-1/4"`` -> 31.75, ``20 mm`` -> 20, ``M6x1`` -> 6 (diameter),
+    ``#8-32`` -> 4.17 (diameter), ``1/4"-20`` -> 6.35. None when nothing parses."""
+    t = str(text).strip().lower()
+    if not t:
+        return None
+    m = re.match(r"^m(\d+(?:\.\d+)?)", t)
+    if m:
+        return float(m.group(1))
+    m = re.match(r"^#(\d+)", t)
+    if m:
+        g = _GAUGE_IN.get(int(m.group(1)))
+        return round(g * INCH, 3) if g else None
+    m = _NUM.search(t)
+    if not m or (m.group("whole") is None and m.group("frac") is None):
+        return None
+    value = float(m.group("whole") or 0)
+    if m.group("frac"):
+        num, den = m.group("frac").split("/")
+        if int(den) == 0:
+            return None
+        value += float(Fraction(int(num), int(den)))
+    unit = m.group("unit").lower()
+    return round(value * _UNIT_MM.get(unit, INCH), 3)
+
+
+@dataclass
+class Measurement:
+    long_mm: float
+    short_mm: float
+    mm_per_px: float
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "long_mm": round(self.long_mm, 1),
+            "short_mm": round(self.short_mm, 1),
+            "mm_per_px": round(self.mm_per_px, 5),
+        }
+
+
+def object_extent_px(image: Image.Image, work: int = 160) -> tuple[float, float] | None:
+    """(long, short) extent of the foreground object in *original* pixels, measured
+    along its principal axes so a tilted part is not measured by its bounding box."""
+    w, h = image.size
+    s = min(1.0, work / max(w, h))
+    small = image.convert("RGB").resize((max(1, round(w * s)), max(1, round(h * s))))
+    mask = foreground_mask(np.asarray(small, dtype=np.float32))
+    if mask is None or mask.sum() < 8:
+        return None
+    ys, xs = np.nonzero(mask)
+    pts = np.stack([xs, ys], axis=1).astype(np.float64)
+    pts -= pts.mean(axis=0)
+    cov = pts.T @ pts / len(pts)
+    _, vecs = np.linalg.eigh(cov)  # ascending: last column = major axis
+    proj = pts @ vecs
+    extents = proj.max(axis=0) - proj.min(axis=0) + 1.0  # +1: pixel width
+    long_px, short_px = float(extents[1]) / s, float(extents[0]) / s
+    return max(long_px, short_px), min(long_px, short_px)
+
+
+def measure(image: Image.Image, mm_per_px: float) -> Measurement | None:
+    ext = object_extent_px(image)
+    if ext is None or mm_per_px <= 0:
+        return None
+    return Measurement(ext[0] * mm_per_px, ext[1] * mm_per_px, mm_per_px)
+
+
+def _ratio_score(ratio: float, lo_ok: float, hi_ok: float) -> float:
+    """+1 inside [lo_ok, hi_ok]; outside, falls with the log-distance from the band:
+    0 about 27% beyond it, -1 at 60% beyond (the next catalog size up or down)."""
+    if ratio <= 0:
+        return -1.0
+    if lo_ok <= ratio <= hi_ok:
+        return 1.0
+    excess = math.log(lo_ok / ratio) if ratio < lo_ok else math.log(ratio / hi_ok)
+    return max(-1.0, 1.0 - 2.0 * excess / math.log(1.6))
+
+
+# catalog attribute -> which measured axis it constrains and the tolerated ratio band.
+# A screw's "length" excludes the head, so the measured long axis may exceed it.
+_RULES: list[tuple[tuple[str, ...], str, float, float]] = [
+    (("length", "overall_length", "overall length"), "long", 0.85, 1.4),
+    (("od", "outside_diameter", "outside diameter", "diameter", "width"), "long", 0.8, 1.2),
+]
+
+
+def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[str]]:
+    """(score in [-1, 1], reasons): does the measured object fit this part's dimensions?"""
+    if meas is None:
+        return 0.0, []
+    attrs = {k.lower().replace("-", "_"): str(v) for k, v in part.attributes.items()}
+    votes: list[float] = []
+    reasons: list[str] = []
+    for keys, axis, lo, hi in _RULES:
+        for key in keys:
+            if key not in attrs:
+                continue
+            mm = parse_length_mm(attrs[key])
+            if not mm:
+                continue
+            measured = meas.long_mm if axis == "long" else meas.short_mm
+            sc = _ratio_score(measured / mm, lo, hi)
+            votes.append(sc)
+            verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
+            reasons.append(
+                f"measured {measured:.0f} mm vs {key} {attrs[key]} ({mm:.1f} mm): {verdict}"
+            )
+            break
+    if not votes:
+        return 0.0, []
+    return float(np.clip(np.mean(votes), -1.0, 1.0)), reasons
