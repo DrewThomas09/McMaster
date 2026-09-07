@@ -32,6 +32,12 @@ from mcmaster_vision.schemas import Part
         ("18-8 Stainless", None),
         ("", None),
         ("long", None),
+        ('.75"', 19.05),
+        ('1/4"-20 x 1"', 6.35),
+        ("10 mm x 1.5 mm", 10.0),
+        ('3/8" to 1/2"', None),
+        ('1/2" - 3/4"', None),
+        ("12 mm to 15 mm", None),
     ],
 )
 def test_parse_length_mm(text, mm):
@@ -141,3 +147,56 @@ def test_api_accepts_scale(identifier, store):
         ).status_code
         == 422
     )
+
+
+def test_reference_object_is_not_measured_as_the_part():
+    """A quarter next to a small screw is the largest blob; the line the user drew across
+    it tells the server which blob to ignore."""
+    im = Image.new("RGB", (600, 400), (240, 240, 236))
+    d = ImageDraw.Draw(im)
+    d.ellipse((60, 100, 260, 300), fill=(180, 170, 120))  # coin: 200 px across
+    d.rectangle((340, 190, 540, 214), fill=(60, 60, 65))  # screw: 200 x 24 px
+    naive = object_extent_px(im)
+    assert naive is not None and naive[1] > 150  # the coin: round, ~200 px both ways
+    ext = object_extent_px(im, exclude=(60, 200, 260, 200))
+    assert ext is not None
+    assert ext[0] == pytest.approx(201, rel=0.08) and ext[1] == pytest.approx(25, rel=0.4)
+    # a quarter is 24.26 mm across 200 px -> the screw measures ~24 x 3 mm
+    m = measure(im, 24.26 / 200, reference=(60, 200, 260, 200))
+    assert m is not None and m.long_mm == pytest.approx(24.4, rel=0.1)
+    # everything excluded -> no measurement, not a bogus one
+    assert object_extent_px(_photo(), exclude=(60, 150, 300, 150)) is None
+
+
+def test_scale_survives_reduced_jpeg_decoding():
+    """A 4000 px upload is decoded at half size; a scale given in uploaded pixels must
+    still yield the true dimensions, and the reference line must land on the coin."""
+    from mcmaster_vision.pipeline.preprocess import decode_image
+
+    im = Image.new("RGB", (4000, 3000), (240, 240, 236))
+    d = ImageDraw.Draw(im)
+    d.ellipse((400, 1200, 1400, 2200), fill=(180, 170, 120))  # coin 1000 px
+    d.rectangle((2000, 1450, 3600, 1550), fill=(60, 60, 65))  # part 1600 x 100 px
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=85)
+    dec = decode_image(buf.getvalue())
+    assert max(dec.size) == 2000 and dec.info["upload_scale"] == pytest.approx(2.0)
+    m = measure(dec, 24.26 / 1000, reference=(400, 1700, 1400, 1700))
+    assert m is not None
+    assert m.long_mm == pytest.approx(1600 * 24.26 / 1000, rel=0.1)  # 38.8 mm
+    assert m.short_mm == pytest.approx(100 * 24.26 / 1000, rel=0.5)
+
+
+def test_diameter_uses_short_axis_when_part_has_a_length():
+    m = Measurement(long_mm=25.4, short_mm=6.35, mm_per_px=0.1)
+    pin = Part(
+        part_number="P",
+        name="dowel pin",
+        category_path=["x"],
+        attributes={"Diameter": '1/4"', "Length": '1"'},
+    )
+    fat_pin = pin.model_copy(update={"attributes": {"Diameter": '3/8"', "Length": '1"'}})
+    washer = Part(part_number="W", name="washer", category_path=["x"], attributes={"OD": "1 in"})
+    assert size_consistency(m, pin)[0] == 1.0
+    assert size_consistency(m, fat_pin)[0] < 0.5
+    assert size_consistency(m, washer)[0] == 1.0  # no length: OD is the long axis

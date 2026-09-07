@@ -52,10 +52,11 @@ _UNIT_MM = {
     "ft": 12 * INCH,
 }
 _NUM = re.compile(
-    r"(?P<whole>\d+(?:\.\d+)?)?\s*(?:[- ]\s*)?(?P<frac>\d+/\d+)?\s*"
+    r"(?<![\d.])(?P<whole>\d*\.\d+|\d+)?\s*(?:[- ]\s*)?(?P<frac>\d+/\d+)?\s*"
     r"(?P<unit>mm|millimeters?|cm|m\b|in\b|inch(?:es)?|\"|″|”|ft\b)",
     re.IGNORECASE,
 )
+_RANGE = re.compile(r"^\s*(?:-|–|—|to)\s*$", re.IGNORECASE)
 
 
 def parse_length_mm(text) -> float | None:
@@ -71,9 +72,15 @@ def parse_length_mm(text) -> float | None:
     if m:
         g = _GAUGE_IN.get(int(m.group(1)))
         return round(g * INCH, 3) if g else None
-    m = _NUM.search(t)
-    if not m or (m.group("whole") is None and m.group("frac") is None):
+    matches = [m for m in _NUM.finditer(t) if m.group("whole") or m.group("frac")]
+    if not matches:
         return None
+    m = matches[0]
+    if len(matches) > 1:
+        m2 = matches[1]
+        num_start = m2.start("whole") if m2.group("whole") else m2.start("frac")
+        if _RANGE.match(t[m.end() : num_start]):
+            return None  # a range ("3/8\" to 1/2\"", "12 mm - 15 mm") is not one dimension
     value = float(m.group("whole") or 0)
     if m.group("frac"):
         num, den = m.group("frac").split("/")
@@ -98,13 +105,40 @@ class Measurement:
         }
 
 
-def object_extent_px(image: Image.Image, work: int = 160) -> tuple[float, float] | None:
-    """(long, short) extent of the foreground object in *original* pixels, measured
-    along its principal axes so a tilted part is not measured by its bounding box."""
+Segment = tuple[float, float, float, float]  # x1, y1, x2, y2 in image pixels
+
+
+def _segment_mask(shape: tuple[int, int], seg: Segment, s: float, pad: int) -> np.ndarray:
+    """Rasterise a segment (given in full-image pixels) into the working mask, dilated."""
+    h, w = shape
+    x1, y1, x2, y2 = (v * s for v in seg)
+    n = int(max(abs(x2 - x1), abs(y2 - y1))) + 1
+    xs = np.clip(np.round(np.linspace(x1, x2, n)).astype(int), 0, w - 1)
+    ys = np.clip(np.round(np.linspace(y1, y2, n)).astype(int), 0, h - 1)
+    m = np.zeros((h, w), dtype=bool)
+    m[ys, xs] = True
+    for _ in range(pad):
+        d = m.copy()
+        d[1:] |= m[:-1]
+        d[:-1] |= m[1:]
+        d[:, 1:] |= m[:, :-1]
+        d[:, :-1] |= m[:, 1:]
+        m = d
+    return m
+
+
+def object_extent_px(
+    image: Image.Image, work: int = 160, exclude: Segment | None = None
+) -> tuple[float, float] | None:
+    """(long, short) extent of the foreground object in *image* pixels, measured along
+    its principal axes so a tilted part is not measured by its bounding box. ``exclude``
+    is the segment the user drew across the reference object (coin, card, ruler): the
+    blob under it is the reference, not the part, and is removed first."""
     w, h = image.size
     s = min(1.0, work / max(w, h))
     small = image.convert("RGB").resize((max(1, round(w * s)), max(1, round(h * s))))
-    mask = foreground_mask(np.asarray(small, dtype=np.float32))
+    excl = _segment_mask(small.size[::-1], exclude, s, pad=2) if exclude else None
+    mask = foreground_mask(np.asarray(small, dtype=np.float32), exclude=excl)
     if mask is None or mask.sum() < 8:
         return None
     ys, xs = np.nonzero(mask)
@@ -113,34 +147,51 @@ def object_extent_px(image: Image.Image, work: int = 160) -> tuple[float, float]
     cov = pts.T @ pts / len(pts)
     _, vecs = np.linalg.eigh(cov)  # ascending: last column = major axis
     proj = pts @ vecs
-    extents = proj.max(axis=0) - proj.min(axis=0) + 1.0  # +1: pixel width
+    # the mask includes the anti-aliased edge (about half a pixel each side at the
+    # working size), so the raw extent over-reads by roughly one pixel
+    extents = np.maximum(proj.max(axis=0) - proj.min(axis=0) - 1.0, 1.0)
     long_px, short_px = float(extents[1]) / s, float(extents[0]) / s
     return max(long_px, short_px), min(long_px, short_px)
 
 
-def measure(image: Image.Image, mm_per_px: float) -> Measurement | None:
-    ext = object_extent_px(image)
-    if ext is None or mm_per_px <= 0:
+def measure(
+    image: Image.Image, mm_per_px: float, reference: Segment | None = None
+) -> Measurement | None:
+    """``mm_per_px`` and ``reference`` are in *uploaded* pixels; a JPEG the server decoded
+    at reduced size carries the factor in ``image.info["upload_scale"]``."""
+    if mm_per_px <= 0:
         return None
-    return Measurement(ext[0] * mm_per_px, ext[1] * mm_per_px, mm_per_px)
+    k = float(image.info.get("upload_scale", 1.0) or 1.0)
+    seg = tuple(v / k for v in reference) if reference else None
+    ext = object_extent_px(image, exclude=seg)  # type: ignore[arg-type]
+    if ext is None:
+        return None
+    scale = mm_per_px * k  # mm per *decoded* pixel
+    return Measurement(ext[0] * scale, ext[1] * scale, mm_per_px)
 
 
-def _ratio_score(ratio: float, lo_ok: float, hi_ok: float) -> float:
-    """+1 inside [lo_ok, hi_ok]; outside, falls with the log-distance from the band:
-    0 about 27% beyond it, -1 at 60% beyond (the next catalog size up or down)."""
+def _ratio_score(ratio: float, lo_ok: float, hi_ok: float, falloff: float = 1.6) -> float:
+    """+1 inside [lo_ok, hi_ok]; outside, falls with the log-distance from the band,
+    reaching -1 when ``falloff`` times beyond it (the next catalog size up or down)."""
     if ratio <= 0:
         return -1.0
     if lo_ok <= ratio <= hi_ok:
         return 1.0
     excess = math.log(lo_ok / ratio) if ratio < lo_ok else math.log(ratio / hi_ok)
-    return max(-1.0, 1.0 - 2.0 * excess / math.log(1.6))
+    return max(-1.0, 1.0 - 2.0 * excess / math.log(falloff))
 
 
-# catalog attribute -> which measured axis it constrains and the tolerated ratio band.
-# A screw's "length" excludes the head, so the measured long axis may exceed it.
-_RULES: list[tuple[tuple[str, ...], str, float, float]] = [
-    (("length", "overall_length", "overall length"), "long", 0.85, 1.4),
-    (("od", "outside_diameter", "outside diameter", "diameter", "width"), "long", 0.8, 1.2),
+# catalog attribute -> tolerated ratio band. A screw's "length" excludes the head, so
+# the measured long axis may exceed it. A diameter / width is the long axis of a round
+# flat part (washer, ring) but the *short* axis of anything that also has a length
+# (pin, standoff, shaft).
+_LENGTH_KEYS = ("length", "overall_length")
+_DIAMETER_KEYS = ("od", "outside_diameter", "diameter", "width")
+# (keys, band low, band high, falloff): lengths step 1/2" -> 3/4" -> 1" (x1.5), diameters
+# step 1/4" -> 5/16" -> 3/8" (x1.25), so a diameter one size off must already score -1
+_RULES: list[tuple[tuple[str, ...], float, float, float]] = [
+    (_LENGTH_KEYS, 0.85, 1.4, 1.6),
+    (_DIAMETER_KEYS, 0.85, 1.15, 1.35),
 ]
 
 
@@ -148,18 +199,22 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
     """(score in [-1, 1], reasons): does the measured object fit this part's dimensions?"""
     if meas is None:
         return 0.0, []
-    attrs = {k.lower().replace("-", "_"): str(v) for k, v in part.attributes.items()}
+    attrs = {
+        k.lower().replace("-", "_").replace(" ", "_"): str(v) for k, v in part.attributes.items()
+    }
+    has_length = any(k in attrs and parse_length_mm(attrs[k]) for k in _LENGTH_KEYS)
     votes: list[float] = []
     reasons: list[str] = []
-    for keys, axis, lo, hi in _RULES:
+    for keys, lo, hi, falloff in _RULES:
         for key in keys:
             if key not in attrs:
                 continue
             mm = parse_length_mm(attrs[key])
             if not mm:
                 continue
-            measured = meas.long_mm if axis == "long" else meas.short_mm
-            sc = _ratio_score(measured / mm, lo, hi)
+            short_axis = keys is _DIAMETER_KEYS and has_length
+            measured = meas.short_mm if short_axis else meas.long_mm
+            sc = _ratio_score(measured / mm, lo, hi, falloff)
             votes.append(sc)
             verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
             reasons.append(

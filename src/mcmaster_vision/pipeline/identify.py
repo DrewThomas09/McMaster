@@ -172,6 +172,7 @@ class Identifier:
         tta: str = "full",
         cache_keys: list[str] | None = None,
         mm_per_px: float | None = None,
+        reference: tuple[float, float, float, float] | None = None,
     ) -> IdentificationResult:
         """Identify one photo, or several photos of the *same* part (different angles):
         every photo's TTA variants are searched and each catalog part keeps its best score.
@@ -182,7 +183,9 @@ class Identifier:
 
         ``mm_per_px`` is the scale of the first photo (the user marked a coin, a card or a
         ruler): the object's extent is measured and compared with each candidate's catalog
-        dimensions, which separates look-alikes that share one catalog image."""
+        dimensions, which separates look-alikes that share one catalog image. ``reference``
+        is the segment (x1, y1, x2, y2, uploaded pixels) drawn across the reference object,
+        so its blob is not mistaken for the part."""
         images = image if isinstance(image, list) else [image]
         if not images:
             raise ValueError("no images")
@@ -197,7 +200,7 @@ class Identifier:
         image = images[0]
         size: Measurement | None = None
         if mm_per_px:
-            size = measure(image, mm_per_px)
+            size = measure(image, mm_per_px, reference)
             if size is None:
                 notes.append("could not find the object outline to measure it; size not used")
         t = self._timer(timings, "preprocess", t)

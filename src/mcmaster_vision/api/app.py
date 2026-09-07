@@ -244,8 +244,15 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             description="Scale of the first photo (mm per pixel of the uploaded image), "
             "from a coin / card / ruler marked in the app; enables size matching",
         ),
+        ref: str | None = Query(
+            None,
+            pattern=r"^-?\d+(\.\d+)?(,-?\d+(\.\d+)?){3}$",
+            description="x1,y1,x2,y2 (uploaded pixels) of the line drawn across the reference "
+            "object, so the coin / card is not measured instead of the part",
+        ),
         ident: Identifier = Depends(get_identifier),
     ) -> IdentificationResult:
+        reference = tuple(float(v) for v in ref.split(",")) if ref else None
         try:
             cons = json.loads(constraints) if constraints else {}
             if not isinstance(cons, dict):
@@ -277,6 +284,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 constraints=cons,
                 tta=tta,
                 mm_per_px=mm_per_px,
+                reference=reference,
             )
         except (OSError, ValueError) as e:
             raise HTTPException(400, f"could not decode image: {e}") from e

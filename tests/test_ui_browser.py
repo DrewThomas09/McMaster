@@ -199,9 +199,16 @@ def test_measure_tool_sets_scale_and_matches_sizes(server, store, tmp_path):
     exe = _chromium_path()
     if exe is None:
         pytest.skip("no Playwright Chromium build available")
+    from PIL import ImageDraw
+
     part = next(store.iter_parts(with_images_only=True))
     photo = tmp_path / "photo.jpg"
-    Image.open(part.image_paths[0]).convert("RGB").save(photo, format="JPEG", quality=90)
+    # a "coin" on the left, the part on the right (512 x 256): the user marks the coin
+    render = Image.open(part.image_paths[0]).convert("RGB").resize((256, 256))
+    canvas = Image.new("RGB", (512, 256), (255, 255, 255))
+    ImageDraw.Draw(canvas).ellipse((40, 48, 200, 208), fill=(184, 172, 120))
+    canvas.paste(render, (256, 0))
+    canvas.save(photo, format="JPEG", quality=90)
     with pw.sync_playwright() as p:
         browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
         page = browser.new_page(viewport={"width": 390, "height": 800})
@@ -212,10 +219,11 @@ def test_measure_tool_sets_scale_and_matches_sizes(server, store, tmp_path):
         page.click("#measurebtn")
         assert page.locator("#msvg").is_visible() and page.locator("#measurebox").is_visible()
         box = page.locator("#img").bounding_box()
-        # the photo is square, so it fills the box: tap at 20% and 80% of the width
+        # the 2:1 photo is letterboxed in the square box; tap the coin's left and right
+        # edges (x 40..200 of 512) on the photo's middle row
         y = box["y"] + box["height"] / 2
-        page.mouse.click(box["x"] + box["width"] * 0.2, y)
-        page.mouse.click(box["x"] + box["width"] * 0.8, y)
+        page.mouse.click(box["x"] + box["width"] * (48 / 512), y)
+        page.mouse.click(box["x"] + box["width"] * (192 / 512), y)
         page.wait_for_selector("#mchoose:not([hidden])")
         assert "px" in page.locator("#mhint").inner_text()
         page.select_option("#mref", "25.4")
@@ -224,9 +232,13 @@ def test_measure_tool_sets_scale_and_matches_sizes(server, store, tmp_path):
             "document.body.innerText.includes('Measured from your photo')", timeout=30000
         )
         measured = page.evaluate("lastResult.measured")
-        assert measured and measured["long_mm"] > 0
+        # the coin (144 px marked as 25.4 mm) is excluded; the 256 px render measures
+        # well under the 45 mm the coin would give, and not as a 25 mm disc
+        assert measured and 20 < measured["long_mm"] < 60
         scale = page.evaluate("scale")
         assert scale and scale > 0
+        ref = page.evaluate("refSeg")
+        assert ref and len(ref) == 4 and abs(ref[2] - ref[0]) > 50  # the drawn line, uploaded px
         # every candidate now carries a size verdict when it has a dimension to compare
         assert page.evaluate(
             "lastResult.candidates.some(c => c.reasons.some(r => r.includes('measured')))"

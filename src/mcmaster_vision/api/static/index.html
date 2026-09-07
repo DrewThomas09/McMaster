@@ -195,6 +195,7 @@ let photos = [];          // File[] for the current query (several angles of one
 let lastResult = null;
 let constraints = {};     // attribute filters chosen from family chips
 let scale = null;         // mm per pixel of the *uploaded* (downscaled) photo, from the Measure tool
+let refSeg = null;        // the reference line in uploaded pixels, so the coin is not measured as the part
 let tta = 'full';
 let queryDataUrl = null;  // small preview of the first photo (history, lightbox compare)
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -225,7 +226,7 @@ async function loadSamples() {
 $('moresamples').addEventListener('click', () => { sampleSeed++; loadSamples(); });
 async function trySample(pn) {
   const seed = Math.floor(Math.random() * 1000);
-  photos = []; constraints = {}; scale = null; lastResult = null;
+  photos = []; constraints = {}; scale = null; refSeg = null; lastResult = null;
   preview.hidden = false; thumbs.innerHTML = ''; img.src = `/demo/query/${encodeURIComponent(pn)}?seed=${seed}`;
   queryDataUrl = img.src;
   results.innerHTML = '<p><span class="spinner"></span>Identifying a photo-style render of ' + esc(pn) + '&hellip;</p>';
@@ -251,13 +252,13 @@ if (/iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone) { $('insta
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 
 // ---- inputs ----------------------------------------------------------------
-for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; constraints = {}; scale = null; addPhotos([...e.target.files]); } e.target.value = ''; });
+for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; constraints = {}; scale = null; refSeg = null; addPhotos([...e.target.files]); } e.target.value = ''; });
 $('angle').addEventListener('change', e => { if (e.target.files[0]) addPhotos([e.target.files[0]]); e.target.value = ''; });
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; constraints = {}; scale = null; addPhotos([...e.dataTransfer.files]); } });
-window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; constraints = {}; scale = null; addPhotos([it.getAsFile()]); break; } });
-$('again').addEventListener('click', () => { photos = []; lastResult = null; constraints = {}; scale = null; measureOff(); preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; constraints = {}; scale = null; refSeg = null; addPhotos([...e.dataTransfer.files]); } });
+window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; constraints = {}; scale = null; refSeg = null; addPhotos([it.getAsFile()]); break; } });
+$('again').addEventListener('click', () => { photos = []; lastResult = null; constraints = {}; scale = null; refSeg = null; measureOff(); preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
 $('searchform').addEventListener('submit', async e => { e.preventDefault(); const q = $('q').value.trim(); if (q) await search(q); });
 document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on'); tta = b.dataset.tta; if (photos.length) send(); }));
 function refine(k, v) { constraints[k] = v; send(); }
@@ -312,7 +313,7 @@ $('shutter').addEventListener('click', async () => {
   const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
   if (navigator.vibrate) navigator.vibrate(30);
   const f = new File([blob], 'live.jpg', { type: 'image/jpeg' });
-  if (photos.length && lastResult) addPhotos([f]); else { photos = []; constraints = {}; scale = null; addPhotos([f]); }
+  if (photos.length && lastResult) addPhotos([f]); else { photos = []; constraints = {}; scale = null; refSeg = null; addPhotos([f]); }
 });
 
 // ---- query -----------------------------------------------------------------
@@ -345,7 +346,7 @@ async function send() {
   for (const f of photos) fd.append('files', await downscale(f));
   const q = new URLSearchParams({ top_n: $('topn').value, tta }); if ($('llm').checked) q.set('use_llm', 'true');
   if (Object.keys(constraints).length) q.set('constraints', JSON.stringify(constraints));
-  if (scale) q.set('mm_per_px', scale.toFixed(6));
+  if (scale) { q.set('mm_per_px', scale.toFixed(6)); if (refSeg) q.set('ref', refSeg.map(v => v.toFixed(1)).join(',')); }
   let r;
   try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
   catch (e) { results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
@@ -493,11 +494,12 @@ $('muse').addEventListener('click', async () => {
   // the upload is downscaled to 1280 px on the long side: express the scale in uploaded pixels
   const up = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
   scale = mm / (px * up);
+  refSeg = [mpts[0][0] * up, mpts[0][1] * up, mpts[1][0] * up, mpts[1][1] * up];
   $('mscale').hidden = false; $('mscale').textContent = `Scale set: 1 mm = ${(1 / scale).toFixed(1)} uploaded px`;
   toast('Scale set — sizes are now matched against the catalog');
   await send();
 });
-$('mclear').addEventListener('click', async () => { const had = !!scale; scale = null; measureOff(); if (had) await send(); });
+$('mclear').addEventListener('click', async () => { const had = !!scale; scale = null; refSeg = null; measureOff(); if (had) await send(); });
 
 // ---- feedback --------------------------------------------------------------
 async function confirm(partNumber, btn) {

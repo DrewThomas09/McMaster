@@ -44,7 +44,8 @@ def decode_image(data: bytes, max_side: int = 1280) -> Image.Image:
         raise ValueError(str(e)) from e
     if img.width * img.height > MAX_PIXELS:
         raise ValueError(f"image too large: {img.width}x{img.height}")
-    if img.format == "JPEG" and max(img.size) >= 2 * max_side:
+    orig_max = max(img.size)
+    if img.format == "JPEG" and orig_max >= 2 * max_side:
         w, h = img.size  # draft keeps both sides >= the request, so ask in the photo's aspect
         target = (
             (max_side, max(1, max_side * h // w))
@@ -53,11 +54,18 @@ def decode_image(data: bytes, max_side: int = 1280) -> Image.Image:
         )
         img.draft("RGB", target)
     img.load()
-    return ImageOps.exif_transpose(img).convert("RGB")
+    out = ImageOps.exif_transpose(img).convert("RGB")
+    # uploaded pixels per decoded pixel (> 1 when draft reduced the JPEG): callers that
+    # reason in uploaded coordinates (a measured scale, a marked reference) must divide
+    out.info["upload_scale"] = orig_max / max(out.size)
+    return out
 
 
 def foreground_mask(
-    arr: np.ndarray, min_area: float = 0.01, max_area: float = 0.95
+    arr: np.ndarray,
+    min_area: float = 0.01,
+    max_area: float = 0.95,
+    exclude: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Pixels that deviate from a *planar* background model.
 
@@ -68,7 +76,8 @@ def foreground_mask(
     gradients part of the background. A morphological closing bridges thin gaps
     (thread lines, glints) and only the largest connected blob is kept. Returns
     None when nothing stands out. ``arr`` is an (H, W, 3) float array; keep it
-    small (<= 128 px) for speed.
+    small (<= 128 px) for speed. Blobs touching ``exclude`` (a boolean mask of the same
+    shape, e.g. the reference coin the user marked) are dropped before the largest is kept.
     """
     h, w, _ = arr.shape
     yy, xx = np.mgrid[0:h, 0:w]
@@ -99,6 +108,13 @@ def foreground_mask(
     frac = mask.mean()
     if frac < min_area or frac > max_area:
         return None
+    if exclude is not None and exclude.any():
+        labels, _ = label_components(mask)
+        drop = set(np.unique(labels[exclude & mask]).tolist()) - {0}
+        if drop:
+            mask = mask & ~np.isin(labels, list(drop))
+            if mask.mean() < min_area * 0.25:
+                return None
     return largest_component(mask)
 
 
@@ -128,11 +144,13 @@ def _close(m: np.ndarray, iterations: int = 1) -> np.ndarray:
     return m
 
 
-def largest_component(mask: np.ndarray) -> np.ndarray:
-    """Keep the largest 4-connected blob (pure numpy/python; masks are <= 128x128)."""
+def label_components(mask: np.ndarray) -> tuple[np.ndarray, dict[int, int]]:
+    """4-connected labelling (pure numpy/python; masks are <= 160x160). Returns
+    (labels, {label: size}); background is 0."""
     h, w = mask.shape
     labels = np.zeros((h, w), dtype=np.int32)
-    best_label, best_size, current = 0, 0, 0
+    sizes: dict[int, int] = {}
+    current = 0
     ys, xs = np.nonzero(mask)
     for sy, sx in zip(ys.tolist(), xs.tolist(), strict=True):
         if labels[sy, sx]:
@@ -148,9 +166,16 @@ def largest_component(mask: np.ndarray) -> np.ndarray:
                 if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not labels[ny, nx]:
                     labels[ny, nx] = current
                     stack.append((ny, nx))
-        if size > best_size:
-            best_label, best_size = current, size
-    return labels == best_label
+        sizes[current] = size
+    return labels, sizes
+
+
+def largest_component(mask: np.ndarray) -> np.ndarray:
+    """Keep the largest 4-connected blob."""
+    labels, sizes = label_components(mask)
+    if not sizes:
+        return np.zeros_like(mask, dtype=bool)
+    return labels == max(sizes, key=sizes.get)  # type: ignore[arg-type]
 
 
 def saliency_crop(img: Image.Image, margin: float = 0.2) -> Image.Image:
