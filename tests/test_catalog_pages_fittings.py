@@ -126,3 +126,23 @@ def test_pipe_sold_by_the_foot():
     assert parts["4347K31"].attributes["length"] == "1 ft"
     assert parts["4347K36"].attributes["length"] == "6 ft"
     assert parts["4347K31"].attributes["pipe_size"] == "1/2"
+
+
+OUTLETS = """Stainless Steel Pipe Fittings
+High-Pressure Stainless Steel Threaded Pipe Outlets
+Connections: NPT.
+Fits Pipe Size Range     Outlet Pipe Size     Ht.     Max. psi @ 72° F     Type 304/304L Stainless Steel     Type 316/316L Stainless Steel
+1/4 to 36 ........ 1/4 ...... 3/4" ...... 3,000 ...... 4565T31 .... $28.50     4583T11 .... $33.24
+1/2 to 36 ........ 1/2 ...... 1" ........ 3,000 ...... 4565T33 ..... 29.80     4583T13 ..... 34.65
+16
+McMASTER-CARR
+"""
+
+
+def test_pipe_outlets_fit_a_size_range():
+    parts = _by_pn(OUTLETS)
+    o = parts["4565T31"]
+    assert o.attributes["pipe_size"] == "1/4 to 36" and o.attributes["outlet_pipe_size"] == "1/4"
+    assert o.attributes["height"] == '3/4"' and o.attributes["max_psi"] == "3000"
+    assert o.attributes["fitting_type"].startswith("Type 304")
+    assert parts["4583T13"].attributes["fitting_type"].startswith("Type 316")

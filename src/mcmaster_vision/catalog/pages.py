@@ -293,6 +293,10 @@ def _row_parts(
     # psi, wall thickness, a nipple length, a thread)
     first_pn = hits[0][0]
     between = line[size_end : line.index(first_pn)].strip(" .")
+    m_range = re.match(r"to\s+((?:\d+\s*[-\s]\s*)?\d+(?:/\d+)?)\s*(?:\"|″|”)?\s*[.\s]*", between)
+    if m_range:  # "1/4 to 36": a range of pipe sizes the part fits
+        size = f"{size} to {_norm_size(m_range.group(1))}"
+        between = between[m_range.end() :].strip(" .")
     row_values = _row_values(between, ctx.fields) if between else {}
     # a max-psi cell in front of every column ("5,000 51205K162 $21.99  6,000 51205K113 ...")
     psi_by_hit: list[str | None] = []
