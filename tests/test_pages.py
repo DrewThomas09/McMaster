@@ -112,3 +112,13 @@ def test_dashboard_storage_and_backup_button(identifier, store, tmp_path):
     st = client.get("/status").json()["storage"]
     assert st["last_backup"] is not None and st["backups"] == 1
     assert "last backup" in client.get("/dashboard").text
+
+
+def test_service_worker_is_network_first(identifier, tmp_path):
+    """A cached shell must never pin an old UI or a stale dashboard on the phone."""
+    client = _client(identifier, tmp_path)
+    r = client.get("/sw.js")
+    assert r.status_code == 200 and r.headers["service-worker-allowed"] == "/"
+    js = r.text
+    assert "fetch(e.request).then" in js and "catch(() => caches.match" in js
+    assert "startsWith('/static/')" in js and "/dashboard" not in js
