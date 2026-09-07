@@ -28,6 +28,9 @@ serve:
 bootstrap:
 	mcv bootstrap $(SOURCE) --workers 4
 
+selfcheck:  ## prove this machine can run everything
+	mcv selfcheck
+
 doctor:
 	mcv doctor
 
