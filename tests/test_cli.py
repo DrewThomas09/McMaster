@@ -118,3 +118,42 @@ def test_up_builds_demo_once_then_reuses(tmp_path, monkeypatch):
         app, ["up", "--parts", "20", "--demo-dir", str(tmp_path / "demo")], env=env
     )
     assert r.exit_code == 0 and "generating" not in r.output and len(calls) == 2
+
+
+def test_identify_dir_with_a_coin_sets_the_scale(tmp_path, demo_dir, store):
+    """--coin finds the coin in each photo, measures the part and writes sizes to the CSV."""
+    import csv
+
+    from PIL import Image, ImageDraw
+
+    photos = tmp_path / "shots"
+    photos.mkdir()
+    part = next(store.iter_parts(with_images_only=True))
+    render = Image.open(part.image_paths[0]).convert("RGB").resize((256, 256))
+    canvas = Image.new("RGB", (512, 256), (255, 255, 255))
+    ImageDraw.Draw(canvas).ellipse((40, 48, 200, 208), fill=(184, 172, 120))
+    canvas.paste(render, (256, 0))
+    canvas.save(photos / "with_coin.jpg", quality=92)
+    render.save(photos / "alone.jpg", quality=92)
+    import shutil
+
+    shutil.copytree(demo_dir / "index", tmp_path / "idx" / "parts")  # index_dir/parts layout
+    env = {
+        "MCV_CATALOG_DB": str(demo_dir / "catalog.sqlite"),
+        "MCV_INDEX_DIR": str(tmp_path / "idx"),
+        "MCV_DATA_DIR": str(tmp_path),
+        "MCV_BACKBONE": "hash",
+    }
+    out = tmp_path / "res.csv"
+    r = CliRunner().invoke(
+        app, ["identify-dir", str(photos), "--out", str(out), "--coin", "US quarter"], env=env
+    )
+    assert r.exit_code == 0, r.output
+    rows = {row["file"]: row for row in csv.DictReader(out.open())}
+    assert (
+        rows["with_coin.jpg"]["scale_note"].startswith("coin")
+        and float(rows["with_coin.jpg"]["long_mm"]) > 0
+    )
+    assert rows["alone.jpg"]["scale_note"] == "no coin found" and rows["alone.jpg"]["long_mm"] == ""
+    bad = CliRunner().invoke(app, ["identify-dir", str(photos), "--coin", "doubloon"], env=env)
+    assert bad.exit_code != 0 and "unknown coin" in bad.output

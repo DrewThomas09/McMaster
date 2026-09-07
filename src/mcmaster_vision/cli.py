@@ -862,35 +862,67 @@ def identify_dir(
     out: Path = typer.Option(Path("identify_results.csv"), help="CSV of results"),
     config: Path | None = _config_opt,
     top_n: int = typer.Option(3),
+    mm_per_px: float | None = typer.Option(
+        None, help="Scale of every photo (mm per pixel): sizes and thread pitch are matched"
+    ),
+    coin: str | None = typer.Option(
+        None,
+        help="A coin photographed next to each part ('US quarter', '1 euro', ...): it is found "
+        "in the photo and sets the scale; see pipeline/reference.py for the names",
+    ),
 ) -> None:
     """Identify every photo in a folder (a bin, a drawer, a BOM shoot) and write a CSV."""
     import csv
 
     from mcmaster_vision.pipeline import load_identifier
+    from mcmaster_vision.pipeline.preprocess import decode_image
+    from mcmaster_vision.pipeline.reference import COINS_MM, find_coin
 
+    coin_mm = None
+    if coin:
+        key = next((k for k in COINS_MM if k.lower() == coin.strip().lower()), None)
+        if key is None:
+            raise typer.BadParameter(f"unknown coin {coin!r}; choose from {', '.join(COINS_MM)}")
+        coin_mm = COINS_MM[key]
     ident = load_identifier(_settings(config))
     exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".bmp"}
     files = sorted(f for f in folder.iterdir() if f.suffix.lower() in exts)
+    cols = ["file", "tier", "best", "confidence", "family", "candidates", "error"]
+    if mm_per_px or coin_mm:
+        cols += ["long_mm", "short_mm", "pitch_mm", "scale_note"]
     with open(out, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["file", "tier", "best", "confidence", "family", "candidates", "error"])
+        w.writerow(cols)
         for f in files:
             try:
-                res = ident.identify_path(f, top_n=top_n)
+                img = decode_image(f.read_bytes())
+                scale, ref, note = mm_per_px, None, ""
+                if coin_mm:
+                    found = find_coin(img)
+                    if found is not None:
+                        k = float(img.info.get("upload_scale", 1.0) or 1.0)
+                        scale = found.mm_per_px(coin_mm) / k
+                        ref = tuple(v * k for v in found.segment())
+                        note = f"coin {found.diameter_px * k:.0f} px"
+                    elif scale is None:
+                        note = "no coin found"
+                res = ident.identify(img, top_n=top_n, mm_per_px=scale, reference=ref)
             except (OSError, ValueError) as e:  # unreadable, or refused as too large
-                w.writerow([f.name, "", "", "", "", "", str(e)])
+                w.writerow([f.name, "", "", "", "", "", str(e)] + [""] * (len(cols) - 7))
                 continue
-            w.writerow(
-                [
-                    f.name,
-                    res.tier.value,
-                    res.best.part_number if res.best else "",
-                    res.best.confidence if res.best else "",
-                    res.family.family_id if res.family else "",
-                    " ".join(c.part_number for c in res.candidates),
-                    "",
-                ]
-            )
+            row = [
+                f.name,
+                res.tier.value,
+                res.best.part_number if res.best else "",
+                res.best.confidence if res.best else "",
+                res.family.family_id if res.family else "",
+                " ".join(c.part_number for c in res.candidates),
+                "",
+            ]
+            if len(cols) > 7:
+                m = res.measured or {}
+                row += [m.get("long_mm", ""), m.get("short_mm", ""), m.get("pitch_mm", ""), note]
+            w.writerow(row)
             typer.echo(f"{f.name}: {res.tier.value} {res.best.part_number if res.best else '-'}")
     typer.echo(f"{len(files)} photos -> {out}")
 
