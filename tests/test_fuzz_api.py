@@ -198,3 +198,76 @@ def test_parallel_identify_feedback_during_reload_backup_rebuild(store, embedder
     assert len(lines) == 32 and all(json.loads(ln) for ln in lines)
     fb = (tmp_path / "q" / "feedback.jsonl").read_text().splitlines()
     assert len(fb) == 32 and all(json.loads(ln) for ln in fb)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"client_id": "", "part_number": "X"},
+        {"client_id": "a" * 65, "part_number": "X"},
+        {"client_id": "ok", "part_number": ""},
+        {"client_id": "ok", "part_number": "../../etc/passwd"},
+        {"client_id": "ok", "part_number": "X", "quantity": 0},
+        {"client_id": "ok", "part_number": "X", "quantity": 10_000},
+        {"client_id": "ok", "part_number": "X", "quantity": "many"},
+        {"client_id": "ok", "part_number": "X", "request_id": "\x00" * 300},
+        {"client_id": "ok", "part_number": "X", "set_quantity": "yes"},
+        {"client_id": "sp ace", "part_number": "X"},
+        {"client_id": "ok", "part_number": {"nested": 1}},
+    ],
+)
+def test_cart_rejects_awkward_bodies_without_5xx(client, store, body):
+    pn = next(store.iter_parts(with_images_only=True)).part_number
+    if body.get("part_number") == "X":
+        body = {**body, "part_number": pn}
+    r = client.post("/cart", json=body)
+    assert r.status_code in OK, (body, r.text)
+    for bad in ("/cart?client_id=", "/cart?client_id=%00", "/cart", "/orders?client_id=x y"):
+        assert client.get(bad).status_code in OK, bad
+    assert client.delete("/cart/NOPE?client_id=ok").status_code in OK
+    assert client.post("/checkout", json={"client_id": "nobody-here"}).status_code == 400
+    assert client.post("/checkout", json=body).status_code in OK
+    assert (
+        client.post(
+            "/checkout", content=b"not json", headers={"Content-Type": "application/json"}
+        ).status_code
+        in OK
+    )
+
+
+def test_concurrent_cart_writes_stay_consistent(client, store):
+    parts = [p.part_number for p in store.iter_parts(with_images_only=True)][:5]
+    errors: list[str] = []
+
+    def shopper(i: int) -> None:
+        cid = f"shop-{i}"
+        try:
+            for k in range(8):
+                r = client.post(
+                    "/cart", json={"client_id": cid, "part_number": parts[k % len(parts)]}
+                )
+                if r.status_code != 200:
+                    errors.append(f"add {r.status_code} {r.text[:60]}")
+            cart = client.get(f"/cart?client_id={cid}").json()
+            if sum(it["quantity"] for it in cart) != 8:
+                errors.append(f"{cid}: {cart}")
+            r = client.post("/checkout", json={"client_id": cid})
+            if r.status_code != 200:
+                errors.append(f"checkout {r.status_code} {r.text[:60]}")
+        except Exception as e:  # noqa: BLE001
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=shopper, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert not errors, errors
+    orders = client.get("/orders?client_id=shop-0").json()
+    assert len(orders) == 1 and sum(it["quantity"] for it in orders[0]["items"]) == 8
+    a = client.get("/analytics").json()
+    assert a["window"]["checkout"] == 6 and a["window"]["errors"] == 0
+    # no cart file lingers after checkout; the lock files are harmless
+    carts = list((client.app.state.carts.dir).glob("*.json"))
+    assert carts == []
