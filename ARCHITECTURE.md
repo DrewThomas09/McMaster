@@ -56,7 +56,8 @@ one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 | tinycnn (24 epochs) | 2 | 0.13 | 0.46 | 0.71 | 0.97 | 0.29 | 78 |
 | ensemble tinycnn(24ep)+hash (1:1) | 2 | 0.20 | 0.57 | 0.71 | 0.98 | 0.36 | 203 |
 | tinycnn (42 epochs on 800 parts) | 2 | 0.29 | 0.74 | 0.86 | 1.00 | 0.48 | 92 |
-| tinycnn (24 epochs on 8,000 parts, shipped `assets/tinycnn_synthetic.pt`) | 2 | **0.33** | 0.72 | **0.88** | **1.00** | **0.50** | 92 |
+| tinycnn (24 epochs on 8,000 parts, previous shipped checkpoint) | 2 | 0.33 | 0.72 | 0.88 | **1.00** | 0.50 | 92 |
+| **tinycnn retrained on the fixed renderer (shipped `assets/tinycnn_synthetic.pt`, 2026-09-07; seed 4242, 400 queries)** | 2 | **0.47** | **0.86** | **0.97** | **1.00** | **0.63** | 92 |
 | tinycnn (42 epochs) + query expansion k=3 | 2 | 0.28 | 0.72 | **0.87** | 1.00 | 0.47 | 92 |
 | ensemble tinycnn(42ep)+hash (1:1) | 2 | 0.27 | 0.73 | 0.87 | 1.00 | 0.47 | 200 |
 | ensemble tinycnn(42ep)+hash (1:0.5) | 2 | 0.31 | 0.74 | **0.88** | 1.00 | 0.49 | 200 |
@@ -83,7 +84,9 @@ no-op (undone by per-group normalisation) until 2026-09-07; applied properly it
 is worth +1.4 points Recall@1 and +2 points family Recall@1 on a 300-part
 catalog (0.237 vs 0.223, 0.293 vs 0.273). The synthetic renderer now gives every
 kind a distinct second view and keeps long parts on the canvas, which moved the
-shipped TinyCNN's held-out Recall@1 from 0.28 to 0.30 on the same seed.
+shipped TinyCNN's held-out Recall@1 from 0.28 to 0.30 on the same seed, and retraining
+on the fixed renderer took it to 0.47 (family Recall@1 0.65, MRR 0.63; see the model
+card).
 
 ## Training (`training/train.py`)
 

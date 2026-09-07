@@ -54,3 +54,24 @@ Same catalog seed after the renderer fix (every kind's second view is now a dist
 rotation instead of a duplicate of the first; long parts stay on the canvas): Recall@1 /
 @5 / @10 = 0.30 / 0.73 / 0.87, Family Recall@1 0.50, MRR 0.49. Weakest categories:
 Sealing 0.11 (9 queries), Fastening & Joining 0.24 (220), Hardware 0.31 (48).
+
+
+## Retrained on the fixed renderer (2026-09-07, shipped)
+
+Same recipe (`configs/train_tinycnn.yaml`: lr 5e-4, 24 epochs, 8,000 parts of seed 7,
+3 views each) on the renderer after the second-view fix (every kind's second view is a
+distinct rotation or top view; long parts stay on the canvas; 44 families including
+the pipe nipples, couplings, flanges, caps and bushings). Best epoch 18 (validation
+Recall@1 0.204 on the 8k-part split); 4 CPU cores, 7.6 h with concurrent load.
+
+Head to head on the fresh held-out 800-part catalog (seed 4242, 400 photo-style queries,
+`scripts/compare_checkpoints.py`):
+
+| checkpoint | R@1 | R@5 | R@10 | family R@1 | MRR |
+|---|---|---|---|---|---|
+| previous `tinycnn_synthetic.pt` | 0.302 | 0.698 | 0.858 | 0.490 | 0.479 |
+| **this one (shipped)** | **0.468** | **0.863** | **0.968** | **0.645** | **0.628** |
+
+The gain comes from training views that finally differ per part (the duplicate second
+view had been teaching the model that two identical images are two views), not from a
+recipe change.
