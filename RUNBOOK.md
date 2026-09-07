@@ -72,7 +72,7 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   `mcv learn` folds new confirmations into the index incrementally (seconds; the API picks
   it up by itself) and runs a full `mcv retrain` once `MCV_LEARN_RETRAIN_AFTER` (default 50)
   new confirmations arrived. Cron it hourly: `0 * * * * mcv learn` (`--index-only` never
-  retrains). The dashboard's **Learning loop** panel and `GET /analytics` show the funnel
+  retrains; `--retrain-after N` and `--epochs N` override the recipe for a quick check). The dashboard's **Learning loop** panel and `GET /analytics` show the funnel
   (identify -> cart -> checkout), predicted-vs-bought confusion pairs, tier precision on
   what was bought, and a plain-language issues list with the command that fixes each.
   Backend tracking lives in `data/logs/events.jsonl` (every identify, cart, checkout,

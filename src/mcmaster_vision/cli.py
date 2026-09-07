@@ -648,6 +648,7 @@ def learn(
     ),
     force: bool = typer.Option(False, help="Rebuild the index even with nothing new"),
     train_config: Path = typer.Option(Path("configs/train_tinycnn.yaml"), help="Training recipe"),
+    epochs: int | None = typer.Option(None, help="Override the recipe's epochs for the retrain"),
     reload_url: str | None = typer.Option(None, help="POST /admin/reload after a retrain"),
 ) -> None:
     """Close the loop: confirmed and bought photos into the index now, a full retrain once
@@ -663,7 +664,7 @@ def learn(
     )
     if not index_only and state["since_retrain"] >= threshold and state["since_retrain"] > 0:
         typer.echo("enough new evidence: full retrain")
-        retrain(config=config, train_config=train_config, epochs=None, reload_url=reload_url)
+        retrain(config=config, train_config=train_config, epochs=epochs, reload_url=reload_url)
         return
     res = learn_index(s, force=force)
     if res["action"] == "none":
