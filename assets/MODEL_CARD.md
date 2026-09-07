@@ -75,3 +75,12 @@ Head to head on the fresh held-out 800-part catalog (seed 4242, 400 photo-style 
 The gain comes from training views that finally differ per part (the duplicate second
 view had been teaching the model that two identical images are two views), not from a
 recipe change.
+
+By top-level category on the 800-part demo evaluation of the same day (200 photo-style
+queries, gallery augmentation 2; Recall@1 / Recall@5 / queries): Sealing 0.20 / 1.00 / 5;
+Hardware 0.36 / 0.77 / 22; Pipe, Tubing, Hose & Fittings 0.38 / 0.85 / 39 (now including
+the nipple, coupling, flange, cap and bushing kinds); Sawing & Cutting 0.44 / 1.00 / 9;
+Fastening & Joining 0.50 / 0.91 / 92; Power Transmission 0.58 / 0.90 / 31. Overall
+Recall@1 0.47, Recall@5 0.89, family Recall@1 0.68, MRR 0.63. Fittings and hardware
+remain the weakest: the size question, the coin, the bore and the thread pitch are the
+levers there, not the model alone.
