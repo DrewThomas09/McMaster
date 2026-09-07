@@ -218,21 +218,24 @@ makes sure no category or usage prior can overturn it. The manifest records
 the funnel, the confusion pairs, the issue list and how far the next retrain is.
 
 Measured with `mcv simulate --customers 120 --learn` on a clean 200-part
-synthetic demo (hash backbone, gallery augment 2, 2026-09-07):
+synthetic demo (hash backbone, gallery augment 2, baseline scored without the
+usage prior, 2026-09-07):
 
 | | before learning | after `mcv learn` |
 |---|---|---|
-| bought photos that were the top answer | 42% | 100% (same photos, index reloaded) |
-| top-1 over all 120 customers | 30% | 73% |
-| top-1 on *new* photos of the same parts | 30% | 45% |
-| part found in the top 5 (new photos) | 72% | 74% |
+| bought photos that were the top answer | 42% | 99% (same photos, index reloaded) |
+| top-1 over all 120 customers | 31% | 73% |
+| top-1 on *new* photos of the same parts | 31% | 44% |
+| part found in the top 5 (new photos) | 73% | 72% |
 
-The learn step was incremental (86 photos in 25 s, index rows 1972 -> 2058), and
-the 86 photos gave 86 calibration samples (49 wrong) whose refit confirmed the
-existing thresholds. The gallery photo makes the exact angle a sure hit and lifts
-new angles of the same part by half; the rest is what the full retrain is for.
-The analytics also flagged two confusion pairs and that "likely" answers were
-right only half the time when bought, which is the hash backbone's ceiling.
+The learn step was incremental (88 photos in 24 s, index rows 1976 -> 2064). The
+88 photos gave 88 calibration samples (51 wrong); the refit kept the temperature
+and the exact threshold and raised the "likely" threshold from 0.60 to 0.75,
+because no threshold reached 90% precision and 0.75 was the most precise one
+with support. The gallery photo makes the exact angle a near-sure hit and lifts
+new angles of the same part by almost half; the rest is what the full retrain is
+for. The analytics also flagged four confusion pairs and that "likely" answers
+were right only half the time when bought, which is the hash backbone's ceiling.
 
 ## Durability (nothing learned at run time is lost)
 

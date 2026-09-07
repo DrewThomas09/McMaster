@@ -664,7 +664,7 @@ async function checkout() {
   const ord = $('cartorder'); ord.hidden = false;
   ord.innerHTML = `<div class="order"><b>Order ${esc(o.order_id)} placed</b> &middot; ${o.items.length} part${o.items.length === 1 ? '' : 's'}${o.total_usd != null ? ' &middot; $' + esc(o.total_usd.toFixed(2)) : ''}
     <ul>${o.items.map(it => `<li>${esc(it.part_number)} &times; ${it.quantity}${it.name ? ' &mdash; ' + esc(it.name) : ''}</li>`).join('')}</ul>
-    <div class="meta">${learned ? `${learned} photo${learned === 1 ? '' : 's'} now teach the model: next time this part is recognised faster.` : 'Nothing to learn from this order (no photo behind the parts).'}</div>
+    <div class="meta">${learned ? `${learned} photo${learned === 1 ? ' now teaches' : 's now teach'} the model: next time this part is recognised faster.` : 'Nothing to learn from this order (no photo behind the parts).'}</div>
     <button type="button" class="iconbtn" style="margin-top:8px" onclick="closeCart(); resetQuery && resetQuery()">Identify another part</button></div>`;
   toast('Order placed — thank you');
   document.querySelectorAll('.confirm button.yes').forEach(x => x.disabled = true);

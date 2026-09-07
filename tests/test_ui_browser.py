@@ -325,7 +325,7 @@ def test_cart_to_checkout_flow(server, tmp_path):
         page.locator("#checkoutbtn").click()
         page.wait_for_selector("#cartorder .order", timeout=30_000)
         text = page.locator("#cartorder").inner_text()
-        assert "Order" in text and "placed" in text and "teach the model" in text
+        assert "Order" in text and "placed" in text and "teaches the model" in text
         assert page.locator("#cartn").inner_text() == "0"
         page.screenshot(path=str(tmp_path / "checkout.png"), full_page=True)
         browser.close()
