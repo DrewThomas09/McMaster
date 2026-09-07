@@ -200,8 +200,9 @@ corrected when the server decoded the JPEG at reduced size. Each candidate's
 +1 inside a tolerance band (a screw's length excludes the head) falling to -1
 one catalog size away; the fusion reranker weights it like 0.2 of cosine
 similarity, enough to reorder look-alikes but not to overturn a clear visual
-match. Measuring costs about 16 ms on a 1280 px photo (one core) and only runs
-when a scale is supplied.
+match. Per 1280 px photo on one core (hash backbone, fast TTA): identify alone 29 ms;
+with a scale and reference (size + thread pitch) 67 ms; with the coin hint
+(no scale yet) 42 ms. Nothing is measured when no scale is supplied.
 
 ## Pipe sizing and thread pitch (`pipeline/pipe.py`, `pipeline/threads.py`)
 
