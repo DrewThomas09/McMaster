@@ -46,6 +46,9 @@
   a switched retrain withholds nothing from the live gallery; the simulation baseline is
   scored without the usage prior and the learned index is reloaded explicitly; cart calls
   have their own rate budget; Buy now checks out only when the cart holds just that part.
+- Phone UI: the header wraps under the cart badge on narrow phones instead of clipping the
+  navigation; candidates that other customers bought, or whose photo was learned, carry a
+  visible "bought before" / "seen before" chip; the part page has Add to cart.
 - Calibration: when no threshold reaches a tier's precision target, the fit raises the
   threshold to the most precise supported one instead of keeping a default known to be
   wrong (never lowered); the tier-precision issue says when a stronger backbone is needed.
