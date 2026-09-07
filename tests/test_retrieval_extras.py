@@ -40,3 +40,17 @@ def test_gallery_augmentation_multiplies_index_rows(store, embedder, tmp_path):
     assert len(aug) == 2 * len(base)
     assert aug.stats().parts == base.stats().parts
     assert aug.meta["gallery_augment"] == 1
+
+
+def test_retriever_returns_top_k_distinct_parts_with_many_rows(store, embedder):
+    """Several rows per part (images x augmentation) must not shrink the candidate pool."""
+    import numpy as np
+
+    from mcmaster_vision.index import build_index
+    from mcmaster_vision.pipeline.retrieve import Retriever
+
+    idx = build_index(store, embedder, "numpy", gallery_augment=3)  # 2 images x 4 = 8 rows/part
+    n_parts = len(set(idx.ids))
+    q = np.asarray(idx.matrix[0])
+    hits = Retriever(idx, top_k=30).retrieve(q)
+    assert len(hits) == min(30, n_parts)

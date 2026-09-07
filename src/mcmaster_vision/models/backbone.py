@@ -279,24 +279,32 @@ class HashBackbone(Backbone):
             "polar_mask": spec_m,
             "ring_gray": mean_g,
             "ring_mask": mean_m,
-            "thumb_gray": thumb_g * w_thumb,
-            "thumb_mask": thumb_m * w_thumb,
+            "thumb_gray": thumb_g,
+            "thumb_mask": thumb_m,
             "chroma_hist": hist,
             "chroma_mean": mean_col,
             "hu": hu,
             "grad_spec": ospec,
+            # applied *after* per-group normalisation in _vector (scaling the raw group
+            # would be undone by that normalisation): round parts' oriented thumbnails
+            # carry orientation noise, so they count for less
+            "_scales": {"thumb_gray": w_thumb, "thumb_mask": w_thumb},
         }
 
     def feature_groups(self, img: Image.Image) -> dict[str, np.ndarray]:
         """Unweighted feature groups (useful for diagnostics and weight tuning)."""
-        return self._features(img)
+        groups = self._features(img)
+        groups.pop("_scales", None)
+        return groups
 
     def _vector(self, groups: dict[str, np.ndarray]) -> np.ndarray:
+        scales = groups.get("_scales", {})
         parts = []
         for name in self.GROUP_ORDER:
             g = groups[name]
             # each group is L2-normalised so that the weight is its total contribution
-            parts.append(self.weights.get(name, 0.0) * g / (np.linalg.norm(g) + 1e-6))
+            w = self.weights.get(name, 0.0) * float(scales.get(name, 1.0))
+            parts.append(w * g / (np.linalg.norm(g) + 1e-6))
         return np.concatenate(parts).astype(np.float32)
 
     def embed(self, images: Sequence[Image.Image]) -> np.ndarray:

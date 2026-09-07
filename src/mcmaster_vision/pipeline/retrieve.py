@@ -14,7 +14,7 @@ from mcmaster_vision.index.base import VectorIndex
 class Hit:
     part_number: str
     similarity: float  # best image-level cosine similarity
-    hits: int  # how many (variant, image) pairs of this part landed in the top-K
+    hits: int  # how many query variants (TTA views x photos) ranked this part in the top-K
     category_prior: float = 0.0
 
 
@@ -66,7 +66,12 @@ class Retriever:
             q = q[None, :]
         if self.qe_k > 0:
             q = self.expand_queries(q)
-        scores, rows = self.index.search(q, min(k * oversample, len(self.index)))
+        # the row budget must cover top_k *parts*, and a part owns several rows (images x
+        # gallery augmentation), or max-pooling would leave fewer parts than asked for
+        n_rows = len(self.index)
+        n_parts = int(self.index.meta.get("parts") or len(set(self.index.ids)) or 1)
+        rows_per_part = max(1, n_rows // max(1, n_parts))
+        scores, rows = self.index.search(q, min(k * oversample * rows_per_part, n_rows))
         best: dict[str, Hit] = {}
         for v in range(q.shape[0]):
             seen_this_variant: set[str] = set()

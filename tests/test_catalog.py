@@ -71,3 +71,34 @@ def test_taxonomy(store):
     assert tax.children()  # top-level
     for leaf in tax.leaves():
         assert tax.count(leaf) >= 1
+
+
+def test_synthetic_views_differ_and_stay_on_canvas(tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    from mcmaster_vision.data import SyntheticCatalog
+
+    parts = list(
+        SyntheticCatalog(
+            n_parts=40,
+            images_per_part=2,
+            seed=11,
+            kinds=["flat_washer", "socket_head_screw", "spur_gear", "dowel_pin"],
+        ).generate(tmp_path / "img")
+    )
+    for p in parts:
+        a, b = (np.asarray(Image.open(x).convert("L")) for x in p.image_paths)
+        assert not np.array_equal(a, b), f"{p.name}: view 1 identical to view 0"
+        border = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
+        assert border.min() > 200, f"{p.name}: the canonical view touches the canvas edge"
+    # part numbers never collide across seeds
+    s1 = {
+        p.part_number
+        for p in SyntheticCatalog(n_parts=200, images_per_part=1, seed=1).generate(tmp_path / "a")
+    }
+    s2 = {
+        p.part_number
+        for p in SyntheticCatalog(n_parts=200, images_per_part=1, seed=2).generate(tmp_path / "b")
+    }
+    assert not (s1 & s2)

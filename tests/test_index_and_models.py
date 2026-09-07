@@ -77,3 +77,30 @@ def test_index_save_is_atomic_swap(tmp_path):
     idx.save(target)  # overwrite via swap
     assert len(load_index(target)) == 3
     assert not list(tmp_path.glob("parts.tmp-*")) and not (tmp_path / "parts.old").exists()
+
+
+def test_hash_thumbnail_weight_actually_applies():
+    """The anisotropy weight scales the oriented thumbnails after normalisation."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.models import HashBackbone
+
+    hb = HashBackbone()
+    disc = Image.new("RGB", (200, 200), "white")
+    ImageDraw.Draw(disc).ellipse((40, 40, 160, 160), fill=(80, 80, 85))
+    rod = Image.new("RGB", (200, 200), "white")
+    ImageDraw.Draw(rod).rectangle((20, 90, 180, 110), fill=(80, 80, 85))
+    sizes = {}
+    for name in hb.GROUP_ORDER:
+        sizes[name] = len(hb.feature_groups(disc)[name])
+    off = 0
+    span = {}
+    for name in hb.GROUP_ORDER:
+        span[name] = (off, off + sizes[name])
+        off += sizes[name]
+    v_disc = hb.embed([disc])[0]
+    v_rod = hb.embed([rod])[0]
+    a, b = span["thumb_gray"]
+    # a round part's thumbnail block must carry clearly less energy than a rod's
+    assert np.linalg.norm(v_disc[a:b]) < 0.6 * np.linalg.norm(v_rod[a:b])

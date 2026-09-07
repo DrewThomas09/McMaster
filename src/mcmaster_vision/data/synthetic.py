@@ -245,7 +245,8 @@ def _hex_top(d, c, r, color, rot=0):
 def _screw_side(d, c, r, color, p, head: str):
     head_h = int(r * (0.22 if head in ("flat", "button", "set") else 0.34))
     shaft_w = int(r * 0.3)
-    length = int(r * p["length_frac"])
+    # never past the canvas: a clipped screw would show different silhouettes per view
+    length = min(int(r * p["length_frac"]), 2 * c - head_h - 12)
     top = c - (head_h + length) // 2
     head_w = int(r * (0.9 if head != "set" else 0.3))
     if head == "socket":
@@ -482,7 +483,7 @@ def _bearing(d, c, r, color, p, view):
 
 def _pin(d, c, r, color, p, kind):
     w = int(r * (0.22 + p["inner"] * 0.4))
-    L = int(r * p["length_frac"] * 0.6)
+    L = min(int(r * p["length_frac"] * 0.6), 2 * c - 12)
     box = [c - L // 2, c - w // 2, c + L // 2, c + w // 2]
     if kind == "dowel_pin":
         d.rounded_rectangle(
@@ -746,7 +747,7 @@ def _hex_key(d, c, r, color, p):
 
 def _drill_bit(d, c, r, color, p, view):
     w = int(r * (0.12 + p["inner"] * 0.3))
-    L = int(r * p["length_frac"] * 0.6)
+    L = min(int(r * p["length_frac"] * 0.6), 2 * c - 12)
     if view == 1:
         _shade_ellipse(d, [c - w, c - w, c + w, c + w], color)
         d.line(
@@ -777,6 +778,7 @@ class SyntheticCatalog:
         self.n_parts = n_parts
         self.images_per_part = images_per_part
         self.size = size
+        self.seed = seed
         self.rng = random.Random(seed)
         unknown = set(kinds or []) - set(_FAMILIES)
         if unknown:
@@ -885,14 +887,19 @@ class SyntheticCatalog:
                 )
                 _threads(d, [x - w // 2, c, x + w // 2, c + r // 2], max(3, int(p["pitch"])), color)
 
-        angle = 0 if view <= 1 else 25 * view + p["rot"] * 0.3
+        # view 1 is the top view where the kind has one; otherwise it must still differ
+        # from the canonical view, so it is rotated like the later views
+        top_view_here = view == 1 and _FAMILIES[kind][2]
+        angle = 0 if view == 0 or top_view_here else 25 * view + p["rot"] * 0.3
         if angle:
             img = img.rotate(angle, fillcolor=(255, 255, 255), resample=Image.Resampling.BICUBIC)
         return img
 
     # --------------------------------------------------------- generation
     def _part_number(self, i: int) -> str:
-        return f"{90000 + i:05d}A{self.rng.randint(100, 999)}"
+        # the numeric block carries the seed, so catalogs from different seeds never share
+        # a part number (merging two of them into one store must not overwrite parts)
+        return f"{90000 + i + 10000 * (self.seed % 9):05d}A{self.rng.randint(100, 999)}"
 
     def _params(self) -> dict:
         return {
