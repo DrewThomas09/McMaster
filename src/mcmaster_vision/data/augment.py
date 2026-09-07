@@ -159,7 +159,14 @@ class PhotoAugmenter:
     # --------------------------------------------------------------- main
     def __call__(self, img: Image.Image, out_size: int | None = None) -> Image.Image:
         cfg, rng = self.cfg, self.rng
-        img = ImageOps.exif_transpose(img).convert("RGB")
+        img = ImageOps.exif_transpose(img)
+        if "A" in img.getbands() or "transparency" in img.info:
+            # transparent pixels keep an arbitrary (often black) RGB: composite on white so
+            # the background is the workbench, not a black box
+            rgba = img.convert("RGBA")
+            white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            img = Image.alpha_composite(white, rgba)
+        img = img.convert("RGB")
         out_size = out_size or max(img.size)
 
         fg = self._white_to_alpha(img)

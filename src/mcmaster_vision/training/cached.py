@@ -9,6 +9,7 @@ few epochs so the model still sees fresh augmentations over a run.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from multiprocessing import get_context
 
@@ -19,6 +20,8 @@ from mcmaster_vision.data.augment import AugmentConfig, PhotoAugmenter
 from mcmaster_vision.pipeline.preprocess import preprocess
 from mcmaster_vision.schemas import Part
 
+log = logging.getLogger(__name__)
+
 
 def _to_u8(img: Image.Image, size: int) -> np.ndarray:
     return np.asarray(
@@ -26,14 +29,14 @@ def _to_u8(img: Image.Image, size: int) -> np.ndarray:
     )
 
 
-def _job(args: tuple[str, int, int, int, dict]) -> np.ndarray:
+def _job(args: tuple[str, int, int, int, dict]) -> np.ndarray | None:
     path, seed, k, size, cfg_kwargs = args
     aug = PhotoAugmenter(AugmentConfig(**cfg_kwargs), seed=seed)
     try:
         img = Image.open(path)
         img.load()
     except (OSError, FileNotFoundError):  # a deleted or corrupt confirmation photo
-        return np.zeros((k, size, size, 3), dtype=np.uint8)
+        return None  # dropped by build_view_cache: never a black "positive" view
     return np.stack(
         [_to_u8(preprocess(aug(img, out_size=max(160, size)), size), size) for _ in range(k)]
     )
@@ -62,17 +65,30 @@ def build_view_cache(
     # Stream results into one preallocated uint8 array: no list-of-arrays copy, so
     # peak memory is the cache itself (N*k*S*S*3 bytes), not twice that.
     x = np.empty((len(jobs) * k, image_size, image_size, 3), dtype=np.uint8)
+    kept: list[int] = []
+    n = 0
+
+    def take(i: int, views) -> None:
+        nonlocal n
+        if views is None:
+            return
+        x[n * k : (n + 1) * k] = views
+        kept.append(owners[i])
+        n += 1
+
     if workers > 1:
         # "spawn" (not fork): forking a process that already initialised torch's
         # thread pool can deadlock the workers.
         with get_context("spawn").Pool(workers) as pool:
             for i, views in enumerate(pool.imap(_job, jobs, chunksize=8)):
-                x[i * k : (i + 1) * k] = views
+                take(i, views)
     else:
         for i, job in enumerate(jobs):
-            x[i * k : (i + 1) * k] = _job(job)
-    y = np.repeat(np.asarray(owners, dtype=np.int64), k)
-    return x, y
+            take(i, _job(job))
+    if n < len(jobs):
+        log.warning("%d unreadable image(s) skipped in the view cache", len(jobs) - n)
+    y = np.repeat(np.asarray(kept, dtype=np.int64), k)
+    return x[: n * k], y
 
 
 def to_tensor(u8: np.ndarray):

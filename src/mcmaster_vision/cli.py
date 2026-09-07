@@ -435,13 +435,7 @@ def retrain(
     cfg["output_dir"] = str(s.model_dir / "retrain")
     labelled = FeedbackStore(s.queries_dir).labelled_images()
     # hold out every 5th confirmed photo per part: evaluation/calibration must not see training data
-    extra: dict[str, list[str]] = {}
-    held_out: list[tuple[str, str]] = []
-    for pn, paths in labelled.items():
-        keep = [p for i, p in enumerate(paths) if i % 5 != 4 or len(paths) == 1]
-        held_out += [(pn, p) for p in paths if p not in keep]
-        if keep:
-            extra[pn] = keep
+    extra, held_out = _split_feedback(labelled)
     n_train_photos = sum(len(v) for v in extra.values())
     typer.echo(
         f"1/3 training on catalog + {n_train_photos} confirmed photos ({len(held_out)} held out) ..."
@@ -496,6 +490,11 @@ def retrain(
             qe_k=s.query_expansion_k,
             image_size=s.image_size,
         )
+        if not held_out:
+            typer.echo(
+                "no confirmed photo could be held out (parts need 2+): evaluating and "
+                "calibrating on synthetic photo-style queries instead"
+            )
         rep = evaluate_retrieval(ident, store, query_items=held_out or None, max_queries=500)
         cal = Calibration.fit_temperature(rep.score_lists, rep.correct_idx).fit_thresholds(
             rep.score_lists, rep.correct_idx
@@ -506,6 +505,7 @@ def retrain(
         checkpoint=str(ckpt),
         index=idx.stats().model_dump(mode="json"),
         retrain_eval=json.loads(rep.to_json()),
+        retrain_eval_source="held-out confirmed photos" if held_out else "synthetic renders",
         evaluation=None,  # the held-out real photos are the number that matters now
     )
     typer.echo(
@@ -573,6 +573,26 @@ def restore(
     res = restore_backup(s, archive, components=only or None)
     for name, dest in res["restored"].items():
         typer.echo(f"restored {name} -> {dest}")
+
+
+def _split_feedback(
+    labelled: dict[str, list[str]],
+) -> tuple[dict[str, list[str]], list[tuple[str, str]]]:
+    """Training photos and held-out (part, path) pairs: one photo from every part with at
+    least two, plus every 5th beyond that, so evaluation never sees training data and a
+    shop with a few confirmations per part still gets a real-photo number."""
+    extra: dict[str, list[str]] = {}
+    held: list[tuple[str, str]] = []
+    for pn, paths in labelled.items():
+        if len(paths) < 2:
+            extra[pn] = list(paths)
+            continue
+        out = {paths[-1]} | {p for i, p in enumerate(paths[:-1]) if i % 5 == 4}
+        held += [(pn, p) for p in paths if p in out]
+        keep = [p for p in paths if p not in out]
+        if keep:
+            extra[pn] = keep
+    return extra, held
 
 
 def _retrain_switches(live: Settings, new_version: str) -> bool:

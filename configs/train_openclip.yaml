@@ -6,7 +6,7 @@ backbone_pretrained: laion2b_s34b_b88k
 image_size: 224
 embedding_dim: 512
 
-loss: supcon             # supcon | arcface | triplet
+loss: supcon             # supcon (+ arcface head via ce_weight); triplet is not implemented
 arcface_margin: 0.3
 arcface_scale: 30.0
 temperature: 0.07

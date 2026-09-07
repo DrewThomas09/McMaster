@@ -86,3 +86,79 @@ def test_evaluation_breaks_down_by_category_and_lists_misses(identifier, store):
 
     d = json.loads(rep.to_json())
     assert "by_category" in d and "hardest" in d and "score_lists" not in d
+
+
+def test_training_review_regressions(tmp_path):
+    import pickle
+
+    from PIL import Image
+
+    from mcmaster_vision.catalog.web import family_key
+    from mcmaster_vision.cli import _split_feedback
+    from mcmaster_vision.data.augment import PhotoAugmenter
+    from mcmaster_vision.data.splits import split_by_family
+    from mcmaster_vision.schemas import Part
+
+    # a transparent PNG composites on white, never on the hidden black RGB
+    rgba = Image.new("RGBA", (120, 120), (0, 0, 0, 0))
+    for x in range(40, 80):
+        for y in range(40, 80):
+            rgba.putpixel((x, y), (60, 60, 65, 255))
+    out = PhotoAugmenter(seed=0)(rgba, out_size=160).convert("RGB")
+    corner = out.getpixel((3, 3))
+    assert min(corner) > 120, corner  # workbench-light, not black
+
+    # web imports share a family across sizes; splits fall back to the category
+    a = family_key(["Pipe Fittings", "Elbows"], 'Type 304 Stainless Steel 90° Elbow, 3/8" NPT')
+    b = family_key(["Pipe Fittings", "Elbows"], 'Type 304 Stainless Steel 90° Elbow, 1/2" NPT')
+    c = family_key(["Pipe Fittings", "Elbows"], "Type 316 Stainless Steel 90° Elbow, M6 x 1")
+    assert a == b and a != c
+    parts = [
+        Part(part_number=f"P{i}", name="x", category_path=["Cat", "Sub"], family_id=None)
+        for i in range(30)
+    ]
+    train, val = split_by_family(parts, 0.3)
+    assert not train or not val  # one category -> one side, never leaked across
+
+    # hold-out: one photo from every part with 2+, none from singletons
+    extra, held = _split_feedback(
+        {"A": ["a1"], "B": ["b1", "b2"], "C": [f"c{i}" for i in range(7)]}
+    )
+    assert extra["A"] == ["a1"] and "A" not in dict(held)
+    assert dict(held)["B"] == "b2" and extra["B"] == ["b1"]
+    held_c = [p for pn, p in held if pn == "C"]
+    assert "c6" in held_c and len(held_c) == 2 and len(extra["C"]) == 5
+
+    # the dataset is picklable for spawn workers (when torch is present)
+    torch = pytest.importorskip("torch")
+    from mcmaster_vision.data.dataset import make_contrastive_dataset
+
+    img = tmp_path / "p.png"
+    Image.new("RGB", (32, 32), "gray").save(img)
+    ds, _ = make_contrastive_dataset(
+        [Part(part_number="Q", name="q", category_path=["c"], image_paths=[str(img)])],
+        transform=lambda im: torch.zeros(3, 8, 8),
+        views=2,
+        image_size=32,
+    )
+    assert len(pickle.dumps(ds)) > 0 and ds[0][0].shape == (2, 3, 8, 8)
+
+
+def test_view_cache_drops_unreadable_images(tmp_path):
+    from PIL import Image
+
+    from mcmaster_vision.schemas import Part
+    from mcmaster_vision.training.cached import build_view_cache
+
+    good = tmp_path / "good.png"
+    Image.new("RGB", (64, 64), "gray").save(good)
+    bad = tmp_path / "bad.jpg"
+    bad.write_bytes(b"not an image")
+    parts = [
+        Part(part_number="A", name="a", category_path=["c"], image_paths=[str(good), str(bad)]),
+        Part(
+            part_number="B", name="b", category_path=["c"], image_paths=[str(tmp_path / "gone.jpg")]
+        ),
+    ]
+    x, owners = build_view_cache(parts, 2, 32, workers=1)
+    assert x.shape == (2, 32, 32, 3) and owners.tolist() == [0, 0]  # only the readable image

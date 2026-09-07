@@ -279,6 +279,23 @@ def _robots_match(rule: str, path: str) -> bool:
     return re.match(pattern + ("$" if anchored else ""), path) is not None
 
 
+_SIZE_TOKENS = re.compile(
+    r"(\d+\s*-\s*\d+/\d+|\d+/\d+|\d+(?:\.\d+)?\s*(?:\"|″|”|mm|cm|in\b|inch(?:es)?|ft\b|tpi\b|°)|"
+    r"\d+\s*-\s*\d+\b|#\d+|\bM\d+(?:\.\d+)?\b|\bNPT[FSMH]*\b|\bBSP[TP]?\b|\bx\b|×)",
+    re.I,
+)
+
+
+def family_key(category_path: list[str], name: str) -> str | None:
+    """Look-alike SKUs share a page family: the category plus the name with every size,
+    thread and count token removed ("Type 304 Stainless Steel 90° Elbow, 3/8 NPT" and the
+    1/2 NPT one collapse to the same key)."""
+    words = re.sub(r"[,;:()]+", " ", _SIZE_TOKENS.sub(" ", name)).lower().split()
+    stem = " ".join(w for w in words if len(w) > 1)  # bare grades like 304 / 316 stay
+    key = " > ".join(category_path) + (f" :: {stem}" if stem else "")
+    return key.strip(" :>") or None
+
+
 class WebImporter:
     def __init__(
         self,
@@ -421,7 +438,7 @@ class WebImporter:
             description=data.description,
             attributes=data.attributes,
             image_paths=images,
-            family_id=None,
+            family_id=family_key(data.category_path, data.name or ""),
             url=data.url,
         )
 

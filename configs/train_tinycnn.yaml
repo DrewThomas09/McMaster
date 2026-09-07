@@ -26,12 +26,12 @@ lr: 1.0e-3
 head_lr: 1.0e-3
 weight_decay: 0.02
 warmup_steps: 200
-freeze_backbone_epochs: 0
+freeze_backbone_epochs: 0  # DataLoader path only
 hard_negative_mining: true
 mining_refresh_every: 2
 augment_curriculum: true
-num_workers: 3
-amp: false
+num_workers: 3  # DataLoader path only (cache_views: 0); the cached trainer uses cache_workers
+amp: false  # DataLoader path only; the cached trainer runs fp32
 seed: 42
 val_frac: 0.1
 output_dir: ./data/models/tinycnn

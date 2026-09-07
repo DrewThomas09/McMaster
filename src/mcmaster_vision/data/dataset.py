@@ -51,32 +51,53 @@ def make_contrastive_dataset(
 
     Used by supervised-contrastive and ArcFace training alike.
     """
-    Dataset = _require_torch()
-    import torch
+    _require_torch()  # torch must be importable here even though the class is module-level
 
     augmenter = augmenter or PhotoAugmenter()
     label_map = build_label_map(parts)
-    items = [(p, path) for p in parts for path in p.image_paths]
+    items = [(p.part_number, path) for p in parts for path in p.image_paths]
+    return ContrastiveDataset(items, label_map, transform, augmenter, views, image_size), label_map
 
-    class ContrastiveDataset(Dataset):  # type: ignore[misc,valid-type]
-        def __init__(self) -> None:
-            self.augmenter = augmenter
 
-        def __len__(self) -> int:
-            return len(items)
+class _DatasetBase:
+    pass
 
-        def __getitem__(self, idx: int):
-            part, path = items[idx]
-            img = Image.open(path).convert("RGB")
-            tensors = [transform(augmenter(img, out_size=image_size)) for _ in range(views)]
-            return torch.stack(tensors), label_map[part.part_number]
 
-    return ContrastiveDataset(), label_map
+def _dataset_base():
+    try:
+        return _require_torch()
+    except Exception:  # pragma: no cover - torch missing
+        return _DatasetBase
+
+
+class ContrastiveDataset(_dataset_base()):  # type: ignore[misc]
+    """Module-level (picklable) so DataLoader workers start under "spawn" too."""
+
+    def __init__(self, items, label_map, transform, augmenter, views, image_size):
+        self.items = items
+        self.label_map = label_map
+        self.transform = transform
+        self.augmenter = augmenter
+        self.views = views
+        self.image_size = image_size
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __getitem__(self, idx: int):
+        import torch
+
+        pn, path = self.items[idx]
+        img = Image.open(path).convert("RGB")
+        tensors = [
+            self.transform(self.augmenter(img, out_size=self.image_size)) for _ in range(self.views)
+        ]
+        return torch.stack(tensors), self.label_map[pn]
 
 
 def make_catalog_dataset(parts: Sequence[Part], transform: Callable[[Image.Image], Any]):
     """Clean catalog images (no augmentation) for building the gallery / index."""
-    Dataset = _require_torch()
+    _require_torch()  # torch must be importable here even though the class is module-level
     items = [(p.part_number, path) for p in parts for path in p.image_paths]
 
     class CatalogDataset(Dataset):  # type: ignore[misc,valid-type]

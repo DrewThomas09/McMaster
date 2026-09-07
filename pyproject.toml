@@ -25,7 +25,7 @@ dependencies = [
 [project.optional-dependencies]
 # Real neural backbones (CLIP / SigLIP / DINOv2) and the training loop.
 ml = [
-    "torch>=2.2",
+    "torch>=2.5",
     "torchvision>=0.17",
     "open_clip_torch>=2.24",
     "timm>=0.9",

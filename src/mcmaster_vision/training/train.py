@@ -85,12 +85,21 @@ def load_train_config(path: str | Path | None) -> dict[str, Any]:
     return cfg
 
 
-def _mean_part_embeddings(backbone, parts: list[Part]) -> np.ndarray:
+MIN_VAL_PARTS = 20  # below this a validation split saturates at 1.0 and cannot pick a best epoch
+
+
+def _mean_part_embeddings(backbone, parts: list[Part], size: int = 224) -> np.ndarray:
+    """Gallery vectors the way serving builds them: catalog images go through the same
+    crop + pad preprocessing as the index and the training views."""
     from PIL import Image
+
+    from mcmaster_vision.pipeline.preprocess import preprocess_catalog
 
     vecs = []
     for p in parts:
-        imgs = [Image.open(x).convert("RGB") for x in p.image_paths[:2]]
+        imgs = [
+            preprocess_catalog(Image.open(x).convert("RGB"), size=size) for x in p.image_paths[:2]
+        ]
         vecs.append(backbone.embed(imgs).mean(axis=0))
     v = np.stack(vecs)
     return v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-8)
@@ -142,8 +151,16 @@ def train(
         backbone_model=cfg["backbone_model"],
         backbone_pretrained=cfg["backbone_pretrained"],
         image_size=cfg["image_size"],
+        # never inherit MCV_BACKBONE_CHECKPOINT from the environment: a warm start is an
+        # explicit recipe key, and a loaded projection would masquerade as the raw dim
+        backbone_checkpoint=cfg.get("warm_start") or None,
     )
     backbone = load_backbone(settings)
+    if int(cfg.get("cache_views", 0)) > 0 and cfg["backbone"] != "tinycnn":
+        raise ValueError(
+            "cache_views > 0 (the cached trainer) normalises views for TinyCNN only; set "
+            f"cache_views: 0 for backbone {cfg['backbone']!r}"
+        )
     device = backbone.device
     net = backbone.trainable_module()
     head = ProjectionHead(
@@ -223,7 +240,7 @@ def train(
 
         if cfg["hard_negative_mining"] and epoch % cfg["mining_refresh_every"] == 0 and epoch > 0:
             backbone.projection = head.eval()
-            emb = _mean_part_embeddings(backbone, train_parts)
+            emb = _mean_part_embeddings(backbone, train_parts, int(cfg["image_size"]))
             hard = mine_hard_negatives(train_parts, emb)
             backbone.projection = None
 
@@ -244,9 +261,9 @@ def train(
         else:
             loader = DataLoader(
                 dataset,
-                batch_size=cfg["batch_size"],
+                batch_size=max(2, min(int(cfg["batch_size"]), len(dataset))),  # never 0 steps
                 shuffle=True,
-                drop_last=True,
+                drop_last=len(dataset) >= 2 * int(cfg["batch_size"]),
                 num_workers=cfg["num_workers"],
                 worker_init_fn=worker_init_fn,
             )
@@ -285,7 +302,13 @@ def train(
         # validation: Recall@1 with augmented val queries against the val gallery
         backbone.projection = head
         val_r1 = (
-            _validate(backbone, val_parts, eval_augmenter, int(cfg["val_max_parts"]))
+            _validate(
+                backbone,
+                val_parts,
+                eval_augmenter,
+                int(cfg["val_max_parts"]),
+                int(cfg["image_size"]),
+            )
             if val_parts
             else float("nan")
         )
@@ -309,7 +332,7 @@ def train(
             "val_recall@1": val_r1,
         }
         torch.save(ckpt, out_dir / "last.pt")
-        if val_r1 != val_r1 or val_r1 > best_val:  # nan-safe
+        if val_r1 != val_r1 or val_r1 >= best_val:  # nan-safe; ties keep the later epoch
             best_val = val_r1 if val_r1 == val_r1 else best_val
             torch.save(ckpt, out_dir / "best.pt")
         (out_dir / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
@@ -374,7 +397,12 @@ def _train_cached(
     for epoch in range(epochs):
         if x_u8 is None or epoch % int(cfg["cache_refresh_epochs"]) == 0:
             t_cache = time.time()
-            mild = cfg["augment_curriculum"] and epoch == 0 and epochs > 1
+            # the mild first cache is only worth it when a full-strength one will follow
+            mild = (
+                cfg["augment_curriculum"]
+                and epoch == 0
+                and epochs > int(cfg["cache_refresh_epochs"])
+            )
             aug_cfg = (
                 AugmentConfig.interpolate(AugmentConfig.evaluation(), AugmentConfig(), 0.5)
                 if mild
@@ -399,7 +427,9 @@ def _train_cached(
             )
         if cfg["hard_negative_mining"] and epoch > 0 and epoch % cfg["mining_refresh_every"] == 0:
             backbone.projection = head
-            hard = mine_hard_negatives(train_parts, _mean_part_embeddings(backbone, train_parts))
+            hard = mine_hard_negatives(
+                train_parts, _mean_part_embeddings(backbone, train_parts, int(cfg["image_size"]))
+            )
             backbone.projection = None
         sampler = (
             hard_batch_sampler(train_parts, hard, bs, seed=cfg["seed"] + epoch) if hard else None
@@ -444,7 +474,13 @@ def _train_cached(
 
         backbone.projection = head
         val_r1 = (
-            _validate(backbone, val_parts, eval_augmenter, int(cfg["val_max_parts"]))
+            _validate(
+                backbone,
+                val_parts,
+                eval_augmenter,
+                int(cfg["val_max_parts"]),
+                int(cfg["image_size"]),
+            )
             if val_parts
             else float("nan")
         )
@@ -495,12 +531,22 @@ def _hard_batches(
 
 
 def _validate(
-    backbone, val_parts: list[Part], augmenter: PhotoAugmenter, max_parts: int = 500
+    backbone,
+    val_parts: list[Part],
+    augmenter: PhotoAugmenter,
+    max_parts: int = 500,
+    size: int = 224,
 ) -> float:
     from PIL import Image
 
+    from mcmaster_vision.pipeline.preprocess import preprocess
+
     parts = val_parts[:max_parts]
-    gallery = _mean_part_embeddings(backbone, parts)
-    queries = backbone.embed([augmenter(Image.open(p.image_paths[0])) for p in parts])
+    if len(parts) < MIN_VAL_PARTS:
+        return float("nan")  # "no usable validation": every epoch's checkpoint is kept as best
+    gallery = _mean_part_embeddings(backbone, parts, size)
+    queries = backbone.embed(
+        [preprocess(augmenter(Image.open(p.image_paths[0])), size=size) for p in parts]
+    )
     sims = queries @ gallery.T
     return float((sims.argmax(axis=1) == np.arange(len(parts))).mean())

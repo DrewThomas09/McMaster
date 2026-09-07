@@ -21,6 +21,8 @@ def split_by_family(parts: Iterable[Part], val_frac: float = 0.1) -> tuple[list[
     val: list[Part] = []
     cutoff = int(val_frac * 1000)
     for p in parts:
-        key = p.family_id or p.part_number
+        # without a family id, near-duplicate SKUs of one category must still land on the
+        # same side (per-SKU buckets would leak look-alikes into validation)
+        key = p.family_id or " > ".join(p.category_path[:3]) or p.part_number
         (val if _bucket(key) < cutoff else train).append(p)
     return train, val

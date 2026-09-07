@@ -44,6 +44,7 @@ def export_onnx(backbone, out_path: str | Path, image_size: int = 224, opset: in
         input_names=["image"],
         output_names=["embedding"],
         dynamic_shapes={"x": {0: torch.export.Dim("batch", min=1, max=4096)}},
+        dynamo=True,  # dynamic_shapes is a dynamo-exporter option (torch >= 2.5)
     )
     return out
 
