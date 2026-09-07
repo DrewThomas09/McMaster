@@ -93,6 +93,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
         await run_in_threadpool(_do)
 
+    app.state.record = record
+
     def _load() -> Identifier:
         ident = load_identifier(settings)
         app.state.index_mtime = index_meta.stat().st_mtime if index_meta.exists() else None

@@ -14,6 +14,6 @@ self.addEventListener('fetch', e => {
     fetch(e.request).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(SHELL).then(c => c.put(e.request, copy)); }
       return res;
-    }).catch(() => caches.match(e.request).then(hit => hit || Response.error()))
+    }).catch(() => caches.match(e.request, { ignoreSearch: url.pathname === '/' }).then(hit => hit || Response.error()))
   );
 });

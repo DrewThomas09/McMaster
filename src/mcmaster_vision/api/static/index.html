@@ -14,7 +14,8 @@
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   .capture { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   @media (max-width:560px) { .capture { grid-template-columns:1fr; } }
-  .btn input { display:none; }
+  .btn input { position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; clip:rect(0 0 0 0); }  /* focusable, invisible */
+  .btn:focus-within { outline:2px solid var(--yellow); outline-offset:2px; }
   .hint { color:var(--muted); font-size:13px; margin:10px 4px 0; text-align:center; }
   .drop.over { outline:3px dashed var(--accent); outline-offset:-6px; border-radius:14px; }
   .opts { display:flex; gap:14px; justify-content:center; margin-top:10px; font-size:13px; color:var(--muted); flex-wrap:wrap; align-items:center; }
@@ -230,17 +231,22 @@ async function loadSamples() {
 $('moresamples').addEventListener('click', () => { sampleSeed++; loadSamples(); });
 async function trySample(pn) {
   const seed = Math.floor(Math.random() * 1000);
-  photos = []; constraints = {}; scale = null; refSeg = null; lastResult = null;
-  preview.hidden = false; thumbs.innerHTML = ''; img.src = `/demo/query/${encodeURIComponent(pn)}?seed=${seed}`;
+  const seq = resetQuery();
+  preview.hidden = false; thumbs.innerHTML = ''; setPreview(`/demo/query/${encodeURIComponent(pn)}?seed=${seed}`);
   queryDataUrl = img.src;
   results.innerHTML = '<p><span class="spinner"></span>Identifying a photo-style render of ' + esc(pn) + '&hellip;</p>';
   const t0 = performance.now();
-  const r = await fetch(`/demo/try/${encodeURIComponent(pn)}?seed=${seed}&top_n=${$('topn').value}&tta=${tta}`, { method: 'POST' });
+  let r;
+  try { r = await fetch(`/demo/try/${encodeURIComponent(pn)}?seed=${seed}&top_n=${$('topn').value}&tta=${tta}`, { method: 'POST' }); }
+  catch (e) { if (seq === sendSeq) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
+  if (seq !== sendSeq) return;
   if (!r.ok) { results.innerHTML = `<p style="color:var(--bad)">Demo failed (${r.status})</p>`; return; }
   const d = await r.json();
-  lastResult = d.result; lastResult._roundtrip = Math.round(performance.now() - t0);
+  if (seq !== sendSeq) return;
+  lastResult = d.result; lastResult._roundtrip = Math.round(performance.now() - t0); lastResult._sample = true;
   // the demo photo is generated server-side: fetch it so "This is it" can still file feedback
-  try { const b = await (await fetch(img.src)).blob(); photos = [new File([b], 'demo.jpg', { type: 'image/jpeg' })]; } catch (_) {}
+  try { const b = await (await fetch(img.src)).blob(); if (seq === sendSeq) photos = [new File([b], 'demo.jpg', { type: 'image/jpeg' })]; } catch (_) {}
+  if (seq !== sendSeq) return;
   render(lastResult);
   const verdict = document.querySelector('.verdict .tier');
   if (verdict) verdict.insertAdjacentHTML('afterend', d.rank === 1 ? '<span class="badge ok">correct</span>' : d.rank ? `<span class="badge near">truth ranked #${d.rank}</span>` : '<span class="badge no">missed</span>');
@@ -256,13 +262,13 @@ if (/iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone) { $('insta
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js').catch(() => {}); }
 
 // ---- inputs ----------------------------------------------------------------
-for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { photos = []; constraints = {}; scale = null; refSeg = null; addPhotos([...e.target.files]); } e.target.value = ''; });
+for (const id of ['camera', 'file']) $(id).addEventListener('change', e => { if (e.target.files[0]) { resetQuery(); addPhotos([...e.target.files]); } e.target.value = ''; });
 $('angle').addEventListener('change', e => { if (e.target.files[0]) addPhotos([e.target.files[0]]); e.target.value = ''; });
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { photos = []; constraints = {}; scale = null; refSeg = null; addPhotos([...e.dataTransfer.files]); } });
-window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { photos = []; constraints = {}; scale = null; refSeg = null; addPhotos([it.getAsFile()]); break; } });
-$('again').addEventListener('click', () => { photos = []; lastResult = null; constraints = {}; scale = null; refSeg = null; measureOff(); preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { resetQuery(); addPhotos([...e.dataTransfer.files]); } });
+window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { resetQuery(); addPhotos([it.getAsFile()]); break; } });
+$('again').addEventListener('click', () => { resetQuery(); preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
 $('searchform').addEventListener('submit', async e => { e.preventDefault(); const q = $('q').value.trim(); if (q) await search(q); });
 document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on'); tta = b.dataset.tta; if (photos.length) send(); }));
 function refine(k, v) { constraints[k] = v; send(); }
@@ -275,26 +281,32 @@ if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSe
 $('livebtn').addEventListener('click', openCam);
 $('camclose').addEventListener('click', closeCam);
 $('flip').addEventListener('click', () => { facing = facing === 'environment' ? 'user' : 'environment'; openCam(); });
+let camGen = 0;
 async function openCam() {
   closeCam();
-  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }); }
+  const gen = ++camGen;
+  let s;
+  try { s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }); }
   catch (e) { toast('Camera not available: ' + e.message); return; }
-  $('video').srcObject = stream; $('cam').classList.add('on');
+  if (gen !== camGen) { s.getTracks().forEach(t => t.stop()); return; }  // a newer open/close won
+  stream = s; $('video').srcObject = stream; $('cam').classList.add('on');
 }
-function closeCam() { stopLive(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } $('cam').classList.remove('on'); }
+function closeCam() { camGen++; stopLive(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } $('cam').classList.remove('on'); }
 
 // ---- Live ID: identify frames continuously (fast mode, not logged) ------------
-let liveTimer = null, liveBusy = false, liveLast = null;
+let liveTimer = null, liveBusy = false, liveLast = null, liveGen = 0;
 $('livetoggle').addEventListener('click', () => liveTimer ? stopLive() : startLive());
 function startLive() {
   if (!stream) return;
   $('livetoggle').classList.add('on'); $('overlay').hidden = false; $('overlay').innerHTML = '<span class="dot"></span><span>Looking&hellip;</span>';
+  liveGen++;
   liveTimer = setInterval(liveTick, 900); liveTick();
 }
-function stopLive() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; liveBusy = false; $('livetoggle').classList.remove('on'); $('overlay').hidden = true; }
+function stopLive() { liveGen++; if (liveTimer) clearInterval(liveTimer); liveTimer = null; liveBusy = false; $('livetoggle').classList.remove('on'); $('overlay').hidden = true; }
 async function liveTick() {
   const v = $('video'); if (liveBusy || !v.videoWidth) return;
   liveBusy = true;
+  const gen = liveGen;
   try {
     const c = document.createElement('canvas'); const s = 512 / Math.max(v.videoWidth, v.videoHeight);
     c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
@@ -302,8 +314,8 @@ async function liveTick() {
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.8));
     const fd = new FormData(); fd.append('file', blob, 'live.jpg');
     const r = await fetch('/identify?top_n=1&tta=fast&log=false', { method: 'POST', body: fd });
-    if (!r.ok) return;
-    const res = await r.json(); liveLast = res;
+    if (!r.ok || gen !== liveGen) return;  // Live ID was stopped while this frame was in flight
+    const res = await r.json(); if (gen !== liveGen) return; liveLast = res;
     const b = res.best || res.candidates[0];
     const tierText = { exact: 'exact', likely: 'likely', candidate: 'maybe', unknown: 'no match' }[res.tier] || res.tier;
     $('overlay').innerHTML = b
@@ -318,7 +330,7 @@ $('shutter').addEventListener('click', async () => {
   const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
   if (navigator.vibrate) navigator.vibrate(30);
   const f = new File([blob], 'live.jpg', { type: 'image/jpeg' });
-  if (photos.length && lastResult) addPhotos([f]); else { photos = []; constraints = {}; scale = null; refSeg = null; addPhotos([f]); }
+  resetQuery(); addPhotos([f]);  // a shot is a new query; "+ Add another angle" adds angles
 });
 
 // ---- query -----------------------------------------------------------------
@@ -336,14 +348,28 @@ async function downscale(file, max = 1280) {
 async function tinyDataUrl(file, side = 96) {
   try { const bmp = await createImageBitmap(file); const c = document.createElement('canvas'); const s = side / Math.max(bmp.width, bmp.height); c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.7); } catch (_) { return null; }
 }
+let sendSeq = 0;
+let objectUrls = [];
+function setPreview(src) {  // revoke the previous photo's blob URLs; redraw the measure overlay for the new image
+  objectUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch (_) {} }); objectUrls = [];
+  img.src = src;
+}
+img.addEventListener('load', () => { if (measuring) drawMeasure(); });
+function resetQuery() {  // every path that starts a new query goes through here
+  photos = []; constraints = {}; scale = null; refSeg = null; lastResult = null;
+  if (typeof measureOff === 'function') measureOff();
+  return ++sendSeq;  // an in-flight send() for the old query must not render over the new one
+}
 async function addPhotos(files) {
+  const before = photos.length;
   photos = photos.concat(files).slice(0, 6);
-  preview.hidden = false; img.src = URL.createObjectURL(photos[0]);
-  thumbs.innerHTML = photos.length > 1 ? photos.map(f => `<img src="${URL.createObjectURL(f)}" alt="">`).join('') : '';
+  if (before + files.length > 6) toast('At most 6 photos per query: extra photos were dropped');
+  preview.hidden = false;
+  const url = URL.createObjectURL(photos[0]); setPreview(url); objectUrls.push(url);
+  thumbs.innerHTML = photos.length > 1 ? photos.map(f => { const u = URL.createObjectURL(f); objectUrls.push(u); return `<img src="${u}" alt="">`; }).join('') : '';
   queryDataUrl = await tinyDataUrl(photos[0]);
   await send();
 }
-let sendSeq = 0;
 async function send() {
   if (!photos.length) return;
   const seq = ++sendSeq;
@@ -356,9 +382,9 @@ async function send() {
   if (scale) { q.set('mm_per_px', scale.toFixed(6)); if (refSeg) q.set('ref', refSeg.map(v => v.toFixed(1)).join(',')); }
   let r;
   try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
-  catch (e) { results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
+  catch (e) { if (seq === sendSeq) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
   if (seq !== sendSeq) return;  // superseded by a newer query
-  if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(d)}</p>`; return; }
+  if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(typeof d === 'string' ? d : JSON.stringify(d))}</p>`; return; }
   lastResult = await r.json();
   lastResult._roundtrip = Math.round(performance.now() - t0);
   if (navigator.vibrate) navigator.vibrate(lastResult.tier === 'exact' ? [30, 40, 30] : 20);
@@ -433,6 +459,7 @@ async function loadStrips(cands) {
     } catch (_) {}
   }
 }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('lb').classList.remove('on'); });
 function lightbox(src, compareSrc, caption) {
   $('lb1').src = src; const l2 = $('lb2'); if (compareSrc) { l2.src = compareSrc; l2.hidden = false; } else l2.hidden = true;
   $('lbcap').textContent = caption || ''; $('lb').classList.add('on');
@@ -446,10 +473,15 @@ async function shareResult() {
 
 // ---- search ----------------------------------------------------------------
 async function search(q) {
+  const seq = ++sendSeq;
   results.innerHTML = '<p><span class="spinner"></span>Searching&hellip;</p>';
-  const r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10`);
+  let r;
+  try { r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10`); }
+  catch (e) { if (seq === sendSeq) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
+  if (seq !== sendSeq) return;
   if (!r.ok) { results.innerHTML = `<p style="color:var(--bad)">Search failed (${r.status})</p>`; return; }
   const parts = await r.json();
+  if (seq !== sendSeq) return;
   if (!parts.length) { results.innerHTML = '<p>No catalog entries match.</p>'; return; }
   results.innerHTML = parts.map(p => `<div class="card cand">
       <img class="main" src="/parts/${encodeURIComponent(p.part_number)}/thumb?size=200" loading="lazy" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${encodeURIComponent(p.part_number)}/image', null, ${js(p.part_number)})">
@@ -466,6 +498,7 @@ async function useCoin(mm) {
   const r = c.diameter_px / 2;
   scale = mm / c.diameter_px;  // coin_hint is already in uploaded pixels
   refSeg = [c.cx - r, c.cy, c.cx + r, c.cy];
+  $('mscale').hidden = false; $('mscale').textContent = `Scale set from the coin: 1 mm = ${(1 / scale).toFixed(1)} uploaded px`;
   toast('Scale set from the coin — sizes are now matched against the catalog');
   await send();
 }
@@ -546,7 +579,9 @@ async function confirm(partNumber, btn) {
     btn.textContent = 'Could not save' + (why ? ': ' + why.slice(0, 60) : ''); return;
   }
   // offline or server down: keep it in an outbox and sync when we are back
-  await queueFeedback({ request_id: lastResult.request_id, part_number: partNumber || null, predicted: lastResult.best ? lastResult.best.part_number : null, tier: lastResult.tier, image: blob ? await blobToDataUrl(blob) : null });
+  const small = photos[0] ? await downscale(photos[0], 640) : null;  // a few hundred KB, not a few MB
+  const stored = queueFeedback({ request_id: lastResult.request_id, part_number: partNumber || null, predicted: lastResult.best ? lastResult.best.part_number : null, tier: lastResult.tier, image: small ? await blobToDataUrl(small) : null });
+  if (!stored) { btn.textContent = 'Could not save'; document.querySelectorAll('.confirm button').forEach(b => b.disabled = false); btn.classList.remove('done'); toast('Offline and no room to store this on the phone'); return; }
   btn.textContent = (partNumber ? 'Saved as ' + partNumber : 'Saved as unknown') + ' (will sync)';
   toast('No connection — saved on this phone, syncs automatically');
 }
@@ -555,10 +590,13 @@ async function confirm(partNumber, btn) {
 function blobToDataUrl(blob) { return new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); }); }
 async function dataUrlToBlob(u) { return (await fetch(u)).blob(); }
 function outbox() { try { return JSON.parse(localStorage.getItem('mcv.outbox') || '[]'); } catch (_) { return []; } }
-async function queueFeedback(item) {
+function queueFeedback(item) {  // true when the item is really stored
   const q = outbox(); q.push(Object.assign({ t: Date.now() + Math.random() }, item));
-  try { localStorage.setItem('mcv.outbox', JSON.stringify(q.slice(-20))); } catch (_) { toast('Could not store offline (storage full)'); }
-  updateOutboxBadge();
+  try { localStorage.setItem('mcv.outbox', JSON.stringify(q.slice(-20))); updateOutboxBadge(); return true; }
+  catch (_) {
+    if (item.image) { const lite = Object.assign({}, item, { image: null }); q[q.length - 1] = lite; try { localStorage.setItem('mcv.outbox', JSON.stringify(q.slice(-20))); updateOutboxBadge(); return true; } catch (_) {} }
+    return false;
+  }
 }
 function updateOutboxBadge() { const n = outbox().length; const el = $('outbox'); if (el) { el.hidden = !n; el.textContent = n + ' to sync'; } }
 let syncing = false;

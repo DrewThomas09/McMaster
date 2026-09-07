@@ -97,6 +97,11 @@ async def try_part(
     img = aug(Image.open(part.image_paths[seed % len(part.image_paths)]), out_size=512)
     async with request.app.state.gate:
         res = await run_in_threadpool(ident.identify, img, top_n=top_n, tta=tta)
+    # a sample is a real identification: log it and keep the render so a "This is it"
+    # on it files feedback like any photo
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    await request.app.state.record(res, buf.getvalue())
     ranked = [c.part_number for c in res.candidates]
     return {
         "truth": part.part_number,

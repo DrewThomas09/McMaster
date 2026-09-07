@@ -28,7 +28,8 @@ main.mc { max-width: 980px; margin: 0 auto; padding: 14px 14px 40px; }
 /* surfaces */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,.35); color: #fff; white-space: nowrap; }
-.pill.ok { background: var(--yellow); color: var(--yellow-ink); border-color: var(--yellow); }
+.pill.ok { background: var(--yellow); color: #6b5200; border-color: var(--yellow); }  /* literal: dark mode remaps --yellow-ink to yellow */
+[hidden] { display: none !important; }  /* author display rules must not defeat the hidden attribute */
 .pill.warn { background: #b45309; border-color: #b45309; }
 /* buttons */
 .btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px 14px; border-radius: var(--radius); font-weight: 700; font-size: 17px; cursor: pointer; border: 2px solid transparent; user-select: none; min-width: 0; text-decoration: none; }
@@ -47,7 +48,7 @@ main.mc { max-width: 980px; margin: 0 auto; padding: 14px 14px 40px; }
 .chip.on, .chips button.on { background: var(--yellow-soft); border-color: var(--yellow); color: var(--yellow-ink); }
 /* tiers */
 .tier { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 13px; letter-spacing: .02em; color: #fff; }
-.tier.exact { background: var(--ok); } .tier.likely { background: var(--yellow); color: var(--yellow-ink); } .tier.candidate { background: var(--warn); } .tier.unknown { background: var(--bad); }
+.tier.exact { background: var(--ok); } .tier.likely { background: var(--yellow); color: #6b5200; } .tier.candidate { background: var(--warn); } .tier.unknown { background: var(--bad); }
 /* spec tables */
 table.spec { width: 100%; border-collapse: collapse; font-size: 14px; }
 table.spec td, table.spec th { padding: 6px 4px; border-top: 1px solid var(--rule); text-align: left; vertical-align: top; }

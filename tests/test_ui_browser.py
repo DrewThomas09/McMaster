@@ -144,6 +144,15 @@ def test_demo_sample_flow(server, tmp_path):
         page.wait_for_selector(".verdict .badge", timeout=60_000)
         badge = page.locator(".verdict .badge").inner_text()
         assert badge == "correct" or "ranked" in badge or badge == "missed"
+        # the hidden attribute must win over class display rules
+        assert page.locator("#mchoose").is_hidden() and page.locator("#overlay").is_hidden()
+        assert page.locator("#install").is_hidden()
+        # a sample is a real identification: confirming it files feedback
+        page.locator(".cand .confirm button.yes").first.click()
+        page.wait_for_function(
+            "document.querySelector('.cand .confirm button.yes').textContent.startsWith('Saved as')",
+            timeout=30000,
+        )
         assert page.locator("#preview img").get_attribute("src").startswith("/demo/query/")
         page.screenshot(path=str(tmp_path / "demo.png"), full_page=True)
         (tmp_path / "demo.png").replace(
