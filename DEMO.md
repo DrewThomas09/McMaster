@@ -31,6 +31,8 @@ accept the certificate warning once on the phone.
 5b. **Measure it:** put a quarter (or a card) next to the part, tap **Measure**,
    tap the two ends of the coin, pick "US quarter". The verdict now shows the
    measured size and every candidate says whether its catalog length / OD fits.
+5c. **Threads:** with the scale set, a threaded part also shows its pitch
+   ("thread pitch ≈ 1.27 mm, 20 tpi"); a 1/4"-28 look-alike drops in the list.
 6. **Learning loop:** tap **This is it** on the right candidate. Then open
    `/metrics` on the laptop: the confirmed top-1 rate is the live scorecard,
    and `mcv retrain` folds those photos into the next model.

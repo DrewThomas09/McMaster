@@ -30,6 +30,7 @@ real-browser runs of the phone UI):
 | interface | camera-first PWA, several angles per query, one-tap confirmation, text search, batch endpoint and CLI |
 | operations | bootstrap, doctor, status, metrics, retrain (cron), auto reload, rate limit, request log, runbook |
 | durability | every confirmation, photo, log and index is on disk; `mcv backup` / `mcv restore`; offline outbox on the phone; usage prior from confirmations |
+| sizing | Measure tool and coin hint; nominal pipe size -> real OD/ID; thread pitch from the photo (NPT vs BSP, coarse vs fine); catalog-page importer |
 | needs you | McMaster images (any of the intake paths), a GPU for CLIP/DINOv2, real photos via the feedback loop |
 
 ## Demo in 60 seconds
