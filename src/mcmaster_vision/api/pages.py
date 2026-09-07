@@ -288,6 +288,10 @@ def _learning_loop_html(request: Request) -> str:
         f'<tr><td><span class="tier {e(t)}">{e(t)}</span></td><td>{v["bought"]}</td><td>{pc(v["precision"])}</td></tr>'
         for t, v in a["tier_precision_bought"].items()
     )
+    cat_rows = "".join(
+        f"<tr><td>{e(c)}</td><td>{v['bought']}</td><td>{pc(v['precision'])}</td></tr>"
+        for c, v in list(a.get("category_precision_bought", {}).items())[:6]
+    )
     conf = a["confidence"]
     due = learn["retrain_due"]
     day_rows = "".join(
@@ -313,6 +317,7 @@ def _learning_loop_html(request: Request) -> str:
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
   <div class="card" style="padding:8px 12px;flex:1;min-width:260px"><b>Predicted vs bought</b><table class="spec"><tr><th>predicted</th><th>bought</th><th>times</th></tr>{conf_rows or '<tr><td class="msg" colspan="3">No wrong purchases recorded.</td></tr>'}</table></div>
   <div class="card" style="padding:8px 12px;flex:1;min-width:260px"><b>When customers bought, was the tier right?</b><table class="spec"><tr><th>tier</th><th>bought</th><th>top-1 right</th></tr>{tier_rows or '<tr><td class="msg" colspan="3">Nothing bought yet.</td></tr>'}</table>
+  {f'<table class="spec" style="margin-top:6px"><tr><th>weakest categories (bought)</th><th>bought</th><th>top-1 right</th></tr>{cat_rows}</table>' if cat_rows else ""}
   <div class="crumbs">confidence when right {e(conf["when_right"] if conf["when_right"] is not None else "—")} · when wrong {e(conf["when_wrong"] if conf["when_wrong"] is not None else "—")} · p95 latency {e(a["latency_ms"]["p95"] or "—")} ms · errors {w["errors"]}</div></div>
 </div>
 {daily_html}

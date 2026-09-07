@@ -142,6 +142,7 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
     conf_when_right: list[float] = []
     conf_when_wrong: list[float] = []
     tier_outcomes: dict[str, list[int]] = {}
+    cat_outcomes: dict[str, list[int]] = {}
     for it in bought:
         src = by_request.get(it.get("request_id"))
         if not src:
@@ -153,6 +154,10 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
         tier_outcomes.setdefault(tier, [0, 0])
         tier_outcomes[tier][0] += 1
         tier_outcomes[tier][1] += ok
+        cat = src.get("category") or "?"
+        cat_outcomes.setdefault(cat, [0, 0])
+        cat_outcomes[cat][0] += 1
+        cat_outcomes[cat][1] += ok
         if ok:
             correct_bought += 1
             conf_when_right.append(float(src.get("confidence") or 0))
@@ -191,6 +196,10 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
         "tier_precision_bought": {
             t: {"bought": n, "top1_right": k, "precision": round(k / n, 3)}
             for t, (n, k) in tier_outcomes.items()
+        },
+        "category_precision_bought": {
+            c: {"bought": n, "top1_right": k, "precision": round(k / n, 3)}
+            for c, (n, k) in sorted(cat_outcomes.items(), key=lambda kv: kv[1][1] / kv[1][0])
         },
         "confidence": {
             "when_right": round(float(np.mean(conf_when_right)), 3) if conf_when_right else None,
@@ -332,6 +341,17 @@ def issues(a: dict) -> list[dict]:
                     "do": "recalibrate on real outcomes (`mcv learn` does it from confirmed "
                     "photos); if the tier does not move, this backbone cannot separate the "
                     "look-alikes: retrain, or a stronger backbone",
+                }
+            )
+    for cat, v in list(a.get("category_precision_bought", {}).items())[:2]:
+        if v["bought"] >= 5 and v["precision"] < 0.5:
+            out.append(
+                {
+                    "severity": "medium",
+                    "what": f"in {cat} the top answer was bought only {v['precision']:.0%} of "
+                    f"the time ({v['bought']} purchases)",
+                    "do": "the weakest category: more photos of its parts (`mcv learn` after "
+                    "purchases), and check its attributes and images in the catalog",
                 }
             )
     conf = a.get("confidence", {})

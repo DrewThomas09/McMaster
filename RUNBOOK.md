@@ -151,8 +151,13 @@ Nightly refresh (cron):
 
 ```
 0 2 * * *  cd /srv/mcmaster-vision && mcv backup >> data/logs/backup.log 2>&1
+0 * * * *  cd /srv/mcmaster-vision && mcv learn >> data/logs/learn.log 2>&1
 0 3 * * *  cd /srv/mcmaster-vision && mcv retrain --epochs 8 --reload-url http://localhost:8000 >> data/logs/retrain.log 2>&1
 ```
+
+With Docker, the `learner` service in both compose files does the hourly `mcv learn`
+(`MCV_LEARN_EVERY_S` sets the interval); the nightly retrain stays a cron line or a
+`docker compose run learner mcv retrain ...`.
 
 ## 4c. Nothing gets lost
 

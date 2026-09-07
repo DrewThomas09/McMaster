@@ -31,6 +31,28 @@ services:
       retries: 3
       start_period: 60s
 
+  # Closes the loop on a schedule: confirmed and bought photos into the index every hour,
+  # a purchase-weighted retrain once MCV_LEARN_RETRAIN_AFTER new ones arrived. The API
+  # picks a rebuilt index up by itself; a retrain that switches model version goes to
+  # sibling directories and is switched on by an explicit env change (see RUNBOOK 3).
+  learner:
+    build:
+      context: ..
+      args:
+        EXTRAS: ml,faiss
+    env_file: ../.env
+    environment:
+      MCV_DATA_DIR: /data
+      MCV_CATALOG_DB: /data/catalog/catalog.sqlite
+      MCV_INDEX_DIR: /data/index
+      MCV_MODEL_DIR: /data/models
+      MCV_QUERIES_DIR: /data/queries
+      MCV_LEARN_EVERY_S: "3600"
+    volumes:
+      - ../data:/data
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do mcv learn >> /data/logs/learn.log 2>&1; sleep ${MCV_LEARN_EVERY_S:-3600}; done"]
+
   caddy:
     image: caddy:2
     ports: ["80:80", "443:443"]

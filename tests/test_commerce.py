@@ -283,3 +283,30 @@ def test_daily_trend_lines_up_learning_with_accuracy(tmp_path):
     (day,) = analytics(ev)["daily"]
     assert day["identify"] == 4 and day["bought"] == 4 and day["bought_top1_rate"] == 0.5
     assert day["learns"] == 1 and day["retrains"] == 1
+
+
+def test_category_precision_and_issue(tmp_path):
+    ev = EventLog(tmp_path / "e.jsonl")
+    for i in range(6):
+        ev.log(
+            "identify",
+            request_id=f"r{i}",
+            best="P",
+            candidates=["P", "Q"],
+            category="Fastening > Nuts",
+        )
+        ev.log("checkout", order_id=f"o{i}", items=[{"part_number": "Q", "request_id": f"r{i}"}])
+    ev.log("identify", request_id="x", best="Z", candidates=["Z"], category="Sealing > O-Rings")
+    ev.log("checkout", order_id="ox", items=[{"part_number": "Z", "request_id": "x"}])
+    a = analytics(ev)
+    cats = a["category_precision_bought"]
+    assert list(cats)[0] == "Fastening > Nuts" and cats["Fastening > Nuts"]["precision"] == 0.0
+    assert cats["Sealing > O-Rings"]["precision"] == 1.0
+    assert any("Fastening > Nuts" in i["what"] for i in issues(a))
+
+
+def test_identify_event_carries_category(identifier, tmp_path):
+    client, _ = _client(identifier, tmp_path)
+    pn, d = _identify_sample(client, seed=6)
+    row = client.app.state.events.identify_row(d["result"]["request_id"])
+    assert row["category"] and " > " in row["category"]

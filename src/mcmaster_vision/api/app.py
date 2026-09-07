@@ -107,6 +107,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 photos=result.photos,
                 measured=bool(result.measured),
                 family=result.family.family_id if result.family else None,
+                category=" > ".join(result.best.category_path[:2]) if result.best else None,
             )
             if photo is not None:
                 app.state.recent.put(result.request_id, photo)

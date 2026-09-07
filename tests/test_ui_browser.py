@@ -328,6 +328,11 @@ def test_cart_to_checkout_flow(server, tmp_path):
         assert "Order" in text and "placed" in text and "teaches the model" in text
         assert page.locator("#cartn").inner_text() == "0"
         page.screenshot(path=str(tmp_path / "checkout.png"), full_page=True)
+        # the order is listed (drawer still open) and can be re-ordered in one tap
+        page.wait_for_selector("#pastorders:not([hidden])")
+        page.locator("#pastorders summary").click()
+        page.locator("#pastlist button").first.click()
+        page.wait_for_function("document.getElementById('cartn').textContent === '2'")
         browser.close()
     orders = httpx.get(server + "/orders").json()
     assert orders and orders[0]["items"][0]["quantity"] == 2

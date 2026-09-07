@@ -207,6 +207,7 @@
   <h2>Cart <button type="button" class="iconbtn" onclick="closeCart()">Close</button></h2>
   <div id="cartitems"></div>
   <div id="cartorder" hidden></div>
+  <details id="pastorders" hidden><summary class="meta">Your orders</summary><div id="pastlist"></div></details>
   <div class="checkout" id="checkoutrow" hidden>
     <div class="meta" id="carttotal"></div>
     <button type="button" class="btn primary" id="checkoutbtn" onclick="checkout()">Check out</button>
@@ -642,7 +643,23 @@ function renderCart() {
   $('carttotal').innerHTML = `${cartCount()} item${cartCount() === 1 ? '' : 's'}${total ? ' &middot; $' + esc(total.toFixed(2)) : ''}`;
   $('checkoutrow').hidden = false; $('cartorder').hidden = true;
 }
-function openCart() { renderCart(); $('cart').classList.add('on'); }
+function openCart() { renderCart(); loadOrders(); $('cart').classList.add('on'); }
+async function loadOrders() {
+  let orders = [];
+  try { const r = await fetch(`/orders?client_id=${encodeURIComponent(clientId())}&limit=10`); if (r.ok) orders = await r.json(); } catch (_) {}
+  const box = $('pastorders'); box.hidden = !orders.length; if (!orders.length) return;
+  $('pastlist').innerHTML = orders.map(o => `<div class="citem" style="margin-top:6px"><div style="flex:1;min-width:0"><div class="meta"><b>${esc(o.order_id)}</b> &middot; ${esc((o.created_at || '').slice(0, 10))}</div>
+    <div class="meta">${o.items.map(it => `${esc(it.part_number)} &times; ${it.quantity}`).join(', ')}</div></div>
+    <button type="button" class="iconbtn" onclick="orderAgain(${js(o.order_id)})">Order again</button></div>`).join('');
+  window._pastOrders = orders;
+}
+async function orderAgain(orderId) {  // the same parts back in the cart in one tap
+  const o = (window._pastOrders || []).find(x => x.order_id === orderId); if (!o) return;
+  for (const it of o.items) {
+    try { const r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: it.part_number, quantity: it.quantity }) }); if (r.ok) cart = await r.json(); } catch (_) {}
+  }
+  updateCartBadge(); renderCart(); toast('Added ' + o.items.length + ' part' + (o.items.length === 1 ? '' : 's') + ' from order ' + orderId);
+}
 async function buyNow(pn, btn) {  // one tap from a confident answer to a placed order
   if (btn) btn.disabled = true;
   await addToCart(pn, null);
@@ -668,6 +685,7 @@ async function checkout() {
     <button type="button" class="iconbtn" style="margin-top:8px" onclick="closeCart(); resetQuery && resetQuery()">Identify another part</button></div>`;
   toast('Order placed — thank you');
   document.querySelectorAll('.confirm button.yes').forEach(x => x.disabled = true);
+  loadOrders();  // the new order appears under "Your orders" right away
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCart(); });
 loadCart().then(() => { if (location.hash === '#cart') { history.replaceState(null, '', location.pathname); openCart(); } });

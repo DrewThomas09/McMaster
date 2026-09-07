@@ -60,6 +60,10 @@
   just-raised `likely` and needs a 5-point gain to move a threshold; confusion pairs compare
   name and category too and ignore price/url keys; the orders tail read keeps a complete
   first line; the chip says "confirmed before".
+- Purchases by category: `/analytics` and the dashboard show which categories customers get
+  wrong most (top-1 precision when bought) with an issue for the weakest; identify events
+  carry the category. A `learner` service in both compose files runs `mcv learn` hourly.
+- Phone UI: "Your orders" in the cart drawer with one-tap "Order again".
 - Analytics: a per-day trend (identifications, parts bought, bought-top-1 rate, learn and
   retrain events, which `mcv learn` / `mcv retrain` now write to the event log) on
   `/analytics` and the dashboard, so the loop's effect is visible over time.
