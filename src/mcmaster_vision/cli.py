@@ -733,7 +733,10 @@ def report(
     for c, v in list(a.get("category_precision_bought", {}).items())[:4]:
         typer.echo(f"  {c}: right {pc(v['precision'])} when bought ({v['bought']})")
     lat = a["latency_ms"]
-    typer.echo(f"latency p50 {lat['p50']} ms, p95 {lat['p95']} ms; server errors {w['errors']}")
+    typer.echo(
+        f"latency p50 {lat['p50'] if lat['p50'] is not None else '-'} ms, p95 "
+        f"{lat['p95'] if lat['p95'] is not None else '-'} ms; server errors {w['errors']}"
+    )
     lr = a["learning"]
     typer.echo(
         f"learned {lr['learned_at'] or 'never'}; {lr['new_confirmations']} new confirmations "

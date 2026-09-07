@@ -234,10 +234,17 @@ class Identifier:
             t = self._timer(timings, "ocr", t)
 
         # 3. embed + retrieve (all photos' TTA variants stacked into one multi-query)
+        # the first photo's embedding differs with and without a reference (it is erased
+        # before embedding), so the cache key must say which one this is
+        ref_tag = f"|ref={tuple(round(v, 1) for v in reference)}" if reference else ""
         qvec = np.concatenate(
             [
                 self._embed_cached(
-                    q, tta, cache_keys[i] if cache_keys and i < len(cache_keys) else None
+                    q,
+                    tta,
+                    (cache_keys[i] + (ref_tag if i == 0 else ""))
+                    if cache_keys and i < len(cache_keys)
+                    else None,
                 )
                 for i, q in enumerate(query_imgs)
             ],

@@ -89,3 +89,32 @@ def test_demo_try_with_a_coin_measures_the_part(identifier, tmp_path):
     assert row["measured"] is True
     plain = client.post(f"/demo/try/{pn}?seed=2&tta=none").json()
     assert plain["coin"] is False and not plain["result"].get("measured")
+
+
+def test_coin_segment_and_part_long_mm_edge_cases(store):
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.api.demo import coin_segment, part_long_mm
+    from mcmaster_vision.schemas import Part
+
+    m = Image.new("L", (200, 200), 0)
+    ImageDraw.Draw(m).ellipse((50, 50, 130, 130), fill=255)
+    seg = coin_segment(m)
+    assert seg and abs((seg[2] - seg[0]) - 81) <= 2 and abs(seg[1] - 90) <= 1
+    clipped = Image.new("L", (200, 200), 0)
+    ImageDraw.Draw(clipped).ellipse((-40, 50, 60, 150), fill=255)
+    assert coin_segment(clipped) is None  # a coin cut by the frame gives no honest scale
+    # a rod: diameter is not its long axis
+    rod = Image.new("RGB", (200, 200), "white")
+    ImageDraw.Draw(rod).rectangle((20, 90, 180, 110), fill=(80, 80, 80))
+    p = Part(part_number="R", name="rod", category_path=["x"], attributes={"diameter": '1/4"'})
+    assert part_long_mm(p, rod) is None
+    washer = Image.new("RGB", (200, 200), "white")
+    ImageDraw.Draw(washer).ellipse((20, 20, 180, 180), fill=(80, 80, 80))
+    assert abs(part_long_mm(p, washer) - 6.35) < 0.01
+    assert (
+        part_long_mm(
+            Part(part_number="L", name="l", category_path=["x"], attributes={"length": '2"'})
+        )
+        == 50.8
+    )

@@ -369,3 +369,37 @@ def test_augmenter_carries_a_mask_through_the_geometry():
     reddish = (red[..., 0] > 120) & (red[..., 1] < 120)
     # the warped mask sits on the warped red disc
     assert m.sum() > 200 and (m & reddish).sum() / m.sum() > 0.8
+
+
+def test_long_reference_segment_spares_the_part():
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.measure import erase_reference
+
+    # a credit card's long edge marked as the reference, a dark part 15 px beside it
+    img = Image.new("RGB", (640, 400), (236, 232, 220))
+    d = ImageDraw.Draw(img)
+    d.rectangle((40, 40, 470, 310), fill=(30, 90, 160))  # the card
+    d.rectangle((490, 100, 600, 160), fill=(40, 40, 45))  # the part
+    out = np.asarray(erase_reference(img, (40, 40, 470, 40))).astype(int)
+    assert (out[150, 545] < 60).all()  # the part survives
+    assert abs(out[200, 250] - np.array([236, 232, 220])).max() < 30  # the card is gone
+
+
+def test_largest_component_uses_the_labeller_fast():
+    import time
+
+    import numpy as np
+
+    from mcmaster_vision.pipeline.measure import _largest_component
+
+    rng = np.random.default_rng(0)
+    noisy = rng.random((160, 160)) > 0.6  # thousands of specks
+    t = time.perf_counter()
+    biggest = _largest_component(noisy)
+    assert biggest >= 1 and time.perf_counter() - t < 0.5
+    blob = np.zeros((50, 50), dtype=bool)
+    blob[10:20, 10:20] = True
+    blob[30:33, 30:33] = True
+    assert _largest_component(blob) == 100

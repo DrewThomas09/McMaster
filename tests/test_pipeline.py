@@ -257,3 +257,31 @@ def test_reranker_schema_is_accepted_by_structured_outputs():
         assert obj.get("additionalProperties") is False
         assert set(obj["required"]) == set(obj["properties"])
     assert "ranking" in schema["properties"] and "extracted" in schema["properties"]
+
+
+def test_query_cache_distinguishes_a_reference(identifier, store):
+    import io
+
+    from PIL import Image, ImageDraw
+
+    part = next(store.iter_parts(with_images_only=True))
+    render = Image.open(part.image_paths[0]).convert("RGB").resize((256, 256))
+    canvas = Image.new("RGB", (512, 256), (255, 255, 255))
+    ImageDraw.Draw(canvas).ellipse((40, 48, 200, 208), fill=(60, 60, 65))  # a dark "coin"
+    canvas.paste(render, (256, 0))
+    buf = io.BytesIO()
+    canvas.save(buf, "PNG")
+    blob = buf.getvalue()
+    plain = identifier.identify_many_bytes([blob], top_n=5, tta="none")
+    with_ref = identifier.identify_many_bytes(
+        [blob], top_n=5, tta="none", mm_per_px=24.26 / 160, reference=(40, 128, 200, 128)
+    )
+    # the same bytes embed differently once the coin is erased: the cache must not hand
+    # the plain vector back to the reference request
+    sims_plain = {c.part_number: c.similarity for c in plain.candidates}
+    sims_ref = {c.part_number: c.similarity for c in with_ref.candidates}
+    assert sims_plain != sims_ref
+    again = identifier.identify_many_bytes(
+        [blob], top_n=5, tta="none", mm_per_px=24.26 / 160, reference=(40, 128, 200, 128)
+    )
+    assert {c.part_number: c.similarity for c in again.candidates} == sims_ref

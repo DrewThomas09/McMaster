@@ -220,37 +220,22 @@ def bore_px(image: Image.Image, work: int = 160, exclude: Segment | None = None)
 def _largest_component(mask: np.ndarray) -> int:
     """Pixel count of the largest 4-connected component (a flange's centre bore, not its
     bolt holes summed together)."""
-    try:
-        from scipy import ndimage
+    from mcmaster_vision.pipeline.preprocess import label_components
 
-        labels, n = ndimage.label(mask)
-        return max((int((labels == i).sum()) for i in range(1, n + 1)), default=0)
-    except ImportError:
-        left = mask.copy()
-        best = 0
-        while left.any():
-            ys, xs = np.nonzero(left)
-            comp = np.zeros_like(left)
-            comp[ys[0], xs[0]] = True
-            while True:
-                grown = comp.copy()
-                grown[1:, :] |= comp[:-1, :]
-                grown[:-1, :] |= comp[1:, :]
-                grown[:, 1:] |= comp[:, :-1]
-                grown[:, :-1] |= comp[:, 1:]
-                grown &= left
-                if (grown == comp).all():
-                    break
-                comp = grown
-            best = max(best, int(comp.sum()))
-            left &= ~comp
-        return best
+    _, sizes = label_components(mask.astype(bool))
+    return max(sizes.values(), default=0)
 
 
 def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> Image.Image:
-    """The photo with the reference object (the blob under the segment the user drew
-    across the coin, card or ruler) painted over in the background colour, so the
-    embedding sees the part alone: the coin sets the scale, it must not vote on looks."""
+    """The photo with the reference object (the coin, card or ruler the user drew the
+    segment across) painted over in the surrounding bench colour, so the embedding sees
+    the part alone: the reference sets the scale, it must not vote on looks.
+
+    A coin-sized segment erases the disc it spans (a coin the colour of the bench is
+    invisible to the foreground mask, but still there for the embedding). A long segment
+    (a card edge, a ruler) erases the foreground blobs it crosses plus a thin band along
+    it, never a disc that would swallow the part beside it. Foreground blobs the segment
+    does not touch are spared either way."""
     w, h = image.size
     k = float(image.info.get("upload_scale", 1.0) or 1.0)
     seg = tuple(v / k for v in reference)
@@ -259,16 +244,43 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
     arr = np.asarray(small, dtype=np.float32)
     mask = foreground_mask(arr)
     mask = mask.astype(bool) if mask is not None else np.zeros(arr.shape[:2], dtype=bool)
-    # the disc the segment spans, and only that: growing a blob through the foreground
-    # mask would cross into a part that touches the coin's shadow, and a coin the colour
-    # of the bench is invisible to the mask anyway
     x1, y1, x2, y2 = (v * s for v in seg)
     half = 0.5 * float(np.hypot(x2 - x1, y2 - y1))
     if half < 1.5:
         return image
-    yy, xx = np.mgrid[0 : mask.shape[0], 0 : mask.shape[1]]
-    d2 = (xx - (x1 + x2) / 2) ** 2 + (yy - (y1 + y2) / 2) ** 2
-    comp = d2 <= (1.12 * half) ** 2
+    hh, ww = mask.shape
+    yy, xx = np.mgrid[0:hh, 0:ww]
+    # the reference is what the segment lies on, grown through pixels of its own colour:
+    # a coin, a card or a ruler is fairly uniform, and a part beside it is not the same
+    # colour, so the growth stops at the part even when the foreground mask merges them
+    probe = _segment_mask(mask.shape, seg, s, pad=1)
+    ref_rgb = np.median(arr[probe], axis=0) if probe.any() else None
+    if ref_rgb is None:
+        return image
+    dist = np.sqrt(((arr - ref_rgb) ** 2).sum(axis=-1))
+    alike = dist <= 48.0
+    grown = probe & alike
+    limit = None
+    if half <= 0.15 * max(hh, ww):  # a coin: never beyond 1.5 radii of its centre
+        d2 = (xx - (x1 + x2) / 2) ** 2 + (yy - (y1 + y2) / 2) ** 2
+        limit = d2 <= (1.5 * half) ** 2
+    for _ in range(max(hh, ww)):
+        d = grown.copy()
+        d[1:, :] |= grown[:-1, :]
+        d[:-1, :] |= grown[1:, :]
+        d[:, 1:] |= grown[:, :-1]
+        d[:, :-1] |= grown[:, 1:]
+        d &= alike
+        if limit is not None:
+            d &= limit
+        if (d == grown).all():
+            break
+        grown = d
+    if limit is not None:  # a coin: the disc it spans, plus whatever of its colour it grew to
+        comp = ((xx - (x1 + x2) / 2) ** 2 + (yy - (y1 + y2) / 2) ** 2 <= (1.12 * half) ** 2) | grown
+    else:  # a card or ruler: its own colour region, plus a thin band along the segment
+        comp = grown | _segment_mask(mask.shape, seg, s, pad=max(2, int(0.03 * max(hh, ww))))
+    touched = comp & mask
     for _ in range(3):  # a little beyond the edge, for the anti-aliased rim and shadow
         d = comp.copy()
         d[1:, :] |= comp[:-1, :]
@@ -276,9 +288,29 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
         d[:, 1:] |= comp[:, :-1]
         d[:, :-1] |= comp[:, 1:]
         comp = d
-    # fill the hole with the bench around it: the median colour and the noise level of a
-    # ring just outside the erased region (never the part's pixels, which would streak
-    # into the hole), so a textured or noisy background stays a background to the crop
+    spared = mask & ~touched
+    comp &= ~spared  # never paint over foreground the reference's colour did not reach
+    if not comp.any():
+        return image
+    # the bench around the erased region: median colour and noise level of a ring just
+    # outside it (never the part's pixels), sampled at working resolution
+    ring = comp.copy()
+    for _ in range(6):
+        d = ring.copy()
+        d[1:, :] |= ring[:-1, :]
+        d[:-1, :] |= ring[1:, :]
+        d[:, 1:] |= ring[:, :-1]
+        d[:, :-1] |= ring[:, 1:]
+        ring = d
+    ring &= ~comp
+    ring &= ~mask
+    if ring.sum() < 20:
+        ring = ~comp & ~mask
+    if ring.sum() < 20:
+        return image
+    samples = arr[ring]
+    base = np.median(samples, axis=0)
+    sigma = np.clip(samples.std(axis=0), 0, 12)
     full = (
         np.asarray(
             Image.fromarray((comp * 255).astype(np.uint8)).resize((w, h), Image.Resampling.BILINEAR)
@@ -286,32 +318,8 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
         > 127
     )
     out = np.asarray(image.convert("RGB"), dtype=np.float32).copy()
-    ring = full.copy()
-    for _ in range(max(2, int(6 / s))):  # ~6 working pixels outward
-        d = ring.copy()
-        d[1:, :] |= ring[:-1, :]
-        d[:-1, :] |= ring[1:, :]
-        d[:, 1:] |= ring[:, :-1]
-        d[:, :-1] |= ring[:, 1:]
-        ring = d
-    fg_full = (
-        np.asarray(
-            Image.fromarray((mask * 255).astype(np.uint8)).resize((w, h), Image.Resampling.NEAREST)
-        )
-        > 127
-    )
-    ring &= ~full
-    ring &= ~fg_full
-    if ring.sum() < 20:
-        ring = ~full & ~fg_full
-    if ring.sum() < 20:
-        return image
-    samples = out[ring]
-    base = np.median(samples, axis=0)
-    sigma = np.clip(samples.std(axis=0), 0, 12)
     rng = np.random.default_rng(int(x1 * 7 + y1 * 13))
-    n = int(full.sum())
-    out[full] = base + rng.normal(0, 1, (n, 3)) * sigma
+    out[full] = base + rng.normal(0, 1, (int(full.sum()), 3)) * sigma
     result = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
     result.info.update(image.info)
     return result
@@ -483,15 +491,13 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
         # (the smaller of the two axes on an end-on photo) is compared with that ID
         wall_txt = attrs.get("wall_thickness") or attrs.get("wall")
         schedule = attrs.get("schedule") or schedule_from_text(text)
-        try:
-            wall_in = float(str(wall_txt).replace('"', "").strip()) if wall_txt else None
-        except ValueError:
-            wall_in = None
+        wall_mm = parse_length_mm(str(wall_txt)) if wall_txt else None
+        wall_in = wall_mm / INCH if wall_mm else None
         # only where the hole *is* the pipe bore: plain pipe, unthreaded (butt-weld)
         # fittings, or a part whose spec gives the wall. A threaded female fitting's hole
         # is the thread's minor diameter, not OD minus two walls
         unthreaded = bool(re.search(r"butt.?weld|unthreaded|\bweld", text))
-        if meas.bore_mm and female and not male and not unthreaded and not wall_in:
+        if meas.bore_mm and female and not male and not unthreaded:
             # the catalog's female scale: measure the ID of the fitting, which is the
             # thread's minor diameter for that nominal size
             fid = female_thread_id_mm(pipe)

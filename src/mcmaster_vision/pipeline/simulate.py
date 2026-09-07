@@ -281,6 +281,7 @@ def simulate(
                 # same parts as before, new photos: what the gallery photos generalise to
                 for f, c in zip(fresh_crowd, crowd, strict=True):
                     f.part_number = c.part_number
+                    f.coin = c.coin  # same lever, so before/after is about the photos
                 fresh = run_customers(client, fresh_crowd, top_n=top_n, tta=tta)
                 # the promise is about the photos that were bought: score those
                 buyers = rep.bought

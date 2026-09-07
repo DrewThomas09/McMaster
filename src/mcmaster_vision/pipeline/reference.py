@@ -112,14 +112,14 @@ def find_coin(
         # socket, a knob with a hub or a pulley with a bore is round too, but marked by
         # a dark centre or strong shading; prefer the flatter of two round blobs
         lum = arr[labels == lab].mean(axis=1)
-        flatness = 1.0 - min(1.0, float(lum.std()) / 40.0)
+        flatness = 1.0 - min(1.0, float(lum.std()) / 80.0)  # relief and highlights allowed
         cand = CoinCandidate(
             cx=float(centre[0]) / s,
             cy=float(centre[1]) / s,
             diameter_px=(long_px + short_px) / 2 / s,
             circularity=round(circ, 3),
         )
-        score = 0.5 * circ + 0.5 * flatness
+        score = 0.7 * circ + 0.3 * flatness
         if best is None or score > best_score:
             best, best_area, best_score = cand, area, score
     if best is not None:

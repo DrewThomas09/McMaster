@@ -116,7 +116,9 @@ def with_coin(
     margin = 30
     total = coin_px + render.size[0] + 3 * margin
     f = min(2.0, 480 / total)
-    coin_d = max(12, int(coin_px * f))
+    coin_d = int(coin_px * f)
+    if coin_d < 12:
+        return None  # a part so long the coin would be a dot: no honest scale
     part_img = render.resize((max(1, int(render.size[0] * f)), max(1, int(render.size[1] * f))))
     canvas = Image.new("RGB", (512, 512), (255, 255, 255))
     mask = Image.new("RGB", (512, 512), (0, 0, 0))
@@ -143,21 +145,34 @@ def coin_segment(mask: Image.Image) -> tuple[float, float, float, float] | None:
     if m.sum() < 30:
         return None
     ys, xs = np.nonzero(m)
+    if xs.min() == 0 or ys.min() == 0 or xs.max() == m.shape[1] - 1 or ys.max() == m.shape[0] - 1:
+        return None  # clipped by the frame: its width is no longer the coin's
     cx, cy = float(xs.mean()), float(ys.mean())
-    d = 2.0 * float(np.sqrt(m.sum() / np.pi))
+    d = float(xs.max() - xs.min() + 1)  # the visible diameter, as a user would draw it
     return (cx - d / 2, cy, cx + d / 2, cy)
 
 
-def part_long_mm(part) -> float | None:
-    """The part's stated long dimension (a length, else an OD / width) in mm."""
-    from mcmaster_vision.pipeline.measure import parse_length_mm
+def part_long_mm(part, render: Image.Image | None = None) -> float | None:
+    """The part's stated long dimension in mm: a length, else an OD / diameter / width
+    when the render is round-ish (a washer, gear or bearing), never a rod's diameter."""
+    from mcmaster_vision.pipeline.measure import object_extent_px, parse_length_mm
 
     attrs = {k.lower(): str(v) for k, v in part.attributes.items()}
-    for k in ("length", "overall_length", "od", "outside_diameter", "diameter", "width"):
+    for k in ("length", "overall_length"):
         if k in attrs:
             mm = parse_length_mm(attrs[k])
             if mm:
                 return mm
+    roundish = True
+    if render is not None:
+        ext = object_extent_px(render)
+        roundish = bool(ext) and ext[1] / ext[0] > 0.7
+    if roundish:
+        for k in ("od", "outside_diameter", "diameter", "width"):
+            if k in attrs:
+                mm = parse_length_mm(attrs[k])
+                if mm:
+                    return mm
     return None
 
 
@@ -181,7 +196,7 @@ async def try_part(
     ref = None
     coin_mask = None
     if coin:
-        mm = part_long_mm(part)
+        mm = part_long_mm(part, src)
         staged = with_coin(src, mm, seed) if mm else None
         if staged is not None:
             src, coin_mask = staged

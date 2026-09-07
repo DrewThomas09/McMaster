@@ -101,6 +101,14 @@
 - `mcv report`: the purchase-loop analytics (funnel, bought-top-1, measured vs not, tiers,
   weakest categories, latency, learning state, daily trend, issues) from the event log on
   disk, for operators without the dashboard; `--json` for scripts.
+- Coin-flow review: the query-embedding cache now keys on the reference too (the phone's
+  second request with the coin had been handed the un-erased embedding); the erased
+  region is grown through the reference's own colour, so a card edge or ruler no longer
+  erases the part beside it and a coin touching the part spares it; the largest-hole
+  search uses the fast labeller; a clipped coin gives no scale; a rod's diameter is not
+  its long axis in the coin demo; the flatness preference in the coin finder is softer;
+  wall thicknesses in mm or fractions parse; simulated coin customers keep their coin in
+  the after-learning pass; `mcv report` prints "-" for missing latency.
 - Purchases by category: `/analytics` and the dashboard show which categories customers get
   wrong most (top-1 precision when bought) with an issue for the weakest; identify events
   carry the category. A `learner` service in both compose files runs `mcv learn` hourly.
