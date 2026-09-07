@@ -312,9 +312,15 @@ def issues(a: dict) -> list[dict]:
                     "the catalog data"
                 )
             elif differ:
+                lever = (
+                    "photograph the end of the part with a coin and Measure: the bore tells "
+                    "thin-wall from thick-wall"
+                    if any(k in ("wall_thickness", "schedule", "wall") for k in differ)
+                    else "put a coin next to the part and Measure when it is a size"
+                )
                 do = (
                     f"look-alikes that differ by {', '.join(differ[:3])}: the family answer asks "
-                    "for it; put a coin next to the part and Measure when it is a size"
+                    f"for it; {lever}"
                 )
             else:
                 do = (
