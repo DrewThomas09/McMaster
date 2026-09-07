@@ -212,9 +212,13 @@ against 17.1 mm (male) or 12.5 mm (female), not 9.5 mm. Thread pitch comes from
 the photo: the mean intensity along the part's major axis inside the foreground
 mask is detrended and its dominant period (FFT, fundamental preferred over the
 crest harmonic) times the scale is the pitch. On synthetic threads with noise,
-shading and rotation the pitch is recovered within 8% in 9 of 9 cases, which
-is enough to tell 27 from 28 threads per inch (NPT vs BSP at 1/8) with the
-tolerance in `thread_family_from_pitch`.
+shading and rotation the pitch is recovered within 8% in 9 of 9 cases: enough
+to separate coarse from fine fastener threads (a 1.3x step) with a ±7% band.
+NPT and BSP differ by only 3.6–5.5% at a given size, so the pipe-thread band
+is ±1.5% and a measurement between the two stays neutral rather than endorsing
+both. The reference coin is excluded from the profile, profiles shorter than
+32 samples are rejected, and the peak must exceed the largest other spectral
+feature by 2.5x so a washer's hole edges never read as a thread.
 
 ## Multi-photo queries and family answers
 
