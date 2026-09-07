@@ -104,7 +104,8 @@ class Calibration:
             if not supported:
                 return None
             prec, neg_t = max(supported)
-            return -neg_t if prec > precision_at(current, need_margin)[1] + 1e-9 else None
+            # a real gain only: the winner often rests on just min_support rows
+            return -neg_t if prec >= precision_at(current, need_margin)[1] + 0.05 else None
 
         exact = best_threshold(exact_precision, True, self.exact_threshold)
         likely = best_threshold(likely_precision, False, self.likely_threshold)
@@ -113,8 +114,9 @@ class Calibration:
             new.exact_threshold = float(exact)
         if likely is not None:
             new.likely_threshold = float(likely)
-        # LIKELY must sit below EXACT whatever was (not) found
-        new.likely_threshold = float(min(new.likely_threshold, new.exact_threshold))
+        # LIKELY must sit below EXACT whatever was (not) found: raise EXACT (only ever
+        # gains precision) rather than lower a LIKELY threshold that was just raised
+        new.exact_threshold = float(max(new.exact_threshold, new.likely_threshold))
         return new
 
     @classmethod

@@ -333,3 +333,25 @@ def test_cart_to_checkout_flow(server, tmp_path):
     assert orders and orders[0]["items"][0]["quantity"] == 2
     a = httpx.get(server + "/analytics").json()
     assert a["window"]["checkout"] >= 1 and a["learning"]["new_purchases"] >= 1
+
+
+def test_part_page_add_to_cart_button_works(server, store, tmp_path):
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    import httpx
+
+    part = next(store.iter_parts(with_images_only=True))
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"{server}/part/{part.part_number}")
+        page.locator("#addcart").click()
+        page.wait_for_function("document.getElementById('addcart').textContent.includes('In cart')")
+        cid = page.evaluate("localStorage.getItem('mcv.client')")
+        assert not errors, errors
+        browser.close()
+    cart = httpx.get(f"{server}/cart?client_id={cid}").json()
+    assert cart and cart[0]["part_number"] == part.part_number

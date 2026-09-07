@@ -176,11 +176,11 @@ class Carts:
             # the newest orders are at the end: read a bounded tail, never the whole history
             fh.seek(0, os.SEEK_END)
             size = fh.tell()
-            fh.seek(max(0, size - 512 * 1024))
-            tail = fh.read().decode("utf-8", errors="replace")
-        lines = tail.splitlines()
+            fh.seek(max(0, size - 512 * 1024 - 1))
+            raw = fh.read()
         if size > 512 * 1024:
-            lines = lines[1:]  # the first line of a mid-file tail is a fragment
+            raw = raw.partition(b"\n")[2]  # drop the fragment before the first newline
+        lines = raw.decode("utf-8", errors="replace").splitlines()
         out: list[Order] = []
         for ln in reversed(lines):
             if not ln.strip():

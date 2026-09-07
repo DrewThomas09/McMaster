@@ -102,9 +102,14 @@ def test_retrain_end_to_end(tmp_path, demo_dir, index, store):
     assert r.exit_code == 0, r.output
     assert "1 held out" in r.output and "checkpoint" in r.output
     manifest = json.loads((tmp_path / "manifest.json").read_text())
-    assert manifest["checkpoint"].endswith("best.pt") and manifest["retrain_eval"]["queries"] == 1
     # the deployment serves hash: the tinycnn recipe is a switch, so the new index and
-    # calibration go to sibling directories and the live ones are untouched
+    # calibration go to sibling directories, the live ones are untouched, and the shared
+    # manifest describes the sibling under its own key (the served index did not change)
+    sib = manifest["sibling_retrain"]
+    assert sib["checkpoint"].endswith("best.pt") and sib["retrain_eval"]["queries"] == 1
+    assert sib["index_path"].endswith("index-tinycnn/parts")
+    assert "checkpoint" not in manifest and "learned_at" not in manifest
+    assert manifest["retrained_at"]
     assert (tmp_path / "m-tinycnn" / "calibration.json").exists()
     assert not (tmp_path / "m" / "calibration.json").exists()
     assert (tmp_path / "index-tinycnn" / "parts" / "meta.json").exists()

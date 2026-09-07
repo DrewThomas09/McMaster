@@ -524,20 +524,34 @@ def _retrain(s: Settings, train_config: Path, epochs: int | None, reload_url: st
         cal.save(s.model_dir / "calibration.json")
     from mcmaster_vision.pipeline.learn import mark_retrained
 
-    mark_retrained(
-        s,
-        started_at=started_at,
-        learned=not switched,  # a sibling index learned them; the served one did not
-        # only the live index's evaluation depends on these; a switched retrain wrote a
-        # sibling index and must not withhold photos from the served gallery
-        held_out_paths=[] if switched else [path for _, path in held_out],
+    stamp = dict(
         checkpoint=str(ckpt),
         index=idx.stats().model_dump(mode="json"),
         index_with_feedback=bool(extra),
         retrain_eval=json.loads(rep.to_json()),
         retrain_eval_source="held-out confirmed photos" if held_out else "synthetic renders",
-        evaluation=None,  # the held-out real photos are the number that matters now
     )
+    if switched:
+        # the served index did not change: the shared manifest keeps describing it, and
+        # the sibling's results go under their own key
+        mark_retrained(
+            s,
+            started_at=started_at,
+            learned=False,
+            sibling_retrain={
+                **stamp,
+                "index_path": str(s.index_path),
+                "model_dir": str(s.model_dir),
+            },
+        )
+    else:
+        mark_retrained(
+            s,
+            started_at=started_at,
+            held_out_paths=[path for _, path in held_out],
+            evaluation=None,  # the held-out real photos are the number that matters now
+            **stamp,
+        )
     typer.echo(
         f"checkpoint {ckpt}; set MCV_BACKBONE_CHECKPOINT={ckpt}. Recall@1 {rep.recall_at.get(1)} on {rep.queries} queries"
     )

@@ -153,6 +153,8 @@ def part_page(part_number: str, request: Request) -> str:
             f'<div class="card" style="padding:8px 12px;overflow-x:auto"><table class="spec"><tr><th>part</th>{heads}</tr>{rows}</table></div>'
         )
     fits_html = _fits_with(part)
+    # inside <script> entities are not decoded, so JSON (with "</" broken up) not html.escape
+    pn_js = json.dumps(part.part_number).replace("</", "<\\/")
     demo = ""
     if request.app.state.settings.demo_mode:
         demo = f'<a class="ghost" href="/?try={pn}">Identify a photo-style render</a> '
@@ -161,7 +163,7 @@ def part_page(part_number: str, request: Request) -> str:
 <p>{demo}<button class="btn small" id="addcart" type="button">&#128722; Add to cart</button> <a class="ghost" href="/#cart" id="opencart" hidden>view cart</a> <a class="ghost" href="https://www.mcmaster.com/{quote(part.part_number, safe="")}/" target="_blank" rel="noopener">Open on mcmaster.com ↗</a> <button class="ghost" onclick="navigator.clipboard&&navigator.clipboard.writeText({e(json.dumps(part.part_number))})">Copy part number</button></p>
 <script>
 (() => {{
-  const PN = {e(json.dumps(part.part_number))};
+  const PN = {pn_js};
   const cid = () => {{ let id = null; try {{ id = localStorage.getItem('mcv.client'); }} catch (_) {{}}
     if (!id) {{ id = 'c-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); try {{ localStorage.setItem('mcv.client', id); }} catch (_) {{}} }} return id; }};
   const b = document.getElementById('addcart');

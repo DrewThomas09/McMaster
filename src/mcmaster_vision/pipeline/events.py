@@ -221,11 +221,17 @@ def enrich_confusions(a: dict, store) -> dict:
         p, b = store.get(c["predicted"]), store.get(c["bought"])
         if p is None or b is None:
             continue
-        keys = set(p.attributes) | set(b.attributes)
+        skip = ("price", "url", "image", "sku_url", "source")
+        keys = {k for k in set(p.attributes) | set(b.attributes) if not k.startswith(skip)}
         c["same_family"] = bool(p.family_id and p.family_id == b.family_id)
-        c["differ_by"] = sorted(
+        differ = sorted(
             k for k in keys if str(p.attributes.get(k, "")) != str(b.attributes.get(k, ""))
         )
+        if p.name != b.name:
+            differ.append("name")
+        if p.category_path != b.category_path:
+            differ.append("category")
+        c["differ_by"] = differ
     return a
 
 

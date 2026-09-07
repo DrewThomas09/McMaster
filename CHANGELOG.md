@@ -49,6 +49,13 @@
 - Phone UI: the header wraps under the cart badge on narrow phones instead of clipping the
   navigation; candidates that other customers bought, or whose photo was learned, carry a
   visible "bought before" / "seen before" chip; the part page has Add to cart.
+- Third review pass: the part page's Add-to-cart script was HTML-escaped inside `<script>`
+  (a syntax error; the button did nothing) and is now a JSON literal with a browser test
+  that clicks it; a switched retrain records its results under `sibling_retrain` instead of
+  describing the served index; the calibration fit raises `exact` rather than lowering a
+  just-raised `likely` and needs a 5-point gain to move a threshold; confusion pairs compare
+  name and category too and ignore price/url keys; the orders tail read keeps a complete
+  first line; the chip says "confirmed before".
 - `mcv selfcheck` gains a purchase-loop step: cart, checkout, the photo becomes a purchase
   confirmation, `mcv learn` adds it to the index incrementally.
 - Calibration: when no threshold reaches a tier's precision target, the fit raises the

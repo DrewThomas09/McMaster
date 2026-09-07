@@ -258,9 +258,12 @@ def test_thresholds_fall_back_to_best_achievable():
     # when the current threshold is already the best achievable, nothing changes
     same = Calibration(temperature=0.05, likely_threshold=thr, exact_threshold=0.99)
     assert same.fit_thresholds(score_lists, correct).likely_threshold == thr
-    # a threshold is never lowered by the fallback
+    # a threshold is never lowered by the fallback, and exact never sits below likely
     high = Calibration(temperature=0.05, likely_threshold=0.995, exact_threshold=0.999)
     assert high.fit_thresholds(score_lists, correct).likely_threshold == 0.995
+    low_exact = Calibration(temperature=0.05, likely_threshold=0.6, exact_threshold=0.5)
+    f2 = low_exact.fit_thresholds(score_lists, correct)
+    assert f2.exact_threshold >= f2.likely_threshold >= 0.6
 
 
 def test_calibration_samples_follow_the_model(tmp_path, demo_dir, store, index, monkeypatch):
