@@ -15,7 +15,9 @@ what ties a purchase to a photo (the same trust as ``POST /feedback``).
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import re
 import threading
 import time
@@ -28,6 +30,22 @@ from pydantic import BaseModel, Field
 from mcmaster_vision.schemas import CartItem, Order
 
 router = APIRouter(tags=["commerce"])
+
+
+def _rate(request: Request) -> None:
+    """Cart calls are cheap and frequent (every page load): they get their own budget,
+    ten times the photo limit, instead of spending the /identify one."""
+    from mcmaster_vision.api.ratelimit import RateLimiter
+
+    limiter = getattr(request.app.state, "cart_limiter", None)
+    if limiter is None:
+        limiter = RateLimiter(10 * request.app.state.settings.rate_limit_per_minute)
+        request.app.state.cart_limiter = limiter
+    client = request.client.host if request.client else "unknown"
+    if not limiter.allow(RateLimiter.bucket(client)):
+        raise HTTPException(429, "rate limit exceeded; try again in a minute")
+
+
 _SAFE_CLIENT = 64
 _CLIENT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -67,9 +85,21 @@ class Carts:
         if not cart:
             path.unlink(missing_ok=True)
             return
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{cid}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp")
         tmp.write_text(json.dumps([it.model_dump(mode="json") for it in cart]), encoding="utf-8")
         tmp.replace(path)
+
+    @contextlib.contextmanager
+    def _locked(self, cid: str):
+        """One read-modify-write at a time per cart, across worker processes."""
+        import fcntl
+
+        with self._lock, open(self.dir / f"{cid}.lock", "a+") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
 
     def prune(self) -> int:
         """Drop carts nobody touched for ``max_age_s`` (at most once a minute)."""
@@ -78,7 +108,7 @@ class Carts:
             return 0
         self._last_prune = now
         n = 0
-        for f in self.dir.glob("*.json"):
+        for f in list(self.dir.glob("*.json")) + list(self.dir.glob("*.lock")):
             try:
                 if now - f.stat().st_mtime > self.max_age_s:
                     f.unlink()
@@ -92,7 +122,7 @@ class Carts:
             return self._read(cid)
 
     def add(self, cid: str, item: CartItem, *, set_quantity: bool = False) -> list[CartItem]:
-        with self._lock:
+        with self._locked(cid):
             cart = self._read(cid)
             for it in cart:
                 if it.part_number == item.part_number:
@@ -111,17 +141,17 @@ class Carts:
             return list(cart)
 
     def remove(self, cid: str, part_number: str) -> list[CartItem]:
-        with self._lock:
+        with self._locked(cid):
             cart = [it for it in self._read(cid) if it.part_number != part_number]
             self._write(cid, cart)
             return list(cart)
 
     def clear(self, cid: str) -> None:
-        with self._lock:
+        with self._locked(cid):
             self._write(cid, [])
 
     def place(self, cid: str) -> Order:
-        with self._lock:
+        with self._locked(cid):
             items = self._read(cid)
             if not items:
                 raise HTTPException(400, "the cart is empty")
@@ -177,13 +207,13 @@ def _price(part) -> float | None:
 
 @router.get("/cart", response_model=list[CartItem])
 def get_cart(request: Request, client_id: str = Query(...)):
-    request.app.state.check_rate(request)
+    _rate(request)
     return request.app.state.carts.get(_client(client_id))
 
 
 @router.post("/cart", response_model=list[CartItem])
 def add_to_cart(body: AddToCart, request: Request):
-    request.app.state.check_rate(request)
+    _rate(request)
     cid = _client(body.client_id)
     ident = request.app.state.get_identifier()
     part = ident.store.get(body.part_number.upper())
@@ -218,10 +248,15 @@ def add_to_cart(body: AddToCart, request: Request):
             quantity=body.quantity,
         )
         # a cart add is weak evidence (weight 1) that the photo showed this part; a
-        # checkout upgrades the same request id to weight 3, an abandoned cart keeps it
-        if src and item.request_id:
+        # checkout upgrades the same request id to weight 3, an abandoned cart keeps it.
+        # Two different parts from one photo (a customer comparing) is no evidence at all
+        if src and item.request_id and not _ambiguous(cart, item.request_id):
             _file(request, item.request_id, part.part_number, src, source="cart")
     return cart
+
+
+def _ambiguous(items: list[CartItem], request_id: str) -> bool:
+    return len({it.part_number for it in items if it.request_id == request_id}) > 1
 
 
 def _file(request: Request, request_id: str, part_number: str, src: dict, *, source: str) -> bool:
@@ -244,7 +279,7 @@ def _file(request: Request, request_id: str, part_number: str, src: dict, *, sou
 
 @router.delete("/cart/{part_number}", response_model=list[CartItem])
 def remove_from_cart(part_number: str, request: Request, client_id: str = Query(...)):
-    request.app.state.check_rate(request)
+    _rate(request)
     cid = _client(client_id)
     cart = request.app.state.carts.remove(cid, part_number.upper())
     request.app.state.events.log("cart_remove", client_id=cid, part_number=part_number.upper())
@@ -259,13 +294,13 @@ class CheckoutBody(BaseModel):
 def checkout(body: CheckoutBody, request: Request):
     """Place the order. Every item that came from an identification becomes a
     ``checkout`` confirmation of that photo: the model learns from what was bought."""
-    request.app.state.check_rate(request)
+    _rate(request)
     cid = _client(body.client_id)
     order = request.app.state.carts.place(cid)
     learned = 0
     for it in order.items:
-        if not it.request_id:
-            continue
+        if not it.request_id or _ambiguous(order.items, it.request_id):
+            continue  # one photo, two parts bought: no label is better than a coin flip
         src = request.app.state.events.identify_row(it.request_id) or {}
         if _file(request, it.request_id, it.part_number, src, source="checkout"):
             learned += 1
@@ -292,7 +327,7 @@ def orders(
     client_id: str | None = Query(None, description="Your own orders; all orders need the token"),
 ):
     """A phone sees its own orders; the full list (every client id) is an admin view."""
-    request.app.state.check_rate(request)
+    _rate(request)
     if client_id:
         return request.app.state.carts.orders(limit, client_id=_client(client_id))
     request.app.state.check_admin(request)

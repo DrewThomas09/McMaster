@@ -222,3 +222,23 @@ def test_none_of_these_issue(tmp_path):
     a = analytics(ev)
     assert a["window"]["none_of_these"] == 10 and a["funnel"]["none_of_these"] == 0.5
     assert any("found nothing" in i["what"] for i in issues(a))
+
+
+def test_two_parts_from_one_photo_teach_nothing(identifier, tmp_path):
+    client, _ = _client(identifier, tmp_path)
+    pn, d = _identify_sample(client, seed=4)
+    req = d["result"]["request_id"]
+    other = [c["part_number"] for c in d["result"]["candidates"] if c["part_number"] != pn]
+    other = other[0] if other else client.get("/demo/samples?n=2&seed=3").json()[1]["part_number"]
+    client.post("/cart", json={"client_id": "cmp", "part_number": pn, "request_id": req})
+    fb = client.app.state.feedback
+    assert [x.source for x in fb.entries()] == ["cart"]
+    # a second, different part from the same photo: the customer is comparing
+    client.post("/cart", json={"client_id": "cmp", "part_number": other, "request_id": req})
+    assert len(fb.entries()) == 1 and fb.entries()[0].part_number == pn  # not relabelled
+    order = client.post("/checkout", json={"client_id": "cmp"}).json()
+    assert order["learned"] == 0 and len(order["items"]) == 2
+    assert len(fb.entries()) == 1 and fb.entries()[0].source == "cart"
+    # the cart budget is separate from the photo budget
+    for _ in range(5):
+        assert client.get("/cart?client_id=cmp").status_code == 200

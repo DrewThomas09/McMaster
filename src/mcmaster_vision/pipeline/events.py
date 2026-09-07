@@ -61,14 +61,28 @@ class EventLog:
         for r in rows[-self.keep :]:
             self._remember(r)
         if len(rows) > 2 * self.keep:
-            try:
-                tmp = self.path.with_suffix(".tmp")
+            self._compact()
+
+    def _compact(self) -> None:
+        """Rewrite the file with the last ``keep`` rows, under a lock so several workers
+        booting together do not race, and re-reading under the lock so rows another
+        worker appended meanwhile are kept."""
+        import fcntl
+        import os
+
+        try:
+            with open(self.path.with_suffix(".lock"), "a+") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                with open(self.path, encoding="utf-8") as fh:
+                    lines = [ln for ln in fh if ln.strip()]
+                if len(lines) <= 2 * self.keep:
+                    return  # another worker already did it
+                tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
                 with open(tmp, "w", encoding="utf-8") as fh:
-                    for r in rows[-self.keep :]:
-                        fh.write(json.dumps(r, default=str) + "\n")
+                    fh.writelines(lines[-self.keep :])
                 tmp.replace(self.path)
-            except OSError:
-                pass
+        except OSError:
+            pass
 
     def log(self, kind: str, **fields: Any) -> dict:
         row = {"kind": kind, "at": datetime.now(timezone.utc).isoformat(), **fields}

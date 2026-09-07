@@ -217,7 +217,13 @@ def calibration_samples(
     from mcmaster_vision.pipeline.identify import Identifier
 
     known = set(index.meta.get("learned_paths") or [])
-    fresh = [(pn, x) for pn, paths in labelled.items() for x in paths if x not in known]
+    fresh = [
+        (pn, x)
+        for pn, paths in labelled.items()
+        if store.get(pn) is not None  # a photo of an unknown part is never learned either
+        for x in paths
+        if x not in known
+    ]
     if not fresh:
         return []
     ident = Identifier(
@@ -243,6 +249,7 @@ def calibration_samples(
                 "scores": [round(c.score, 4) for c in res.candidates],
                 "correct": ranked.index(pn) if pn in ranked else -1,
                 "tier": res.tier.value,
+                "model": embedder.version,
                 "at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -263,12 +270,17 @@ def calibrate_from_samples(settings: Settings, rows: list[dict]) -> dict[str, An
     with open(path, "a", encoding="utf-8") as fh:
         for r in rows:
             fh.write(json.dumps(r) + "\n")
+    # only samples scored by the model being served count: after a retrain the old
+    # model's score lists would refit the new model's thresholds
+    model = rows[0].get("model") if rows else None
     samples = []
     for ln in path.read_text(encoding="utf-8").splitlines()[-2000:]:
         try:
-            samples.append(json.loads(ln))
+            r = json.loads(ln)
         except json.JSONDecodeError:
             continue
+        if model is None or r.get("model") == model:
+            samples.append(r)
     wrong = sum(int(x.get("correct", -1)) != 0 for x in samples)
     out = {"new_samples": len(rows), "samples": len(samples), "wrong": wrong, "refit": False}
     if len(samples) < MIN_CALIBRATION_SAMPLES or wrong < MIN_WRONG_SAMPLES:

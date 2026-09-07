@@ -39,6 +39,13 @@
   `mcv retrain` trains on purchase-weighted photos but indexes each once; the usage prior
   is back on its tuned scale; event rows without a kind, half-written order lines and
   naive timestamps no longer break anything.
+- Second review pass: `mcv retrain` takes the learn lock; calibration samples carry the
+  model version and only the served model's samples refit; two different parts from one
+  photo (a customer comparing) file no label at cart or checkout; event-log compaction and
+  cart writes are locked per file with unique temp names; unknown parts are not re-scored;
+  a switched retrain withholds nothing from the live gallery; the simulation baseline is
+  scored without the usage prior and the learned index is reloaded explicitly; cart calls
+  have their own rate budget; Buy now checks out only when the cart holds just that part.
 - Calibration: when no threshold reaches a tier's precision target, the fit raises the
   threshold to the most precise supported one instead of keeping a default known to be
   wrong (never lowered); the tier-precision issue says when a stronger backbone is needed.

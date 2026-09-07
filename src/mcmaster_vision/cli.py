@@ -417,6 +417,18 @@ def retrain(
     ),
 ) -> None:
     """Scheduled refresh: train on catalog + confirmed photos, rebuild the index, refit calibration, reload the API."""
+    from mcmaster_vision.pipeline.learn import LearnBusy, _Lock
+
+    s = _settings(config)
+    try:
+        with _Lock(s):  # never write the index under a running `mcv learn` (or vice versa)
+            _retrain(s, train_config, epochs, reload_url)
+    except LearnBusy as e:
+        typer.echo(str(e))
+        raise typer.Exit(1) from e
+
+
+def _retrain(s: Settings, train_config: Path, epochs: int | None, reload_url: str | None) -> None:
     from mcmaster_vision.catalog import CatalogStore
     from mcmaster_vision.index import build_index
     from mcmaster_vision.models import PartEmbedder, load_backbone
@@ -427,7 +439,6 @@ def retrain(
     from mcmaster_vision.training.train import load_train_config
     from mcmaster_vision.training.train import train as _train
 
-    s = _settings(config)
     cfg = load_train_config(train_config)
     if epochs:
         cfg["epochs"] = epochs
@@ -516,7 +527,9 @@ def retrain(
     mark_retrained(
         s,
         started_at=started_at,
-        held_out_paths=[path for _, path in held_out],
+        # only the live index's evaluation depends on these; a switched retrain wrote a
+        # sibling index and must not withhold photos from the served gallery
+        held_out_paths=[] if switched else [path for _, path in held_out],
         checkpoint=str(ckpt),
         index=idx.stats().model_dump(mode="json"),
         index_with_feedback=bool(extra),

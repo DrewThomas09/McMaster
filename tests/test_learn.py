@@ -261,3 +261,62 @@ def test_thresholds_fall_back_to_best_achievable():
     # a threshold is never lowered by the fallback
     high = Calibration(temperature=0.05, likely_threshold=0.995, exact_threshold=0.999)
     assert high.fit_thresholds(score_lists, correct).likely_threshold == 0.995
+
+
+def test_calibration_samples_follow_the_model(tmp_path, demo_dir, store, index, monkeypatch):
+    import json
+
+    from mcmaster_vision.pipeline import learn as learn_mod
+
+    monkeypatch.setattr(learn_mod, "MIN_CALIBRATION_SAMPLES", 2)
+    monkeypatch.setattr(learn_mod, "MIN_WRONG_SAMPLES", 0)
+    s = _settings(tmp_path, demo_dir, index)
+    path = s.model_dir / "calibration_samples.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # samples an older model left behind never refit the current one
+    path.write_text(
+        "".join(
+            json.dumps({"scores": [1.0, 0.5], "correct": 1, "model": "old"}) + "\n"
+            for _ in range(50)
+        )
+    )
+    part = next(store.iter_parts(with_images_only=True))
+    FeedbackStore(s.queries_dir).record(_photo(part), "r1", part.part_number, source="checkout")
+    cal = learn_index(s)["calibration"]
+    assert cal["samples"] == 1 and cal["new_samples"] == 1
+    rows = [json.loads(ln) for ln in path.read_text().splitlines()]
+    assert rows[-1]["model"] == index.meta["backbone"]
+
+
+def test_retrain_refuses_under_a_running_learn(tmp_path, demo_dir, index):
+    from typer.testing import CliRunner
+
+    from mcmaster_vision.cli import app
+    from mcmaster_vision.pipeline.learn import _Lock
+
+    s = _settings(tmp_path, demo_dir, index)
+    env = {
+        "MCV_DATA_DIR": str(tmp_path),
+        "MCV_CATALOG_DB": str(s.catalog_db),
+        "MCV_INDEX_DIR": str(s.index_dir),
+        "MCV_MODEL_DIR": str(s.model_dir),
+        "MCV_QUERIES_DIR": str(s.queries_dir),
+    }
+    with _Lock(s):
+        r = CliRunner().invoke(app, ["retrain"], env=env)
+    assert r.exit_code == 1 and "already running" in r.output
+
+
+def test_event_log_compaction_is_locked_and_keeps_late_rows(tmp_path):
+    from mcmaster_vision.pipeline.events import EventLog
+
+    path = tmp_path / "e.jsonl"
+    log = EventLog(path, keep=5)
+    for i in range(20):
+        log.log("identify", request_id=f"x{i}")
+    # rows appended after the boot read (another worker) survive the compaction
+    with open(path, "a") as fh:
+        fh.write('{"kind": "identify", "request_id": "late"}\n')
+    again = EventLog(path, keep=5)
+    assert again.identify_row("late") is not None
+    assert len(path.read_text().splitlines()) == 5 and not list(tmp_path.glob("*.tmp"))

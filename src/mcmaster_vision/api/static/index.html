@@ -646,7 +646,8 @@ function openCart() { renderCart(); $('cart').classList.add('on'); }
 async function buyNow(pn, btn) {  // one tap from a confident answer to a placed order
   if (btn) btn.disabled = true;
   await addToCart(pn, null);
-  if (cart.some(it => it.part_number === pn)) { openCart(); await checkout(); }
+  if (cart.length === 1 && cart[0].part_number === pn) { openCart(); await checkout(); }
+  else if (cart.some(it => it.part_number === pn)) { openCart(); toast('Your cart has other items too — check out when ready'); }
   if (btn) btn.disabled = false;
 }
 function closeCart() { $('cart').classList.remove('on'); }

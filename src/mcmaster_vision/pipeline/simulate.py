@@ -214,7 +214,14 @@ def simulate(
     with TestClient(app) as client:
         crowd = make_customers(pns, customers, seed=seed)
         say(f"{len(crowd)} customers on {len(pns)} parts ...")
-        rep = run_customers(client, crowd, top_n=top_n, tta=tta)
+        # the baseline is scored without the usage prior: otherwise customer N would be
+        # helped by the purchases of customers 1..N-1 made moments earlier
+        ident = app.state.get_identifier()
+        prior, ident.feedback = ident.feedback, None
+        try:
+            rep = run_customers(client, crowd, top_n=top_n, tta=tta)
+        finally:
+            ident.feedback = prior
         out["before"] = rep.as_dict()
         a = analytics(app.state.events, app.state.feedback.stats())
         out["analytics"] = a
@@ -232,9 +239,11 @@ def simulate(
             out["learn"] = res
             say(f"  {res}")
             if res.get("action") == "index":
-                # serve the learned index now (the API polls meta.json every 15 s)
-                app.state.last_index_check = 0.0
-                app.state.identifier = app.state.get_identifier()
+                # serve the learned index now (the API polls meta.json every 15 s and
+                # would miss a save landing in the same mtime tick)
+                from mcmaster_vision.pipeline.identify import load_identifier
+
+                app.state.identifier = load_identifier(s)
                 served = len(app.state.identifier.index)
                 out["served_rows_after_learn"] = served
                 same = run_customers(client, crowd, top_n=top_n, tta=tta)
