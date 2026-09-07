@@ -88,6 +88,12 @@ def test_evaluation_breaks_down_by_category_and_lists_misses(identifier, store):
     assert "by_category" in d and "hardest" in d and "score_lists" not in d
 
 
+def _zeros_transform(im):
+    import torch
+
+    return torch.zeros(3, 8, 8)
+
+
 def test_training_review_regressions(tmp_path):
     import pickle
 
@@ -130,14 +136,14 @@ def test_training_review_regressions(tmp_path):
     assert "c6" in held_c and len(held_c) == 2 and len(extra["C"]) == 5
 
     # the dataset is picklable for spawn workers (when torch is present)
-    torch = pytest.importorskip("torch")
+    pytest.importorskip("torch")
     from mcmaster_vision.data.dataset import make_contrastive_dataset
 
     img = tmp_path / "p.png"
     Image.new("RGB", (32, 32), "gray").save(img)
     ds, _ = make_contrastive_dataset(
         [Part(part_number="Q", name="q", category_path=["c"], image_paths=[str(img)])],
-        transform=lambda im: torch.zeros(3, 8, 8),
+        transform=_zeros_transform,  # module-level: a lambda would not pickle either
         views=2,
         image_size=32,
     )

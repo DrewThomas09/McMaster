@@ -97,7 +97,7 @@ class ContrastiveDataset(_dataset_base()):  # type: ignore[misc]
 
 def make_catalog_dataset(parts: Sequence[Part], transform: Callable[[Image.Image], Any]):
     """Clean catalog images (no augmentation) for building the gallery / index."""
-    _require_torch()  # torch must be importable here even though the class is module-level
+    Dataset = _require_torch()
     items = [(p.part_number, path) for p in parts for path in p.image_paths]
 
     class CatalogDataset(Dataset):  # type: ignore[misc,valid-type]
