@@ -298,3 +298,38 @@ def test_clear_scale_note_action(server, store, tmp_path):
             timeout=30000,
         )
         browser.close()
+
+
+def test_cart_to_checkout_flow(server, tmp_path):
+    """Identify a sample, add it to the cart, check out: the order confirmation appears
+    and the purchase is filed as a checkout confirmation."""
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    import httpx
+
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.goto(server + "/")
+        page.wait_for_selector("#samplestrip img", timeout=30_000)
+        page.locator("#samplestrip img").first.click()
+        page.wait_for_selector(".cand button.buy", timeout=60_000)
+        page.locator(".cand button.buy").first.click()
+        page.wait_for_function("document.getElementById('cartn').textContent === '1'")
+        assert page.locator("#cartpill").is_visible()
+        page.locator("#cartpill").click()
+        page.wait_for_selector("#cart.on .citem")
+        page.locator(".citem .qty button").nth(1).click()  # +
+        page.wait_for_function("document.getElementById('cartn').textContent === '2'")
+        page.locator("#checkoutbtn").click()
+        page.wait_for_selector("#cartorder .order", timeout=30_000)
+        text = page.locator("#cartorder").inner_text()
+        assert "Order" in text and "placed" in text and "teach the model" in text
+        assert page.locator("#cartn").inner_text() == "0"
+        page.screenshot(path=str(tmp_path / "checkout.png"), full_page=True)
+        browser.close()
+    orders = httpx.get(server + "/orders").json()
+    assert orders and orders[0]["items"][0]["quantity"] == 2
+    a = httpx.get(server + "/analytics").json()
+    assert a["window"]["checkout"] >= 1 and a["learning"]["new_purchases"] >= 1

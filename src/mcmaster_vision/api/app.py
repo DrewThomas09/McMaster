@@ -49,11 +49,17 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         app.add_middleware(
             CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["*"]
         )
+    from mcmaster_vision.api.commerce import Carts
+    from mcmaster_vision.api.commerce import router as commerce_router
     from mcmaster_vision.api.demo import router as demo_router
     from mcmaster_vision.api.pages import router as pages_router
+    from mcmaster_vision.pipeline.events import EventLog, analytics, issues
 
     app.include_router(demo_router)
     app.include_router(pages_router)
+    app.include_router(commerce_router)
+    app.state.events = EventLog(settings.data_dir / "logs" / "events.jsonl")
+    app.state.carts = Carts(settings.data_dir / "logs" / "orders.jsonl")
     app.state.settings = settings
     app.state.identifier = identifier
     app.state.feedback = FeedbackStore(settings.queries_dir)
@@ -82,12 +88,25 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             raise HTTPException(429, "rate limit exceeded; try again in a minute")
 
     app.state.check_rate = check_rate
+    app.state.get_identifier = lambda: get_identifier()
 
     async def record(result: IdentificationResult, photo: bytes | None) -> None:
         """Append to the request log and keep the photo, off the event loop."""
 
         def _do() -> None:
             app.state.requests.log(result)
+            app.state.events.log(
+                "identify",
+                request_id=result.request_id,
+                tier=result.tier.value,
+                best=result.best.part_number if result.best else None,
+                confidence=result.best.confidence if result.best else None,
+                candidates=[c.part_number for c in result.candidates],
+                latency_ms=result.timings_ms.get("total"),
+                photos=result.photos,
+                measured=bool(result.measured),
+                family=result.family.family_id if result.family else None,
+            )
             if photo is not None:
                 app.state.recent.put(result.request_id, photo)
 
@@ -367,16 +386,50 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         if part_number and ident.store.get(part_number.upper()) is None:
             raise HTTPException(404, "unknown part number")
         try:
-            return await run_in_threadpool(
+            fb = await run_in_threadpool(
                 app.state.feedback.record,
                 data,
                 request_id,
                 part_number,
                 predicted=predicted,
                 tier=tier,
+                source="tap",
             )
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
+        app.state.events.log(
+            "feedback",
+            request_id=request_id,
+            part_number=fb.part_number,
+            predicted=predicted,
+            correct=bool(fb.part_number and predicted == fb.part_number),
+            source="tap",
+        )
+        return fb
+
+    @app.get("/analytics")
+    def analytics_view() -> dict:
+        """The purchase funnel, confusion pairs, tier precision when bought, latency,
+        errors, and a plain-language issues list."""
+        a = analytics(app.state.events, app.state.feedback.stats())
+        a["issues"] = issues(a)
+        a["learning"] = _learning_state()
+        return a
+
+    def _learning_state() -> dict:
+        from mcmaster_vision.pipeline.learn import learning_state
+
+        return learning_state(settings, app.state.feedback)
+
+    @app.post("/admin/learn")
+    async def learn(request: Request) -> dict:
+        """Fold new confirmations into the gallery now (`mcv learn --index-only`): the
+        rebuilt index is picked up automatically."""
+        check_admin(request)
+        from mcmaster_vision.pipeline.learn import learn_index
+
+        result = await run_in_threadpool(learn_index, settings)
+        return result
 
     @app.get("/feedback/stats")
     def feedback_stats() -> dict:
@@ -532,6 +585,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
         log.exception("unhandled error")
+        try:
+            app.state.events.log(
+                "error", status=500, path=request.url.path, error=type(exc).__name__
+            )
+        except Exception:
+            pass
         # no internals (paths, messages) leave the server; the log has the traceback
         return JSONResponse(
             status_code=500, content={"detail": "internal error; see the server log"}

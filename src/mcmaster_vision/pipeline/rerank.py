@@ -100,7 +100,8 @@ class FusionReranker:
             n_conf = (popularity or {}).get(part.part_number, 0)
             if n_conf > 0 and self.w_pop:
                 score += self.w_pop * math.log1p(min(n_conf, 50))
-                reasons.append(f"confirmed {n_conf}x before")
+                # weighted evidence: a purchase counts 3, a tap 2 (FEEDBACK_WEIGHTS)
+                reasons.append(f"confirmed or bought before (evidence {n_conf})")
             out.append(Scored(part, h.similarity, float(score), reasons))
         out.sort(key=lambda s: -s.score)
         return out

@@ -303,6 +303,16 @@ def build_index(
             index.add(ids, vectors)
         _centroids(index, vectors, cats)
 
+    learned = list((existing.meta.get("learned_paths") or []) if existing else [])
+    if extra_images:
+        embedded = {p.part_number for p in parts}
+        learned += [
+            x
+            for pn, paths in extra_images.items()
+            if pn in embedded
+            for x in paths
+            if Path(x).exists() and x not in learned
+        ]
     index.meta.update(
         {
             "backbone": embedder.version,
@@ -312,9 +322,61 @@ def build_index(
             "built_at": datetime.now(timezone.utc).isoformat(),
             "parts": len(set(index.ids)),
             "extra_images": n_extra + int(existing.meta.get("extra_images", 0) if existing else 0),
+            "learned_paths": sorted(set(learned)),
         }
     )
     if out_path:
         index.save(out_path)
         store.set_meta("index_backbone", embedder.version)
     return index
+
+
+def add_photos(
+    index: VectorIndex,
+    store: CatalogStore,
+    embedder: PartEmbedder,
+    photos: dict[str, list[str]],
+    *,
+    image_size: int = 224,
+    gallery_augment: int = 0,
+    seed: int = 0,
+    out_path: str | Path | None = None,
+) -> int:
+    """Incremental learning: embed only the confirmed photos the index does not hold yet
+    (``meta['learned_paths']``) and append them as gallery rows of their part. Seconds
+    instead of a full rebuild; the catalog rows stay as they are. Returns the number of
+    photos added. The index must have been built with this embedder."""
+    if index.meta.get("backbone") != embedder.version:
+        raise ValueError(
+            f"index was built with {index.meta.get('backbone')!r}, not {embedder.version!r}"
+        )
+    known = set(index.meta.get("learned_paths") or [])
+    depth = int(index.meta.get("category_depth", 2))
+    ga = int(index.meta.get("gallery_augment", gallery_augment))
+    size = int(index.meta.get("image_size", image_size))
+    parts: list[Part] = []
+    for pn, paths in photos.items():
+        fresh = [x for x in paths if x not in known and Path(x).exists()]
+        part = store.get(pn) if fresh else None
+        if part is not None:
+            parts.append(part.model_copy(update={"image_paths": fresh}))
+    if not parts:
+        return 0
+    ids, vectors, cats = embed_parts(
+        parts, embedder, image_size=size, gallery_augment=ga, category_depth=depth, seed=seed
+    )
+    if len(ids):
+        index.add(ids, vectors)
+        _centroids(index, vectors, cats, merge=True)
+    n = sum(len(p.image_paths) for p in parts)
+    index.meta.update(
+        {
+            "built_at": datetime.now(timezone.utc).isoformat(),
+            "parts": len(set(index.ids)),
+            "extra_images": int(index.meta.get("extra_images", 0)) + n,
+            "learned_paths": sorted(known | {x for p in parts for x in p.image_paths}),
+        }
+    )
+    if out_path:
+        index.save(out_path)
+    return n

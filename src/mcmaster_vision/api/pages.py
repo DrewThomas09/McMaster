@@ -225,6 +225,73 @@ def _fits_with(part) -> str:
     )
 
 
+def _learning_loop_html(request: Request) -> str:
+    """The purchase funnel, what customers bought vs what was predicted, the issues the
+    analytics found, and how much the model has learned from it."""
+    from mcmaster_vision.pipeline.events import analytics, issues
+    from mcmaster_vision.pipeline.learn import learning_state
+
+    st = request.app.state
+    a = analytics(st.events, st.feedback.stats())
+    found = issues(a)
+    learn = learning_state(st.settings, st.feedback)
+    w = a["window"]
+    f = a["funnel"]
+
+    def pc(x):
+        return f"{x:.0%}" if x is not None else "—"
+
+    issue_rows = (
+        "".join(
+            f'<tr><td><span class="tier {"unknown" if i["severity"] == "high" else "candidate" if i["severity"] == "medium" else "likely"}">{e(i["severity"])}</span></td>'
+            f'<td>{e(i["what"])}</td><td class="crumbs">{e(i["do"])}</td></tr>'
+            for i in found
+        )
+        or '<tr><td class="msg" colspan="3">No problems found in this window.</td></tr>'
+    )
+    conf_rows = "".join(
+        f'<tr><td><a href="/part/{e(c["predicted"])}">{e(c["predicted"])}</a></td>'
+        f'<td><a href="/part/{e(c["bought"])}">{e(c["bought"])}</a></td><td>{c["times"]}</td></tr>'
+        for c in a["confusions"][:6]
+    )
+    tier_rows = "".join(
+        f'<tr><td><span class="tier {e(t)}">{e(t)}</span></td><td>{v["bought"]}</td><td>{pc(v["precision"])}</td></tr>'
+        for t, v in a["tier_precision_bought"].items()
+    )
+    conf = a["confidence"]
+    due = learn["retrain_due"]
+    return f"""<h2 class="page">Learning loop (photo &rarr; cart &rarr; checkout &rarr; model)</h2>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
+  <div class="card stat"><b>{w["identify"]}</b><span>identifications</span></div>
+  <div class="card stat"><b>{pc(f["identify_to_cart"])}</b><span>&rarr; added to cart</span></div>
+  <div class="card stat"><b>{pc(f["cart_to_checkout"])}</b><span>&rarr; checked out</span></div>
+  <div class="card stat"><b>{w["items_bought"]}</b><span>parts bought</span></div>
+  <div class="card stat"><b>{pc(a["bought_top1_rate"])}</b><span>bought the top answer</span></div>
+  <div class="card stat"><b>{learn["new_confirmations"]}</b><span>new confirmations since last learn ({learn["new_purchases"]} purchases)</span></div>
+</div>
+<div class="card" style="padding:8px 12px"><table class="spec"><tr><th>severity</th><th>what the data says</th><th>what to do</th></tr>{issue_rows}</table></div>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">
+  <div class="card" style="padding:8px 12px;flex:1;min-width:260px"><b>Predicted vs bought</b><table class="spec"><tr><th>predicted</th><th>bought</th><th>times</th></tr>{conf_rows or '<tr><td class="msg" colspan="3">No wrong purchases recorded.</td></tr>'}</table></div>
+  <div class="card" style="padding:8px 12px;flex:1;min-width:260px"><b>When customers bought, was the tier right?</b><table class="spec"><tr><th>tier</th><th>bought</th><th>top-1 right</th></tr>{tier_rows or '<tr><td class="msg" colspan="3">Nothing bought yet.</td></tr>'}</table>
+  <div class="crumbs">confidence when right {e(conf["when_right"] if conf["when_right"] is not None else "—")} · when wrong {e(conf["when_wrong"] if conf["when_wrong"] is not None else "—")} · p95 latency {e(a["latency_ms"]["p95"] or "—")} ms · errors {w["errors"]}</div></div>
+</div>
+<p class="crumbs" id="learnline">last learned {e((learn["learned_at"] or "never")[:19])} ({e(learn["learned_photos"] or 0)} photos) · {learn["since_retrain"]}/{learn["retrain_threshold"]} towards a retrain{' · <span class="tier candidate">retrain due: run mcv learn</span>' if due else ""} ·
+<button class="btn small" type="button" id="learnbtn">Learn now</button> <code>mcv learn</code> · <code>mcv simulate --learn</code> · <a href="/analytics">/analytics</a> · <a href="/orders">/orders</a></p>
+<script>
+document.getElementById('learnbtn').onclick = async () => {{
+  const b = document.getElementById('learnbtn'); b.disabled = true; b.textContent = 'Learning…';
+  try {{
+    const tok = localStorage.getItem('mcv_token') || '';
+    const r = await fetch('/admin/learn', {{method: 'POST', headers: tok ? {{'X-API-Token': tok}} : {{}}}});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.status);
+    document.getElementById('learnline').firstChild.textContent = j.action === 'none' ? 'nothing new to learn ' : `learned ${{j.photos}} photos of ${{j.parts}} parts (${{j.how}}, ${{j.seconds}} s) `;
+  }} catch (err) {{ alert('Learn failed: ' + err.message + (String(err.message).includes('Token') ? ' — set localStorage.mcv_token' : '')); }}
+  b.disabled = false; b.textContent = 'Learn now';
+}};
+</script>"""
+
+
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request) -> str:
     from mcmaster_vision.pipeline.manifest import status as _status
@@ -292,6 +359,7 @@ def dashboard(request: Request) -> str:
     )
     if sto.get("backup_stale"):
         backup_line += ' <span class="tier candidate">changed since</span>'
+    loop_html = _learning_loop_html(request)
     body = f"""<h1 class="page">Dashboard</h1>
 {'<div class="notice">The catalog changed after the index was built: run <code>mcv build-index --only-new</code> then <code>POST /admin/reload</code>.</div>' if stale else ""}
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
@@ -304,6 +372,7 @@ def dashboard(request: Request) -> str:
 </div>
 <h2 class="page">Answer tiers (recent window)</h2><div class="card" style="padding:8px 12px"><table class="spec">{tier_rows or "<tr><td>No requests yet.</td></tr>"}</table></div>
 <h2 class="page">Recent identifications</h2><div class="card" style="padding:8px 12px;overflow-x:auto"><table class="spec"><tr><th>time</th><th>tier</th><th>best</th><th>conf.</th><th>latency</th></tr>{recent_rows or '<tr><td class="msg" colspan="5">None yet.</td></tr>'}</table></div>
+{loop_html}
 {eval_html}
 <h2 class="page">Storage</h2><div class="card" style="padding:8px 12px"><table class="spec"><tr><th>state</th><th>size</th><th>updated</th></tr>{storage_rows}</table>
 <p class="crumbs" id="backupline">{backup_line} · <button class="btn small" type="button" id="backupbtn">Back up now</button> <code>mcv backup</code> / <code>mcv restore</code></p></div>

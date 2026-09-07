@@ -224,7 +224,7 @@ def test_fusion_usage_prior_is_a_tie_breaker():
     }
     tied = [Hit("A", 0.80, 1, 0.1), Hit("B", 0.80, 1, 0.1)]
     out = FusionReranker().rerank(tied, parts, popularity={"B": 5})
-    assert out[0].part.part_number == "B" and "confirmed 5x" in " ".join(out[0].reasons)
+    assert out[0].part.part_number == "B" and "evidence 5" in " ".join(out[0].reasons)
     # clear visual evidence is never overturned by popularity
     clear = [Hit("A", 0.80, 1, 0.1), Hit("B", 0.60, 1, 0.1)]
     out = FusionReranker().rerank(clear, parts, popularity={"B": 1000})

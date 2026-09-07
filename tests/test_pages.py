@@ -70,6 +70,7 @@ def test_dashboard_page(identifier, store, tmp_path):
         == 200
     )
     page = client.get("/dashboard").text
+    assert "Learning loop" in page and "Learn now" in page and "towards a retrain" in page
     assert (
         "Dashboard" in page
         and "identifications" in page

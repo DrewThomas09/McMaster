@@ -142,4 +142,36 @@ class Feedback(BaseModel):
     predicted: str | None = None
     tier: str | None = None
     image_path: str | None = None
+    source: str = Field(
+        "tap",
+        description="How it was confirmed: tap (This is it), cart (added to the cart), "
+        "checkout (bought), label (hand-labelled later)",
+    )
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def weight(self) -> int:
+        """Evidence strength for training and the usage prior: a purchase is worth more
+        than a tap, and a cart add slightly less."""
+        return FEEDBACK_WEIGHTS.get(self.source, 1)
+
+
+FEEDBACK_WEIGHTS: dict[str, int] = {"checkout": 3, "label": 2, "tap": 2, "cart": 1}
+
+
+class CartItem(BaseModel):
+    part_number: str
+    quantity: int = Field(1, ge=1, le=999)
+    request_id: str | None = Field(None, description="The identification this came from")
+    confidence: float | None = None
+    tier: str | None = None
+    name: str = ""
+    price_usd: float | None = None
+
+
+class Order(BaseModel):
+    order_id: str
+    client_id: str
+    items: list[CartItem]
+    total_usd: float | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -98,10 +98,25 @@
   #lb .cap { color:#fff; font-size:14px; text-align:center; }
   .toast { position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--ink); color:var(--bg); padding:10px 16px; border-radius:10px; font-size:14px; z-index:60; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.on { opacity:1; }
+  .confirm button.buy { border-color:var(--green); background:var(--green); color:#fff; font-weight:700; }
+  .confirm button.buy.in { background:var(--bg); color:var(--green); }
+  #cartpill { cursor:pointer; }
+  #cart { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; z-index:55; justify-content:flex-end; }
+  #cart.on { display:flex; }
+  #cart .panel { background:var(--card); color:var(--ink); width:min(420px,100%); height:100%; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:10px; box-shadow:-4px 0 24px rgba(0,0,0,.25); }
+  #cart .panel h2 { margin:0; font-size:18px; display:flex; justify-content:space-between; align-items:center; }
+  .citem { display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:10px; padding:8px; }
+  .citem img { width:56px; height:56px; object-fit:contain; background:#fff; border-radius:6px; }
+  .citem .qty { display:flex; align-items:center; gap:6px; }
+  .citem .qty button { width:28px; height:28px; border-radius:6px; border:1px solid var(--line); background:var(--bg); color:var(--ink); cursor:pointer; }
+  .citem .rm { border:0; background:none; color:var(--muted,#888); cursor:pointer; font-size:18px; }
+  .checkout { margin-top:auto; }
+  .checkout .btn { width:100%; }
+  .order { border:2px solid var(--green); border-radius:10px; padding:10px; }
 </style>
 </head>
 <body>
-<header class="mc-header"><a class="brand" href="/">McMaster-Vision<small>unofficial part identifier</small></a><span class="pill" id="status">connecting…</span><span class="pill warn" id="outbox" hidden></span><nav><a href="/" class="on">Identify</a><a href="/browse">Browse</a><a href="/dashboard">Dashboard</a></nav></header>
+<header class="mc-header"><a class="brand" href="/">McMaster-Vision<small>unofficial part identifier</small></a><span class="pill" id="status">connecting…</span><span class="pill warn" id="outbox" hidden></span><span class="pill" id="cartpill" role="button" tabindex="0" title="Cart" onclick="openCart()" hidden>&#128722; <b id="cartn">0</b></span><nav><a href="/" class="on">Identify</a><a href="/browse">Browse</a><a href="/dashboard">Dashboard</a></nav></header>
 <main class="mc">
   <div class="notice" id="notready" hidden>Nothing is built yet: run <code>mcv up</code> for a demo catalog or <code>mcv bootstrap &lt;images&gt;</code>, then reload.</div>
   <div class="drop" id="drop">
@@ -188,6 +203,16 @@
 
 <div id="lb" onclick="this.classList.remove('on')"><div class="pair"><img id="lb1" alt=""><img id="lb2" alt="" hidden></div><div class="cap" id="lbcap"></div></div>
 <div class="toast" id="toast"></div>
+<div id="cart" onclick="if (event.target === this) closeCart()"><div class="panel">
+  <h2>Cart <button type="button" class="iconbtn" onclick="closeCart()">Close</button></h2>
+  <div id="cartitems"></div>
+  <div id="cartorder" hidden></div>
+  <div class="checkout" id="checkoutrow" hidden>
+    <div class="meta" id="carttotal"></div>
+    <button type="button" class="btn primary" id="checkoutbtn" onclick="checkout()">Check out</button>
+    <p class="hint">Demo storefront: no payment. Each part bought after a photo teaches the model that photo means that part.</p>
+  </div>
+</div></div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -408,6 +433,7 @@ function render(res) {
       ${navigator.share ? `<button type="button" class="iconbtn" onclick="shareResult()">Share</button>` : ''}
       <a class="iconbtn" href="https://www.mcmaster.com/${encodeURIComponent(res.best.part_number)}/" target="_blank" rel="noopener">mcmaster.com &nearr;</a></div>
       <div class="name">${esc(res.best.name)} &middot; ${pct(res.best.confidence)} confidence</div>
+      <div class="confirm"><button type="button" class="buy" data-buy="${esc(res.best.part_number)}" onclick="addToCart(${js(res.best.part_number)}, this)">&#128722; Add to cart</button></div>
       <div class="name">${esc(res.best.category_path.join(' › '))}</div>${specTable(res.best.attributes)}`;
   } else {
     html += `<div class="name">Try another angle, closer, on a plain background &mdash; or search by text.</div>`;
@@ -441,12 +467,13 @@ function render(res) {
         <div class="meta">confidence ${(c.confidence*100).toFixed(1)}% · similarity ${c.similarity.toFixed(3)} · <a class="link" href="/part/${pn}">details</a> · <a class="link" href="https://www.mcmaster.com/${pn}/" target="_blank" rel="noopener">mcmaster.com</a></div>
         <div class="strip" data-strip="${esc(c.part_number)}"></div>
         <ul class="reasons">${c.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
-        <div class="confirm"><button type="button" class="yes" onclick="confirm(${js(c.part_number)}, this)">&#10003; This is it</button></div>
+        <div class="confirm"><button type="button" class="yes" onclick="confirm(${js(c.part_number)}, this)">&#10003; This is it</button><button type="button" class="buy" data-buy="${esc(c.part_number)}" onclick="addToCart(${js(c.part_number)}, this)">&#128722; Add to cart</button></div>
       </div></div>`;
   });
   const t = res.timings_ms || {};
   html += `<details class="timings"><summary>${res.photos > 1 ? res.photos + ' photos · ' : ''}${t.total ? t.total + ' ms on server' : ''}${res._roundtrip ? ' · ' + res._roundtrip + ' ms round trip' : ''} · ${esc(res.model_version)}</summary>${Object.entries(t).map(([k,v]) => `${esc(k)} ${v} ms`).join(' · ')}</details>`;
   results.innerHTML = html;
+  updateCartBadge();
   loadStrips(res.candidates.slice(0, 5));
 }
 async function loadStrips(cands) {
@@ -559,6 +586,87 @@ $('muse').addEventListener('click', async () => {
   await send();
 });
 $('mclear').addEventListener('click', async () => { const had = !!scale; scale = null; refSeg = null; measureOff(); if (had) await send(); });
+
+// ---- cart + checkout (the purchase teaches the model) ------------------------
+function clientId() {
+  let id = null; try { id = localStorage.getItem('mcv.client'); } catch (_) {}
+  if (!id) { id = 'c-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); try { localStorage.setItem('mcv.client', id); } catch (_) {} }
+  return id;
+}
+let cart = [];
+function cartCount() { return cart.reduce((n, it) => n + it.quantity, 0); }
+function updateCartBadge() {
+  const n = cartCount(); const p = $('cartpill'); $('cartn').textContent = n; p.hidden = false; p.classList.toggle('ok', n > 0);
+  document.querySelectorAll('button[data-buy]').forEach(b => {
+    const inCart = cart.some(it => it.part_number === b.dataset.buy);
+    b.classList.toggle('in', inCart); b.innerHTML = inCart ? '&#10003; In cart' : '&#128722; Add to cart';
+  });
+}
+async function loadCart() {
+  try { const r = await fetch(`/cart?client_id=${encodeURIComponent(clientId())}`); if (r.ok) { cart = await r.json(); updateCartBadge(); } } catch (_) {}
+}
+async function addToCart(pn, btn) {
+  if (btn) btn.disabled = true;
+  const body = { client_id: clientId(), part_number: pn, quantity: 1 };
+  if (lastResult && lastResult.candidates.some(c => c.part_number === pn)) body.request_id = lastResult.request_id;
+  let r = null;
+  try { r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } catch (_) {}
+  if (btn) btn.disabled = false;
+  if (!r || !r.ok) { toast(r ? 'Could not add: ' + r.status : 'No connection'); return; }
+  cart = await r.json(); updateCartBadge(); toast(pn + ' added to the cart'); renderCart();
+}
+async function setQty(pn, delta) {
+  const it = cart.find(i => i.part_number === pn); if (!it) return;
+  const q = it.quantity + delta;
+  if (q <= 0) return removeFromCart(pn);
+  const add = n => fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: pn, quantity: n, request_id: it.request_id }) }).catch(() => null);
+  let r;
+  if (delta > 0) r = await add(delta);            // the server adds to the line
+  else { await removeFromCart(pn, true); r = await add(q); }
+  if (r && r.ok) cart = await r.json();
+  updateCartBadge(); renderCart();
+}
+async function removeFromCart(pn, quiet) {
+  const r = await fetch(`/cart/${encodeURIComponent(pn)}?client_id=${encodeURIComponent(clientId())}`, { method: 'DELETE' }).catch(() => null);
+  if (r && r.ok) cart = await r.json();
+  if (!quiet) { updateCartBadge(); renderCart(); }
+}
+function renderCart() {
+  const box = $('cartitems');
+  if (!cart.length) { box.innerHTML = '<p class="hint">Nothing in the cart yet. Identify a part and tap <b>Add to cart</b>.</p>'; $('checkoutrow').hidden = true; return; }
+  box.innerHTML = cart.map(it => `<div class="citem">
+    <img src="/parts/${enc(it.part_number)}/thumb?size=112" alt="" onerror="this.style.visibility='hidden'">
+    <div style="flex:1;min-width:0"><div class="pn"><a href="/part/${enc(it.part_number)}" style="color:inherit;text-decoration:none">${esc(it.part_number)}</a></div>
+      <div class="meta">${esc(it.name || '')}</div>
+      <div class="meta">${it.tier ? `<span class="tier ${esc(it.tier)}">${esc(it.tier)}</span> ` : ''}${it.confidence != null ? pct(it.confidence) + ' confidence from your photo' : (it.request_id ? 'picked from your photo\'s list' : 'added by part number')}${it.price_usd != null ? ' &middot; $' + esc(it.price_usd.toFixed(2)) : ''}</div></div>
+    <div class="qty"><button type="button" onclick="setQty(${js(it.part_number)}, -1)">&minus;</button><b>${it.quantity}</b><button type="button" onclick="setQty(${js(it.part_number)}, 1)">+</button></div>
+    <button type="button" class="rm" aria-label="remove" onclick="removeFromCart(${js(it.part_number)})">&times;</button></div>`).join('');
+  const total = cart.reduce((t, it) => t + (it.price_usd || 0) * it.quantity, 0);
+  $('carttotal').innerHTML = `${cartCount()} item${cartCount() === 1 ? '' : 's'}${total ? ' &middot; $' + esc(total.toFixed(2)) : ''}`;
+  $('checkoutrow').hidden = false; $('cartorder').hidden = true;
+}
+function openCart() { renderCart(); $('cart').classList.add('on'); }
+function closeCart() { $('cart').classList.remove('on'); }
+async function checkout() {
+  const b = $('checkoutbtn'); b.disabled = true; b.textContent = 'Placing order…';
+  let r = null;
+  try { r = await fetch('/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId() }) }); } catch (_) {}
+  b.disabled = false; b.textContent = 'Check out';
+  if (!r || !r.ok) { let why = ''; try { why = (await r.json()).detail || ''; } catch (_) {} toast(r ? 'Checkout failed' + (why ? ': ' + why : '') : 'No connection'); return; }
+  const o = await r.json();
+  const learned = o.items.filter(it => it.request_id).length;
+  cart = []; updateCartBadge();
+  $('cartitems').innerHTML = ''; $('checkoutrow').hidden = true;
+  const ord = $('cartorder'); ord.hidden = false;
+  ord.innerHTML = `<div class="order"><b>Order ${esc(o.order_id)} placed</b> &middot; ${o.items.length} part${o.items.length === 1 ? '' : 's'}${o.total_usd != null ? ' &middot; $' + esc(o.total_usd.toFixed(2)) : ''}
+    <ul>${o.items.map(it => `<li>${esc(it.part_number)} &times; ${it.quantity}${it.name ? ' &mdash; ' + esc(it.name) : ''}</li>`).join('')}</ul>
+    <div class="meta">${learned ? `${learned} photo${learned === 1 ? '' : 's'} now teach the model: next time this part is recognised faster.` : 'Nothing to learn from this order (no photo behind the parts).'}</div>
+    <button type="button" class="iconbtn" style="margin-top:8px" onclick="closeCart(); resetQuery && resetQuery()">Identify another part</button></div>`;
+  toast('Order placed — thank you');
+  document.querySelectorAll('.confirm button.yes').forEach(x => x.disabled = true);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCart(); });
+loadCart();
 
 // ---- feedback --------------------------------------------------------------
 async function confirm(partNumber, btn) {

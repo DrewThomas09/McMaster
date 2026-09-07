@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0
+
+- Purchase loop: `POST /cart`, `DELETE /cart/{pn}`, `POST /checkout`, `GET /orders`; the phone
+  UI gets Add-to-cart on the verdict and candidates, a cart drawer with quantities and the
+  confidence each line came with, and one-tap checkout with an order confirmation. Every
+  purchased item that came from a photo is filed as a `checkout` confirmation (weight 3,
+  tap 2, cart 1: `FEEDBACK_WEIGHTS`), which the usage prior and training honour.
+- Backend tracking: `data/logs/events.jsonl` records identify / cart / checkout / feedback /
+  error events; `GET /analytics` and the dashboard's "Learning loop" panel turn them into the
+  funnel, predicted-vs-bought confusion pairs, tier precision when bought, confidence when
+  right vs wrong, latency and errors, and a plain-language issues list with the fix for each.
+- Recursive learning: `mcv learn` adds new confirmed photos to the live index incrementally
+  (`add_photos`, seconds, `meta.learned_paths` keeps each photo once) and runs a full
+  purchase-weighted `mcv retrain` once `MCV_LEARN_RETRAIN_AFTER` new confirmations arrived;
+  `POST /admin/learn` and a dashboard button do the fast step; the manifest records
+  `learned_at` / `retrained_at`.
+- `mcv simulate --customers N [--learn] [--json]`: synthetic customers walk the whole
+  journey in-process and the analytics report what is wrong, then before/after learning.
+
 ## 0.3.6
 
 - Training review: the trainer no longer warm-starts from `MCV_BACKBONE_CHECKPOINT` by

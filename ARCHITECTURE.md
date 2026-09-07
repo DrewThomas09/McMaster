@@ -185,6 +185,37 @@ that closes the synthetic-to-real gap, so the UI makes confirming a one-tap
 action and "None of these" photos are kept under `_unknown/` for labelling.
 `/feedback/stats` exposes the confirmed top-1 rate as the live accuracy metric.
 
+## Purchase loop (the demo storefront that teaches the model)
+
+```
+photo -> /identify -> "Add to cart" (POST /cart, tied to the request_id)
+      -> POST /checkout -> orders.jsonl + one `checkout` confirmation per photographed item
+      -> events.jsonl: identify / cart_add / cart_remove / checkout / feedback / error
+      -> GET /analytics: funnel, predicted-vs-bought confusions, tier precision when bought,
+         confidence when right vs wrong, latency p95, errors -> plain-language issues
+      -> mcv learn: photos into the index (incremental, seconds); full retrain once
+         `learn_retrain_after` new confirmations arrived (purchase-weighted)
+      -> mcv simulate [--learn]: synthetic customers walk the journey in-process and the
+         same analytics say what is wrong, before and after learning
+```
+
+A purchase is the strongest label there is (the customer paid for it), so a
+`checkout` confirmation weighs 3, a tap 2, a cart add 1 (`FEEDBACK_WEIGHTS`).
+The weight repeats the photo for training and scales the usage prior; the index
+holds each photo once because retrieval max-pools over a part's rows.
+`learn_index` appends only the photos the index does not hold yet
+(`meta.learned_paths`) with the deployment's own embedder, so the running API
+accepts and picks up the result within seconds; a foreign or older index is
+rebuilt once. The manifest records `learned_at` / `retrained_at`, and the
+dashboard's "Learning loop" panel shows the funnel, the confusion pairs, the
+issue list and how far the next retrain is.
+
+Measured on the 200-part synthetic demo (hash backbone, 40 simulated customers,
+2026-09-07): the photos customers bought were the top answer 88% of the time
+before learning and 96% after; new photos of the same parts went from 65% to
+55%-70% top-1 depending on the seed, i.e. the gallery photo helps the exact
+angle most and generalises modestly, which is why the full retrain exists.
+
 ## Durability (nothing learned at run time is lost)
 
 Every run-time artefact is a file under `data/` and is written before the

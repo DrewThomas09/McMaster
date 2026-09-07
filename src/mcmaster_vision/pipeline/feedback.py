@@ -43,6 +43,7 @@ class FeedbackStore:
         predicted: str | None = None,
         tier: str | None = None,
         ext: str = "jpg",
+        source: str = "tap",
     ) -> Feedback:
         request_id = safe_segment(request_id, "request_id")
         pn = safe_segment(part_number, "part_number").upper() if part_number else None
@@ -56,6 +57,7 @@ class FeedbackStore:
             predicted=predicted,
             tier=tier,
             image_path=str(path.resolve()),
+            source=source,
         )
         with self._lock:
             # a corrected tap moves the photo: the earlier label must not survive on disk,
@@ -84,21 +86,33 @@ class FeedbackStore:
     def stats(self) -> dict[str, int]:
         e = self.entries()
         confirmed = [x for x in e if x.part_number]
+        by_source: dict[str, int] = {}
+        for x in confirmed:
+            by_source[x.source] = by_source.get(x.source, 0) + 1
         return {
             "total": len(e),
             "confirmed": len(confirmed),
             "unknown": len(e) - len(confirmed),
             "correct_top1": sum(1 for x in confirmed if x.predicted == x.part_number),
             "parts_with_photos": len({x.part_number for x in confirmed}),
+            "by_source": by_source,
+            "purchases": by_source.get("checkout", 0),
         }
 
     def confirmation_counts(self) -> dict[str, int]:
         """part_number -> how many times users confirmed it (a usage prior for reranking)."""
         counts: dict[str, int] = {}
         for x in self.entries():
-            if x.part_number:
-                counts[x.part_number] = counts.get(x.part_number, 0) + 1
+            if x.part_number:  # a purchase counts for more than a tap
+                counts[x.part_number] = counts.get(x.part_number, 0) + x.weight
         return counts
+
+    def entries_since(self, when: str | None) -> list[Feedback]:
+        """Feedback newer than an ISO timestamp (what the model has not learned from yet)."""
+        e = self.entries()
+        if not when:
+            return e
+        return [x for x in e if x.created_at.isoformat() > when]
 
     def mtime(self) -> float:
         try:
@@ -106,8 +120,15 @@ class FeedbackStore:
         except OSError:
             return 0.0
 
-    def labelled_images(self) -> dict[str, list[str]]:
-        """part_number -> real photo paths (for evaluation and extra training views)."""
+    def labelled_images(self, weighted: bool = False) -> dict[str, list[str]]:
+        """part_number -> real photo paths (for evaluation and extra training views).
+        ``weighted`` repeats a photo by its evidence weight (a purchase 3x, a tap 2x, a
+        cart add 1x) so training and the gallery lean on the strongest confirmations."""
+        weights: dict[str, int] = {}
+        if weighted:
+            for x in self.entries():
+                if x.image_path:
+                    weights[str(Path(x.image_path).resolve())] = x.weight
         out: dict[str, list[str]] = {}
         for folder in sorted(self.root.iterdir()):
             if folder.is_dir() and folder.name != UNKNOWN_DIR and not folder.name.startswith("."):
@@ -117,6 +138,8 @@ class FeedbackStore:
                     if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
                 ]
                 if imgs:  # folder names are part numbers; hand-made ones may be lower case
+                    if weighted:
+                        imgs = [p for p in imgs for _ in range(max(1, weights.get(p, 2)))]
                     out.setdefault(folder.name.upper(), []).extend(imgs)
         return out
 

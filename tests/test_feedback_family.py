@@ -73,6 +73,8 @@ def test_feedback_store_roundtrip(tmp_path):
         "unknown": 1,
         "correct_top1": 1,
         "parts_with_photos": 1,
+        "by_source": {"tap": 1},
+        "purchases": 0,
     }
     labelled = fs.labelled_images()
     assert list(labelled) == ["91251A537"] and len(labelled["91251A537"]) == 1
@@ -150,4 +152,4 @@ def test_identifier_reads_confirmations_as_a_prior(store, index, embedder, tmp_p
         fs.record(b"x", f"r{i}", other)
     res2 = ident.identify(Image.open(part.image_paths[0]).convert("RGB"), tta="none")
     boosted = [c for c in res2.candidates if c.part_number == other]
-    assert boosted and any("confirmed 3x" in r for r in boosted[0].reasons)
+    assert boosted and any("evidence 6" in r for r in boosted[0].reasons)  # 3 taps x weight 2

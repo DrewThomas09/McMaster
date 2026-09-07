@@ -423,7 +423,6 @@ def retrain(
     from mcmaster_vision.pipeline import Identifier
     from mcmaster_vision.pipeline.calibration import Calibration
     from mcmaster_vision.pipeline.feedback import FeedbackStore
-    from mcmaster_vision.pipeline.manifest import update_manifest
     from mcmaster_vision.training import evaluate_retrieval
     from mcmaster_vision.training.train import load_train_config
     from mcmaster_vision.training.train import train as _train
@@ -433,12 +432,20 @@ def retrain(
     if epochs:
         cfg["epochs"] = epochs
     cfg["output_dir"] = str(s.model_dir / "retrain")
-    labelled = FeedbackStore(s.queries_dir).labelled_images()
-    # hold out every 5th confirmed photo per part: evaluation/calibration must not see training data
-    extra, held_out = _split_feedback(labelled)
-    n_train_photos = sum(len(v) for v in extra.values())
+    # purchases count more than taps (weighted photos repeat); the held-out split sees
+    # each photo once so the evaluation is honest
+    fstore = FeedbackStore(s.queries_dir)
+    extra, held_out = _split_feedback(fstore.labelled_images())
+    weights = {
+        str(Path(x.image_path).resolve()): x.weight for x in fstore.entries() if x.image_path
+    }
+    extra = {
+        pn: [x for x in v for _ in range(max(1, weights.get(x, 2)))] for pn, v in extra.items()
+    }
+    n_train_photos = sum(len(set(v)) for v in extra.values())
     typer.echo(
-        f"1/3 training on catalog + {n_train_photos} confirmed photos ({len(held_out)} held out) ..."
+        f"1/3 training on catalog + {n_train_photos} confirmed photos, purchase-weighted "
+        f"({len(held_out)} held out) ..."
     )
     live = s
     with CatalogStore(s.catalog_db) as store:
@@ -500,10 +507,13 @@ def retrain(
             rep.score_lists, rep.correct_idx
         )
         cal.save(s.model_dir / "calibration.json")
-    update_manifest(
+    from mcmaster_vision.pipeline.learn import mark_retrained
+
+    mark_retrained(
         s,
         checkpoint=str(ckpt),
         index=idx.stats().model_dump(mode="json"),
+        index_with_feedback=bool(extra),
         retrain_eval=json.loads(rep.to_json()),
         retrain_eval_source="held-out confirmed photos" if held_out else "synthetic renders",
         evaluation=None,  # the held-out real photos are the number that matters now
@@ -606,6 +616,76 @@ def _retrain_switches(live: Settings, new_version: str) -> bool:
     except Exception:  # the live backbone cannot even load: anything new is a switch
         return True
     return current != new_version
+
+
+@app.command()
+def learn(
+    config: Path | None = _config_opt,
+    index_only: bool = typer.Option(
+        False, "--index-only", help="Never retrain, only fold confirmed photos into the index"
+    ),
+    retrain_after: int | None = typer.Option(
+        None, help="New confirmations that trigger a full retrain (default from config)"
+    ),
+    force: bool = typer.Option(False, help="Rebuild the index even with nothing new"),
+    train_config: Path = typer.Option(Path("configs/train_tinycnn.yaml"), help="Training recipe"),
+    reload_url: str | None = typer.Option(None, help="POST /admin/reload after a retrain"),
+) -> None:
+    """Close the loop: confirmed and bought photos into the index now, a full retrain once
+    enough new ones arrived. Safe to run from cron every hour."""
+    from mcmaster_vision.pipeline.learn import learn_index, learning_state
+
+    s = _settings(config)
+    threshold = s.learn_retrain_after if retrain_after is None else retrain_after
+    state = learning_state(s)
+    typer.echo(
+        f"{state['new_confirmations']} new confirmations ({state['new_purchases']} purchases) "
+        f"since the last learn; {state['since_retrain']}/{threshold} towards a retrain"
+    )
+    if not index_only and state["since_retrain"] >= threshold and state["since_retrain"] > 0:
+        typer.echo("enough new evidence: full retrain")
+        retrain(config=config, train_config=train_config, epochs=None, reload_url=reload_url)
+        return
+    res = learn_index(s, force=force)
+    if res["action"] == "none":
+        typer.echo("nothing new to learn")
+        return
+    typer.echo(
+        f"index rebuilt with {res['photos']} confirmed photos of {res['parts']} parts in "
+        f"{res['seconds']}s; a running API picks it up within seconds"
+    )
+
+
+@app.command()
+def simulate(
+    config: Path | None = _config_opt,
+    customers: int = typer.Option(40, help="Synthetic customers to run through the journey"),
+    seed: int = typer.Option(0),
+    learn: bool = typer.Option(
+        False, "--learn", help="Then learn from the purchases and run the customers again"
+    ),
+    top_n: int = typer.Option(5),
+    tta: str = typer.Option("fast"),
+    as_json: bool = typer.Option(False, "--json", help="Print the full report as JSON"),
+) -> None:
+    """Self-run the demo: customers identify, add to the cart and check out in-process,
+    then the analytics name what went wrong. With --learn, shows before/after."""
+    from mcmaster_vision.pipeline.simulate import simulate as _simulate
+
+    s = _settings(config)
+    out = _simulate(
+        s,
+        customers=customers,
+        seed=seed,
+        learn=learn,
+        top_n=top_n,
+        tta=tta,
+        echo=None if as_json else typer.echo,
+    )
+    if as_json:
+        typer.echo(json.dumps(out, indent=2, default=str))
+    elif not out["issues"]:
+        typer.echo("  no issues found at this traffic level")
 
 
 @app.command()

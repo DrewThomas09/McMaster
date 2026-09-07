@@ -249,6 +249,11 @@ tests only).
 POST /identify?top_n=5&constraints={...} multipart "file" or "files" -> IdentificationResult
 POST /identify/batch                     multipart "files"  -> one row per photo
 POST /feedback                           request_id, part_number?, file? -> Feedback
+GET  /cart?client_id  POST /cart  DELETE /cart/{pn}   the demo storefront's cart
+POST /checkout                           places the order; photographed items become
+                                         `checkout` confirmations (the model learns)
+GET  /orders  /analytics                 orders; funnel, confusions, issues, learning state
+POST /admin/learn                        confirmed photos into the index now (token)
 GET  /feedback/stats  /metrics  /status
 POST /admin/reload                       header X-API-Token when MCV_API_TOKEN is set
 GET  /parts/{part_number}                                    -> Part
@@ -301,6 +306,26 @@ the look-alike SKUs in the family with the attributes that differ, and
 build information.
 
 <p><img src="docs/part-page.png" alt="part page" width="260"> <img src="docs/dashboard.png" alt="dashboard" width="260"></p>
+
+## Purchase loop: the cart teaches the model
+
+The phone UI has **Add to cart** on the verdict and on every candidate, a cart
+drawer with quantities and the confidence each line came with, and one-tap
+checkout. Nothing is charged (it is a demo storefront), but a checkout is the
+strongest signal there is about what the photo showed: every purchased item that
+came from an identification is filed as a `checkout` confirmation of that photo,
+weighted above a tap. `mcv learn` folds those photos into the index in seconds
+(the running API picks it up) and triggers a full retrain once enough new ones
+arrived, so the system gets better the more it is used.
+
+Everything on the way is tracked (`data/logs/events.jsonl`) and turned into
+answers on the dashboard's **Learning loop** panel and `GET /analytics`: how many
+identifications became carts and orders, what was predicted vs what was bought,
+whether "exact" answers were right when bought, and a plain-language issues list
+with the command that fixes each one. `mcv simulate --customers 40 --learn`
+runs the whole journey with synthetic customers, prints the issues, learns from
+the purchases and shows before/after accuracy, so problems are found before a
+customer finds them.
 
 ## Operating it
 

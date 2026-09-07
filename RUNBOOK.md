@@ -67,6 +67,21 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   `data/queries/<part_number>/`. Measure on them: `mcv evaluate --query-dir data/queries --fit-calibration`.
   Train on them: `mcv train -c configs/train_tinycnn.yaml --query-dir data/queries`
   (or `configs/train_openclip.yaml` on a GPU), then `mcv build-index` and `POST /admin/reload`.
+* **Purchases are the strongest confirmations.** The storefront's `POST /checkout` files a
+  `checkout` confirmation for every item that came from a photo (weight 3 vs 2 for a tap).
+  `mcv learn` folds new confirmations into the index incrementally (seconds; the API picks
+  it up by itself) and runs a full `mcv retrain` once `MCV_LEARN_RETRAIN_AFTER` (default 50)
+  new confirmations arrived. Cron it hourly: `0 * * * * mcv learn` (`--index-only` never
+  retrains). The dashboard's **Learning loop** panel and `GET /analytics` show the funnel
+  (identify -> cart -> checkout), predicted-vs-bought confusion pairs, tier precision on
+  what was bought, and a plain-language issues list with the command that fixes each.
+  Backend tracking lives in `data/logs/events.jsonl` (every identify, cart, checkout,
+  feedback and error) and `data/logs/orders.jsonl`.
+* **Self-run the demo before customers do.** `mcv simulate --customers 40 --learn` walks
+  synthetic customers through photo -> cart -> checkout in-process, prints the issues the
+  analytics found, learns from the purchases and reports before/after top-1 on the bought
+  photos and on new photos of the same parts. Run it after any change to the reranker,
+  calibration or index settings; `--json` for a machine-readable report.
 * **New SKUs**: `mcv ingest new_parts.jsonl && mcv build-index --only-new` embeds only the additions.
   `GET /status` reports `index_stale: true` whenever the catalog changed after the
   index was built. Index writes are atomic (temp dir + swap), so rebuilding while
