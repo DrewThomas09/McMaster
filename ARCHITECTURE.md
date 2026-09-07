@@ -300,11 +300,14 @@ with a scale and reference (size + thread pitch) 67 ms; with the coin hint
 
 The reference object must not vote on looks: when a segment is given, the disc it
 spans is filled with the surrounding bench (median colour, matched noise) before
-the photo is embedded (`erase_reference`), and only the measurement sees the
-coin. On 60 synthetic parts with the shipped TinyCNN (2026-09-07), photos with a
-quarter beside the part were top-1 51/60 with the erase and the size votes,
-against 44/60 for the same photos without a coin and 12/60 when the coin was
-left in the embedding. In the purchase-loop simulation with half the customers
+the photo is embedded (`erase_reference`: the region grown through the
+reference's own colour from the marked segment, so a card or ruler is removed
+without touching the part beside it), and only the measurement sees the coin. On
+52 synthetic parts of every kind with the shipped TinyCNN (2026-09-07), photos
+with a quarter beside the part were top-1 37/52 with the erase and the size
+votes, against 35/52 for the same photos without a coin and about 12/52 when the
+coin was left in the embedding; the part in the top 5 in 47/52 against 52/52,
+the cost of the part being smaller in a frame it shares with a coin. In the purchase-loop simulation with half the customers
 using a coin (`mcv simulate --customers 120 --coin-rate 0.5 --learn`, same
 model and demo), the bought part had been the top answer 88% of the time when
 the photo carried a measurement and 71% when it did not, and on new photos after
