@@ -73,6 +73,15 @@
   bore is the largest hole (a flange's centre bore, not its bolt holes) and the bore rule
   applies only to plain pipe, unthreaded fittings and parts with a stated wall; schedule
   10S walls for 1/8 - 3/8; the UI shows the bore in inches too.
+- Phone UI review: Buy now never adds a second unit of a part already in the cart; "This is
+  it" no longer disables Add to cart / Buy now; a slow startup cart fetch cannot overwrite a
+  fresh add (cart sequence guard); a new query started while a result body was downloading
+  is not rendered over it; "Identify another part" really starts over; failed removes and
+  422 details are reported; quantity taps are optimistic; Order again counts real adds;
+  the cart badge and sample strip work from the keyboard; Live ID survives a camera flip
+  and says when it is rate limited; live-preview frames have their own rate budget so a
+  minute of Live ID cannot 429 the next real photo; a confirmation re-uploads the photo
+  only when the server says it no longer has it.
 - Purchases by category: `/analytics` and the dashboard show which categories customers get
   wrong most (top-1 precision when bought) with an issue for the weakest; identify events
   carry the category. A `learner` service in both compose files runs `mcv learn` hourly.

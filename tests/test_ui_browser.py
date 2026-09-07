@@ -360,3 +360,35 @@ def test_part_page_add_to_cart_button_works(server, store, tmp_path):
         browser.close()
     cart = httpx.get(f"{server}/cart?client_id={cid}").json()
     assert cart and cart[0]["part_number"] == part.part_number
+
+
+def test_confirm_keeps_buy_buttons_and_buy_now_never_doubles(server, tmp_path):
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    import httpx
+
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.goto(server + "/")
+        page.wait_for_selector("#samplestrip img", timeout=30_000)
+        page.locator("#samplestrip img").first.click()
+        page.wait_for_selector(".cand button.buy", timeout=60_000)
+        # "This is it" must not disable Add to cart / Buy now
+        page.locator(".cand .confirm button.yes").first.click()
+        page.wait_for_function(
+            "document.querySelector('.cand .confirm button.yes').textContent.startsWith('Saved as')",
+            timeout=30_000,
+        )
+        assert page.locator(".cand button.buy").first.is_enabled()
+        # add, then Buy now on the same part: one line, quantity 1, one order
+        page.locator(".cand button.buy").first.click()
+        page.wait_for_function("document.getElementById('cartn').textContent === '1'")
+        cid = page.evaluate("localStorage.getItem('mcv.client')")
+        page.evaluate("buyNow(document.querySelector('.cand button.buy').dataset.buy, null)")
+        page.wait_for_selector("#cartorder .order", timeout=30_000)
+        assert page.locator("#cartn").inner_text() == "0"
+        browser.close()
+    orders = httpx.get(f"{server}/orders?client_id={cid}").json()
+    assert orders and sum(it["quantity"] for it in orders[0]["items"]) == 1

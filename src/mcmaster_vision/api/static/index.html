@@ -116,7 +116,7 @@
 </style>
 </head>
 <body>
-<header class="mc-header"><a class="brand" href="/">McMaster-Vision<small>unofficial part identifier</small></a><span class="pill" id="status">connecting…</span><span class="pill warn" id="outbox" hidden></span><span class="pill" id="cartpill" role="button" tabindex="0" title="Cart" onclick="openCart()" hidden>&#128722; <b id="cartn">0</b></span><nav><a href="/" class="on">Identify</a><a href="/browse">Browse</a><a href="/dashboard">Dashboard</a></nav></header>
+<header class="mc-header"><a class="brand" href="/">McMaster-Vision<small>unofficial part identifier</small></a><span class="pill" id="status">connecting…</span><span class="pill warn" id="outbox" hidden></span><span class="pill" id="cartpill" role="button" tabindex="0" title="Cart" onclick="openCart()" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCart(); }" hidden>&#128722; <b id="cartn">0</b></span><nav><a href="/" class="on">Identify</a><a href="/browse">Browse</a><a href="/dashboard">Dashboard</a></nav></header>
 <main class="mc">
   <div class="notice" id="notready" hidden>Nothing is built yet: run <code>mcv up</code> for a demo catalog or <code>mcv bootstrap &lt;images&gt;</code>, then reload.</div>
   <div class="drop" id="drop">
@@ -251,7 +251,7 @@ async function loadSamples() {
     const r = await fetch(`/demo/samples?n=14&seed=${sampleSeed}`); if (!r.ok) return;
     const items = await r.json();
     $('samples').hidden = !items.length;
-    $('samplestrip').innerHTML = items.map(it => `<figure><img src="${esc(it.thumb)}" alt="" loading="lazy" title="${esc(it.name)}" onclick="trySample(${js(it.part_number)})"><figcaption>${esc(it.category)}</figcaption></figure>`).join('');
+    $('samplestrip').innerHTML = items.map(it => `<figure><img src="${esc(it.thumb)}" alt="" loading="lazy" title="${esc(it.name)}" tabindex="0" role="button" onclick="trySample(${js(it.part_number)})" onkeydown="if (event.key === 'Enter') trySample(${js(it.part_number)})"><figcaption>${esc(it.category)}</figcaption></figure>`).join('');
   } catch (_) {}
 }
 $('moresamples').addEventListener('click', () => { sampleSeed++; loadSamples(); });
@@ -306,7 +306,7 @@ let stream = null, facing = 'environment';
 if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.isSecureContext) $('livebtn').hidden = false;
 $('livebtn').addEventListener('click', openCam);
 $('camclose').addEventListener('click', closeCam);
-$('flip').addEventListener('click', () => { facing = facing === 'environment' ? 'user' : 'environment'; openCam(); });
+$('flip').addEventListener('click', async () => { const wasLive = !!liveTimer; facing = facing === 'environment' ? 'user' : 'environment'; await openCam(); if (wasLive && stream) startLive(); });
 let camGen = 0;
 async function openCam() {
   closeCam();
@@ -340,7 +340,8 @@ async function liveTick() {
     const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.8));
     const fd = new FormData(); fd.append('file', blob, 'live.jpg');
     const r = await fetch('/identify?top_n=1&tta=fast&log=false', { method: 'POST', body: fd });
-    if (!r.ok || gen !== liveGen) return;  // Live ID was stopped while this frame was in flight
+    if (gen !== liveGen) return;  // Live ID was stopped while this frame was in flight
+    if (!r.ok) { if (r.status === 429) $('overlay').innerHTML = '<span class="dot unknown"></span><span>rate limited — pausing a moment</span>'; return; }
     const res = await r.json(); if (gen !== liveGen) return; liveLast = res;
     const b = res.best || res.candidates[0];
     const tierText = { exact: 'exact', likely: 'likely', candidate: 'maybe', unknown: 'no match' }[res.tier] || res.tier;
@@ -410,8 +411,10 @@ async function send() {
   try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
   catch (e) { if (seq === sendSeq) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
   if (seq !== sendSeq) return;  // superseded by a newer query
-  if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(typeof d === 'string' ? d : JSON.stringify(d))}</p>`; return; }
-  lastResult = await r.json();
+  if (!r.ok) { let d = ''; try { d = (await r.json()).detail; } catch (_) {} if (seq !== sendSeq) return; results.innerHTML = `<p style="color:var(--bad)">Error ${r.status}: ${esc(typeof d === 'string' ? d : JSON.stringify(d))}</p>`; return; }
+  const body = await r.json();
+  if (seq !== sendSeq) return;  // a new query started while the body was downloading
+  lastResult = body;
   lastResult._roundtrip = Math.round(performance.now() - t0);
   if (navigator.vibrate) navigator.vibrate(lastResult.tier === 'exact' ? [30, 40, 30] : 20);
   render(lastResult);
@@ -595,6 +598,7 @@ function clientId() {
   return id;
 }
 let cart = [];
+let cartSeq = 0;  // bumped by every cart write; a stale GET must not overwrite a newer cart
 function cartCount() { return cart.reduce((n, it) => n + it.quantity, 0); }
 function updateCartBadge() {
   const n = cartCount(); const p = $('cartpill'); $('cartn').textContent = n; p.hidden = false; p.classList.toggle('ok', n > 0);
@@ -604,7 +608,8 @@ function updateCartBadge() {
   });
 }
 async function loadCart() {
-  try { const r = await fetch(`/cart?client_id=${encodeURIComponent(clientId())}`); if (r.ok) { cart = await r.json(); updateCartBadge(); } } catch (_) {}
+  const seq = cartSeq;
+  try { const r = await fetch(`/cart?client_id=${encodeURIComponent(clientId())}`); if (r.ok) { const c = await r.json(); if (seq === cartSeq) { cart = c; updateCartBadge(); } } } catch (_) {}
 }
 async function addToCart(pn, btn) {
   if (btn) btn.disabled = true;
@@ -614,19 +619,20 @@ async function addToCart(pn, btn) {
   try { r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } catch (_) {}
   if (btn) btn.disabled = false;
   if (!r || !r.ok) { toast(r ? 'Could not add: ' + r.status : 'No connection'); return; }
-  cart = await r.json(); updateCartBadge(); toast(pn + ' added to the cart'); renderCart();
+  cartSeq++; cart = await r.json(); updateCartBadge(); toast(pn + ' added to the cart'); renderCart();
 }
 async function setQty(pn, delta) {
   const it = cart.find(i => i.part_number === pn); if (!it) return;
   const q = it.quantity + delta;
   if (q <= 0) return removeFromCart(pn);
+  it.quantity = q; cartSeq++; renderCart();  // optimistic: two quick taps send 2 then 3, not 2 twice
   const r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: pn, quantity: q, set_quantity: true, request_id: it.request_id }) }).catch(() => null);
-  if (r && r.ok) cart = await r.json(); else toast(r ? 'Could not change the quantity' : 'No connection');
+  if (r && r.ok) { cartSeq++; cart = await r.json(); } else { toast(r ? 'Could not change the quantity' : 'No connection'); await loadCart(); }
   updateCartBadge(); renderCart();
 }
 async function removeFromCart(pn, quiet) {
   const r = await fetch(`/cart/${encodeURIComponent(pn)}?client_id=${encodeURIComponent(clientId())}`, { method: 'DELETE' }).catch(() => null);
-  if (r && r.ok) cart = await r.json();
+  if (r && r.ok) { cartSeq++; cart = await r.json(); } else toast(r ? 'Could not remove' : 'No connection');
   if (!quiet) { updateCartBadge(); renderCart(); }
 }
 function renderCart() {
@@ -655,14 +661,16 @@ async function loadOrders() {
 }
 async function orderAgain(orderId) {  // the same parts back in the cart in one tap
   const o = (window._pastOrders || []).find(x => x.order_id === orderId); if (!o) return;
+  let added = 0;
   for (const it of o.items) {
-    try { const r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: it.part_number, quantity: it.quantity }) }); if (r.ok) cart = await r.json(); } catch (_) {}
+    try { const r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: it.part_number, quantity: it.quantity }) }); if (r.ok) { cartSeq++; cart = await r.json(); added++; } } catch (_) {}
   }
-  updateCartBadge(); renderCart(); toast('Added ' + o.items.length + ' part' + (o.items.length === 1 ? '' : 's') + ' from order ' + orderId);
+  updateCartBadge(); renderCart();
+  toast(added === o.items.length ? 'Added ' + added + ' part' + (added === 1 ? '' : 's') + ' from order ' + orderId : 'Added ' + added + ' of ' + o.items.length + ' parts (some are no longer in the catalog)');
 }
 async function buyNow(pn, btn) {  // one tap from a confident answer to a placed order
   if (btn) btn.disabled = true;
-  await addToCart(pn, null);
+  if (!cart.some(it => it.part_number === pn)) await addToCart(pn, null);
   if (cart.length === 1 && cart[0].part_number === pn) { openCart(); await checkout(); }
   else if (cart.some(it => it.part_number === pn)) { openCart(); toast('Your cart has other items too — check out when ready'); }
   if (btn) btn.disabled = false;
@@ -673,8 +681,8 @@ async function checkout() {
   let r = null;
   try { r = await fetch('/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId() }) }); } catch (_) {}
   b.disabled = false; b.textContent = 'Check out';
-  if (!r || !r.ok) { let why = ''; try { why = (await r.json()).detail || ''; } catch (_) {} toast(r ? 'Checkout failed' + (why ? ': ' + why : '') : 'No connection'); return; }
-  const o = await r.json();
+  if (!r || !r.ok) { let why = ''; try { const d = (await r.json()).detail; why = typeof d === 'string' ? d : JSON.stringify(d || ''); } catch (_) {} toast(r ? 'Checkout failed' + (why ? ': ' + why : '') : 'No connection'); return; }
+  const o = await r.json(); cartSeq++;
   const learned = o.learned || 0;  // what the server really filed as confirmations
   cart = []; updateCartBadge();
   $('cartitems').innerHTML = ''; $('checkoutrow').hidden = true;
@@ -682,7 +690,7 @@ async function checkout() {
   ord.innerHTML = `<div class="order"><b>Order ${esc(o.order_id)} placed</b> &middot; ${o.items.length} part${o.items.length === 1 ? '' : 's'}${o.total_usd != null ? ' &middot; $' + esc(o.total_usd.toFixed(2)) : ''}
     <ul>${o.items.map(it => `<li>${esc(it.part_number)} &times; ${it.quantity}${it.name ? ' &mdash; ' + esc(it.name) : ''}</li>`).join('')}</ul>
     <div class="meta">${learned ? `${learned} photo${learned === 1 ? ' now teaches' : 's now teach'} the model: next time this part is recognised faster.` : 'Nothing to learn from this order (no photo behind the parts).'}</div>
-    <button type="button" class="iconbtn" style="margin-top:8px" onclick="closeCart(); resetQuery && resetQuery()">Identify another part</button></div>`;
+    <button type="button" class="iconbtn" style="margin-top:8px" onclick="closeCart(); document.getElementById('again').click()">Identify another part</button></div>`;
   toast('Order placed — thank you');
   document.querySelectorAll('.confirm button.yes').forEach(x => x.disabled = true);
   loadOrders();  // the new order appears under "Your orders" right away
@@ -698,20 +706,23 @@ async function confirm(partNumber, btn) {
   if (partNumber) fd.append('part_number', partNumber);
   if (lastResult.best) fd.append('predicted', lastResult.best.part_number);
   fd.append('tier', lastResult.tier);
-  const blob = photos[0] ? await downscale(photos[0]) : null;
-  if (blob) fd.append('file', blob);
-  document.querySelectorAll('.confirm button').forEach(b => b.disabled = true); btn.classList.add('done');
+  document.querySelectorAll('.confirm button:not(.buy)').forEach(b => b.disabled = true); btn.classList.add('done');
+  // the server still holds the photo for a while: send it again only when it says it is gone
   let r = null;
   try { r = await fetch('/feedback', { method: 'POST', body: fd }); } catch (_) { r = null; }
+  if (r && r.status === 404 && photos[0]) {
+    let why = ''; try { why = String((await r.clone().json()).detail || ''); } catch (_) {}
+    if (/resend/i.test(why)) { fd.append('file', await downscale(photos[0])); try { r = await fetch('/feedback', { method: 'POST', body: fd }); } catch (_) { r = null; } }
+  }
   if (r && r.ok) { btn.textContent = partNumber ? 'Saved as ' + partNumber : 'Saved as unknown'; toast('Thanks — this photo now trains the model'); return; }
   if (r && r.status >= 400 && r.status < 500 && r.status !== 429) {  // rejected for good (unknown part, photo gone and none to resend)
-    let why = ''; try { why = (await r.json()).detail || ''; } catch (_) {}
+    let why = ''; try { const d = (await r.json()).detail; why = typeof d === 'string' ? d : JSON.stringify(d || ''); } catch (_) {}
     btn.textContent = 'Could not save' + (why ? ': ' + why.slice(0, 60) : ''); return;
   }
   // offline or server down: keep it in an outbox and sync when we are back
   const small = photos[0] ? await downscale(photos[0], 640) : null;  // a few hundred KB, not a few MB
   const stored = queueFeedback({ request_id: lastResult.request_id, part_number: partNumber || null, predicted: lastResult.best ? lastResult.best.part_number : null, tier: lastResult.tier, image: small ? await blobToDataUrl(small) : null });
-  if (!stored) { btn.textContent = 'Could not save'; document.querySelectorAll('.confirm button').forEach(b => b.disabled = false); btn.classList.remove('done'); toast('Offline and no room to store this on the phone'); return; }
+  if (!stored) { btn.textContent = 'Could not save'; document.querySelectorAll('.confirm button:not(.buy)').forEach(b => b.disabled = false); btn.classList.remove('done'); toast('Offline and no room to store this on the phone'); return; }
   btn.textContent = (partNumber ? 'Saved as ' + partNumber : 'Saved as unknown') + ' (will sync)';
   toast('No connection — saved on this phone, syncs automatically');
 }

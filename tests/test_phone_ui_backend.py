@@ -63,3 +63,34 @@ def test_lan_urls_and_self_signed_cert(tmp_path):
         key,
     )  # reused, not regenerated
     assert Path(crt).stat().st_size > 500
+
+
+def test_live_frames_have_their_own_rate_budget(identifier, tmp_path):
+    import io
+
+    from fastapi.testclient import TestClient
+    from PIL import Image
+
+    from mcmaster_vision.api import create_app
+    from mcmaster_vision.config import Settings
+
+    client = TestClient(
+        create_app(
+            Settings(data_dir=tmp_path, queries_dir=tmp_path / "q", rate_limit_per_minute=3),
+            identifier=identifier,
+        )
+    )
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), "gray").save(buf, "PNG")
+    png = buf.getvalue()
+    for _ in range(3):  # a burst of live-preview frames
+        r = client.post(
+            "/identify?top_n=1&tta=none&log=false", files={"file": ("l.png", png, "image/png")}
+        )
+        assert r.status_code == 200
+    r = client.post(
+        "/identify?top_n=1&tta=none&log=false", files={"file": ("l.png", png, "image/png")}
+    )
+    assert r.status_code == 429  # the preview budget is spent ...
+    r = client.post("/identify?top_n=1&tta=none", files={"file": ("p.png", png, "image/png")})
+    assert r.status_code == 200  # ... but a real photo still goes through
