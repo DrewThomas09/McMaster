@@ -120,3 +120,18 @@ def test_doctor_reports_backup_state(tmp_path, demo_dir):
         json.loads(out.output)["checks"]
         and {c["name"]: c for c in json.loads(out.output)["checks"]}["backup"]["ok"]
     )
+
+
+def test_serve_refuses_a_busy_port(monkeypatch):
+    import socket
+
+    from mcmaster_vision.api.app import port_in_use, run
+
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen(1)
+        port = taken.getsockname()[1]
+        assert port_in_use("127.0.0.1", port)
+        with pytest.raises(SystemExit, match=f"port {port} is already in use"):
+            run(Settings(), host="127.0.0.1", port=port)
+    assert port_in_use("127.0.0.1", port) is None

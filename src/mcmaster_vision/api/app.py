@@ -590,6 +590,19 @@ def self_signed_cert(cert_dir: Path, hosts: list[str]) -> tuple[Path, Path]:
     return crt, key
 
 
+def port_in_use(host: str, port: int) -> str | None:
+    """A short reason when nothing can listen on host:port, else None."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("" if host in ("0.0.0.0", "::") else host, port))
+        except OSError as e:
+            return e.strerror or str(e)
+    return None
+
+
 def print_qr(url: str) -> None:
     try:
         import qrcode  # type: ignore
@@ -614,6 +627,12 @@ def run(
     settings = settings or Settings()
     host = host or settings.api_host
     port = port or settings.api_port
+    busy = port_in_use(host, port)
+    if busy:
+        raise SystemExit(
+            f"port {port} is already in use on {host} ({busy}); stop the other server or pass "
+            f"--port {port + 1}"
+        )
     ssl: dict = {}
     if https:
         urls = lan_urls(port, "https")
