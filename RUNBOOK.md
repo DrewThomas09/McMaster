@@ -106,7 +106,8 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 | `GET /metrics` | request volume, tier mix, latency p50/p95, confirmed top-1 rate |
 | `mcv review-unknowns` | HTML contact sheet of "none of these" photos + current candidates, for labelling |
 | `mcv retrain --reload-url http://localhost:8000` | train on catalog + confirmed photos, rebuild, refit, hot-reload |
-| `mcv identify-dir photos/ --out results.csv` | batch identification of a bin / drawer / BOM shoot |
+| `mcv identify-dir photos/ --out results.csv --coin "US quarter"` | batch identification of a bin / drawer / BOM shoot; with a coin in each photo, sizes and thread pitch are matched and written to the CSV |
+| `mcv import-pages catalog.txt --first-page 4` | parts from the OCR text of printed catalog pages (sizes, materials, fitting types, prices) |
 | `MCV_RATE_LIMIT_PER_MINUTE=60` | per-client cap on `/identify`; `MCV_API_TOKEN` protects `/admin/*` |
 | `MCV_MAX_CONCURRENCY=4` | simultaneous identifications (default: CPU count); live previews queue behind real photos |
 | `mcv build-index --with-feedback` | confirmed photos become gallery entries (no training needed) |
