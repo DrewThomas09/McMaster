@@ -153,6 +153,7 @@ def part_page(part_number: str, request: Request) -> str:
             f'<h2 class="page">Look-alike SKUs in this family ({len(family)})</h2>'
             f'<div class="card" style="padding:8px 12px;overflow-x:auto"><table class="spec"><tr><th>part</th>{heads}</tr>{rows}</table></div>'
         )
+    fits_html = _fits_with(part)
     demo = ""
     if request.app.state.settings.demo_mode:
         demo = f'<a class="ghost" href="/?try={pn}">Identify a photo-style render</a> '
@@ -161,8 +162,67 @@ def part_page(part_number: str, request: Request) -> str:
 <p>{demo}<a class="ghost" href="https://www.mcmaster.com/{quote(part.part_number, safe="")}/" target="_blank" rel="noopener">Open on mcmaster.com ↗</a> <button class="ghost" onclick="navigator.clipboard&&navigator.clipboard.writeText({e(json.dumps(part.part_number))})">Copy part number</button></p>
 <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">{gallery}</div>
 <h2 class="page">Specifications</h2><div class="card" style="padding:8px 12px"><table class="spec">{specs or '<tr><td class="msg" colspan="2">No attributes recorded.</td></tr>'}</table>{f'<p class="crumbs">{e(part.description)}</p>' if part.description else ""}</div>
-{fam_html}"""
+{fits_html}{fam_html}"""
     return layout(part.part_number, body, active="/browse")
+
+
+def _fits_with(part) -> str:
+    """Pipe sizing facts for a threaded fitting: real OD/ID of its nominal size, thread
+    pitch, and which thread types mate with it (from the catalog's measuring pages)."""
+    from mcmaster_vision.pipeline.pipe import (
+        THREADS_PER_INCH,
+        compatible_threads,
+        normalise_pipe_size,
+        pipe_id_mm,
+        pipe_od_mm,
+    )
+
+    attrs = {k.lower().replace(" ", "_"): str(v) for k, v in part.attributes.items()}
+    size_raw = next(
+        (attrs[k] for k in ("pipe_size", "pipe", "nominal_pipe_size") if k in attrs), None
+    )
+    key = normalise_pipe_size(size_raw) if size_raw else None
+    text = " ".join([part.name, part.description, *attrs.values()]).upper()
+    thread = next(
+        (t for t in ("NPTF", "NPT", "BSPT", "BSPP", "NPSM", "NPSH", "NPSL") if t in text), None
+    )
+    if not key and not thread:
+        return ""
+    rows = []
+    if key:
+        od, pid = pipe_od_mm(key), pipe_id_mm(key)
+        if od:
+            rows.append(("male thread / pipe OD", f"{od / 25.4:.3f} in ({od:.1f} mm)"))
+        if pid:
+            rows.append(("female thread / pipe ID", f"{pid / 25.4:.3f} in ({pid:.1f} mm)"))
+        npt, bsp = THREADS_PER_INCH.get(key, (None, None))
+        if npt or bsp:
+            rows.append(
+                (
+                    "threads per inch",
+                    " · ".join(f"{n} {f}" for n, f in ((npt, "NPT"), (bsp, "BSP")) if n),
+                )
+            )
+    if thread:
+        for gender in ("male", "female"):
+            mates = compatible_threads(thread, gender)
+            if mates:
+                rows.append(
+                    (
+                        f"{thread} {gender} fits female"
+                        if gender == "male"
+                        else f"{thread} female fits male",
+                        ", ".join(mates),
+                    )
+                )
+    if not rows:
+        return ""
+    trs = "".join(f"<tr><td>{e(k)}</td><td>{e(v)}</td></tr>" for k, v in rows)
+    return (
+        f'<h2 class="page">Pipe size {e(key) if key else ""} in real dimensions</h2>'
+        f'<div class="card" style="padding:8px 12px"><table class="spec">{trs}</table>'
+        '<p class="crumbs">Pipe size is a nominal designation: measure the OD across male threads or the ID of female ones.</p></div>'
+    )
 
 
 @router.get("/dashboard", response_class=HTMLResponse)

@@ -100,6 +100,25 @@ categories and specs from McMaster pages with `mcv enrich`. New SKUs later:
 `mcv ingest new.jsonl && mcv build-index --only-new`, then `POST /admin/reload`.
 See [RUNBOOK.md](RUNBOOK.md) for the full operating guide and sizing at 700k parts.
 
+## Starting from the printed catalog
+
+The scanned catalog (thousands of pages of tables) is the fastest way to get
+real part numbers, sizes, materials and families without any images:
+
+```bash
+mcv import-pages catalog_pages.txt --first-page 4   # OCR text; one Part per part number
+mcv fetch-images urls.csv                            # or mcv import-web 4464K11 4464K12 ...
+mcv build-index
+```
+
+Each row of a fittings table ("1/8 ... 4464K11 $4.90 4464K35 $6.94 ...") yields
+one part per column with `pipe_size`, `material`, `fitting_type`, `price_usd`
+and `catalog_page`; the parts of one fitting type and material form a look-alike
+family, which is what the app's size question and the Measure tool resolve.
+Pipe sizes are nominal: the app knows the real OD/ID and thread pitch of every
+size (`pipeline/pipe.py`), and a part page shows them along with the thread
+types that mate.
+
 ## Using McMaster-Carr's own images
 
 The most useful gallery is McMaster-Carr's own product imagery. Three ways in:

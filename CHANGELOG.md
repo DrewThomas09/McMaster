@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.4
+
+Built from the catalog's own "Selecting and Measuring Pipe & Fittings" pages.
+
+- Pipe sizing knowledge (`pipeline/pipe.py`): nominal pipe size -> real OD (male threads)
+  and schedule 40 ID (female threads), threads per inch for NPT vs BSP, and the thread
+  compatibility table. Size matching now compares a fitting by its pipe OD/ID, not the
+  nominal number (a "3/8" fitting is 0.675" across, not 3/8").
+- `mcv import-pages`: parts from the OCR text of printed catalog pages (part numbers, pipe
+  sizes, materials, fitting types, lengths, prices, page), with look-alike families per
+  fitting type and material. Images come later via `fetch-images` / `import-web`.
+- Part pages show the real dimensions of a fitting's pipe size, its thread pitch, and which
+  thread types mate with it.
+
 ## 0.3.3
 
 - Coin hint: a round blob next to the part is reported (`coin_hint`) and the app offers it

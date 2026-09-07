@@ -728,6 +728,37 @@ def import_web(
     typer.echo("Now run: mcv build-index")
 
 
+@app.command("import-pages")
+def import_pages(
+    files: list[Path] = typer.Argument(..., exists=True, help="OCR text of catalog pages"),
+    config: Path | None = _config_opt,
+    first_page: int = typer.Option(1, help="Catalog page number of the first page in the text"),
+) -> None:
+    """Add the parts listed on printed catalog pages (an OCR text dump) to the store: part
+    numbers, pipe sizes, materials, fitting types and prices. Images come later
+    (`mcv fetch-images` / `mcv import-web`)."""
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.catalog import ingest as _ingest
+    from mcmaster_vision.catalog.pages import parse_catalog_text
+    from mcmaster_vision.catalog.sources import CatalogSource
+
+    class _Pages(CatalogSource):
+        def __iter__(self):
+            for f in files:
+                yield from parse_catalog_text(
+                    f.read_text(encoding="utf-8", errors="replace"), first_page=first_page
+                )
+
+        def __len__(self) -> int:
+            return sum(1 for _ in self)
+
+    s = _settings(config)
+    with CatalogStore(s.catalog_db) as store:
+        stats = _ingest(_Pages(), store, merge=True)
+    typer.echo(f"{stats['parts']} parts from {len(files)} file(s) ({stats})")
+    typer.echo("Next: add images (mcv fetch-images / mcv import-web), then mcv build-index")
+
+
 @app.command("build-index")
 def build_index_cmd(
     config: Path | None = _config_opt,
