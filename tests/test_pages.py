@@ -124,10 +124,13 @@ def test_service_worker_is_network_first(identifier, tmp_path):
     assert "startsWith('/static/')" in js and "/dashboard" not in js
 
 
-def test_part_page_shows_pipe_dimensions_and_compatibility(identifier, store, tmp_path):
+def test_part_page_shows_pipe_dimensions_and_compatibility(index, embedder, tmp_path):
+    from mcmaster_vision.catalog import CatalogStore
+    from mcmaster_vision.pipeline import Identifier
     from mcmaster_vision.schemas import Part
 
-    store.upsert(
+    own = CatalogStore(tmp_path / "own.sqlite")  # never mutate the shared session store
+    own.upsert(
         [
             Part(
                 part_number="4464K13",
@@ -137,7 +140,7 @@ def test_part_page_shows_pipe_dimensions_and_compatibility(identifier, store, tm
             )
         ]
     )
-    client = _client(identifier, tmp_path)
+    client = _client(Identifier(own, index, embedder), tmp_path)
     page = client.get("/part/4464K13").text
     assert "0.675 in" in page and "0.493 in" in page and "18 NPT" in page and "19 BSP" in page
     assert "NPSM" in page  # NPT male fits female NPSM per the compatibility table
