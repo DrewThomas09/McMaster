@@ -149,8 +149,10 @@ class McMasterParser:
                     )
                     imgs = node.get("image") or []
                     for im in imgs if isinstance(imgs, list) else [imgs]:
-                        if isinstance(im, str):
-                            data.image_urls.append(urljoin(url, im))
+                        if isinstance(im, dict):  # {"@type": "ImageObject", "url": ...}
+                            im = im.get("url") or im.get("contentUrl")
+                        if isinstance(im, str) and im.strip():
+                            data.image_urls.append(urljoin(url, im.strip()))
                     for prop in node.get("additionalProperty") or []:
                         if isinstance(prop, dict) and prop.get("name"):
                             data.attributes[_clean(prop["name"])] = _clean(
@@ -160,12 +162,21 @@ class McMasterParser:
                     isinstance(node, dict)
                     and str(node.get("@type", "")).lower() == "breadcrumblist"
                 ):
-                    items = sorted(
-                        node.get("itemListElement") or [], key=lambda e: e.get("position", 0)
-                    )
-                    data.category_path = [
-                        _clean(e.get("name")) for e in items if _clean(e.get("name"))
-                    ]
+                    elems = [e for e in node.get("itemListElement") or [] if isinstance(e, dict)]
+
+                    def _pos(e: dict) -> int:
+                        try:
+                            return int(e.get("position") or 0)
+                        except (TypeError, ValueError):
+                            return 0
+
+                    names = []
+                    for e in sorted(elems, key=_pos):
+                        item = e.get("item") if isinstance(e.get("item"), dict) else {}
+                        name = _clean(e.get("name") or item.get("name"))
+                        if name:
+                            names.append(name)
+                    data.category_path = names
 
         # 2. meta tags
         og_image = ex.meta.get("og:image")
@@ -230,6 +241,7 @@ class RobotsPolicy:
     def parse(cls, text: str, agent: str = "*") -> RobotsPolicy:
         rules: list[str] = []
         applies = False
+        in_rules = False
         for line in text.splitlines():
             line = line.split("#", 1)[0].strip()
             if not line:
@@ -237,14 +249,34 @@ class RobotsPolicy:
             key, _, val = line.partition(":")
             key, val = key.strip().lower(), val.strip()
             if key == "user-agent":
-                applies = val == "*" or val.lower() in agent.lower()
-            elif key == "disallow" and applies:
-                rules.append(val)
+                # stacked "User-agent:" lines form one group: keep the group's flag until
+                # the first rule, then start over on the next agent line
+                hit = val == "*" or val.lower() in agent.lower()
+                applies = hit if in_rules else (applies or hit)
+                in_rules = False
+            elif key in ("disallow", "allow"):
+                in_rules = True
+                if key == "disallow" and applies and val:
+                    rules.append(val)
         return cls(rules)
 
     def allowed(self, url: str) -> bool:
-        path = urlparse(url).path or "/"
-        return not any(path.startswith(rule) for rule in self.disallow)
+        parsed = urlparse(url)
+        path = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
+        return not any(_robots_match(rule, path) for rule in self.disallow)
+
+
+_SAFE_PN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _robots_match(rule: str, path: str) -> bool:
+    """robots.txt patterns: ``*`` wildcard, ``$`` end anchor, otherwise a prefix."""
+    if not rule:
+        return False
+    anchored = rule.endswith("$")
+    core = rule[:-1] if anchored else rule
+    pattern = ".*".join(re.escape(part) for part in core.split("*"))
+    return re.match(pattern + ("$" if anchored else ""), path) is not None
 
 
 class WebImporter:
@@ -303,40 +335,65 @@ class WebImporter:
         return self._robots[host]
 
     def _cached_get(self, url: str, binary: bool = False) -> bytes | None:
+        body, _ = self._cached_get_final(url, binary)
+        return body
+
+    def _cached_get_final(self, url: str, binary: bool = False) -> tuple[bytes | None, str]:
+        """(body, final URL after redirects). Relative links on a redirected page must
+        resolve against where the page actually lives."""
         key = hashlib.sha1(url.encode()).hexdigest()
         path = self.cache_dir / (key + (".bin" if binary else ".html"))
+        final_path = self.cache_dir / (key + ".url")
         if path.exists():
-            return path.read_bytes()
+            final = final_path.read_text(encoding="utf-8") if final_path.exists() else url
+            return path.read_bytes(), final
         if not self._robots_for(url).allowed(url):
             log.warning("robots.txt disallows %s; skipping", url)
-            return None
+            return None, url
         self._throttle()
         try:
             r = self.client.get(url)
         except httpx.HTTPError as e:
             log.warning("fetch failed %s: %s", url, e)
-            return None
+            return None, url
         if r.status_code != 200:
             log.warning("fetch %s -> HTTP %s", url, r.status_code)
-            return None
+            return None, url
+        ctype = r.headers.get("content-type", "").lower()
+        if not binary and ctype.startswith(
+            ("image/", "video/", "application/octet-stream", "application/pdf")
+        ):
+            log.warning("fetch %s -> %s, not a page; skipping", url, ctype.split(";")[0])
+            return None, url
         path.write_bytes(r.content)
-        return r.content
+        final_path.write_text(str(r.url), encoding="utf-8")
+        return r.content, str(r.url)
 
     # ------------------------------------------------------------- public
     def fetch_page(self, part_number_or_url: str) -> PageData | None:
         url = self.url_for(part_number_or_url)
-        body = self._cached_get(url)
+        body, final = self._cached_get_final(url)
         if body is None:
             return None
-        data = self.parser.parse(url, body.decode("utf-8", errors="replace"))
+        data = self.parser.parse(final, body.decode("utf-8", errors="replace"))
+        data.url = url
         if not data.part_number and not part_number_or_url.lower().startswith("http"):
             data.part_number = part_number_or_url.strip().upper()
+        if data.part_number and not _SAFE_PN.match(data.part_number):
+            # the page (or the caller) controls this string, and it becomes a folder name
+            log.warning("unsafe part number %r from %s; skipping", data.part_number, url)
+            return None
+        if not data.name and not data.image_urls and not data.attributes:
+            log.warning("%s has no product data (a search or error page?); skipping", url)
+            return None
         return data
 
     def download_images(self, data: PageData) -> list[str]:
-        if not data.part_number:
+        if not data.part_number or not _SAFE_PN.match(data.part_number):
             return []
-        folder = self.image_dir / data.part_number
+        folder = (self.image_dir / data.part_number).resolve()
+        if self.image_dir.resolve() not in folder.parents:
+            return []
         folder.mkdir(parents=True, exist_ok=True)
         paths: list[str] = []
         for i, img_url in enumerate(data.image_urls[: self.max_images]):

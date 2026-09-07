@@ -55,7 +55,7 @@ def real_queries(query_dir: str | Path):
         if folder.is_dir():
             for f in sorted(folder.iterdir()):
                 if f.suffix.lower() in IMAGE_EXTS:
-                    yield folder.name, Image.open(f)
+                    yield folder.name.upper(), Image.open(f).convert("RGB")
 
 
 def evaluate_retrieval(

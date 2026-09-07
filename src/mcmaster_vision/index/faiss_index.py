@@ -49,6 +49,12 @@ class FaissIndex(VectorIndex):
 
     def add(self, ids: Sequence[str], vectors: np.ndarray) -> None:
         vectors = np.ascontiguousarray(np.asarray(vectors, dtype=np.float32))
+        if vectors.ndim != 2 or vectors.shape[1] != self.dim:
+            raise ValueError(f"expected (N, {self.dim}) vectors, got {vectors.shape}")
+        if len(ids) != len(vectors):
+            raise ValueError("ids and vectors length mismatch")
+        if len(vectors) == 0:
+            return
         if self.kind == "ivfpq" and not self.index.is_trained:
             self.index.train(vectors)
         self.index.add(vectors)
@@ -56,7 +62,11 @@ class FaissIndex(VectorIndex):
 
     def search(self, queries: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
         q = np.ascontiguousarray(np.asarray(queries, dtype=np.float32))
-        scores, rows = self.index.search(q, k)
+        if q.ndim == 1:
+            q = q.reshape(1, -1)
+        if k <= 0 or self.index.ntotal == 0:  # faiss asserts on k <= 0
+            return np.zeros((len(q), 0), np.float32), np.zeros((len(q), 0), np.int64)
+        scores, rows = self.index.search(q, min(k, self.index.ntotal))
         return scores.astype(np.float32), rows.astype(np.int64)
 
     def _save_vectors(self, path: Path) -> None:

@@ -231,7 +231,10 @@ def fetch_image_urls(
             urls = rec.get("image_urls") or []
             if isinstance(urls, str):
                 urls = [u.strip() for u in urls.split(";") if u.strip()]
-            pn = str(rec["part_number"]).strip()
+            pn = str(rec.get("part_number") or "").strip().upper()
+            if not pn:
+                log.warning("record %d has no part_number; skipped", i)
+                continue
             folder = images_dir / pn
             paths: list[str] = [p for p in (rec.get("image_paths") or []) if Path(p).exists()]
             for j, url in enumerate(urls[:max_per_part]):
@@ -254,7 +257,7 @@ def fetch_image_urls(
                         continue
                 paths.append(str(out.resolve()))
             rec = dict(rec)
-            rec["image_paths"] = paths
+            rec["image_paths"] = list(dict.fromkeys(paths))  # a re-run must not double them
             rec.pop("image_urls", None)
             if progress and i % 100 == 0:
                 progress(i)
@@ -275,8 +278,10 @@ def read_records(path: str | Path) -> Iterator[dict]:
                 if line.strip():
                     yield json.loads(line)
     elif path.suffix.lower() == ".csv":
-        with open(path, encoding="utf-8", newline="") as fh:
-            yield from csv.DictReader(fh)
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            for rec in csv.DictReader(fh):
+                rec.pop(None, None)  # extras from a ragged row
+                yield rec
     else:
         raise ValueError(f"expected .jsonl or .csv, got {path}")
 

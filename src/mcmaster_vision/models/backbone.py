@@ -471,8 +471,24 @@ def load_backbone(settings: Settings) -> Backbone:
         from mcmaster_vision.models.ensemble import EnsembleBackbone
 
         names = [n.strip() for n in settings.ensemble_members.split(",") if n.strip()]
+        if not names or "ensemble" in names:
+            raise ValueError(f"bad MCV_ENSEMBLE_MEMBERS={settings.ensemble_members!r}")
         weights = [float(w) for w in settings.ensemble_weights.split(",") if w.strip()]
-        members = [load_backbone(settings.model_copy(update={"backbone": n})) for n in names]
+        if weights and len(weights) != len(names):
+            raise ValueError("MCV_ENSEMBLE_WEIGHTS must have one weight per member")
+        # the checkpoint (if any) belongs to the *first* torch member only; loading one
+        # network's weights into every member would fail (or duplicate them)
+        members = []
+        ckpt_used = False
+        for n in names:
+            ckpt = settings.backbone_checkpoint if (n != "hash" and not ckpt_used) else None
+            if ckpt is not None:
+                ckpt_used = True
+            members.append(
+                load_backbone(
+                    settings.model_copy(update={"backbone": n, "backbone_checkpoint": ckpt})
+                )
+            )
         return EnsembleBackbone(members, weights or None)
     if settings.backbone == "tinycnn":
         from mcmaster_vision.models.tinycnn import TinyCNNBackbone

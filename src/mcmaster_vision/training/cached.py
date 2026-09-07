@@ -29,7 +29,11 @@ def _to_u8(img: Image.Image, size: int) -> np.ndarray:
 def _job(args: tuple[str, int, int, int, dict]) -> np.ndarray:
     path, seed, k, size, cfg_kwargs = args
     aug = PhotoAugmenter(AugmentConfig(**cfg_kwargs), seed=seed)
-    img = Image.open(path)
+    try:
+        img = Image.open(path)
+        img.load()
+    except (OSError, FileNotFoundError):  # a deleted or corrupt confirmation photo
+        return np.zeros((k, size, size, 3), dtype=np.uint8)
     return np.stack(
         [_to_u8(preprocess(aug(img, out_size=max(160, size)), size), size) for _ in range(k)]
     )

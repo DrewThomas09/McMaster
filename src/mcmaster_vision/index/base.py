@@ -124,6 +124,17 @@ class VectorIndex(ABC):
             )
         self._save_vectors(p)
 
+    def _n_vectors(self) -> int | None:
+        """Rows actually stored (None when the backend cannot say)."""
+        m = getattr(self, "_matrix", None)
+        chunks = getattr(self, "_chunks", None)
+        if chunks is not None:
+            return int(sum(len(c) for c in chunks)) if m is None else int(len(m))
+        inner = getattr(self, "index", None)
+        if inner is not None and hasattr(inner, "ntotal"):
+            return int(inner.ntotal)
+        return None
+
     @classmethod
     def load(cls, path: str | Path) -> VectorIndex:
         p = Path(path)
@@ -136,6 +147,12 @@ class VectorIndex(ABC):
             z = np.load(cats, allow_pickle=False)
             idx.set_categories([str(n) for n in z["names"]], z["centroids"])
         idx._load_vectors(p)
+        n = idx._n_vectors()
+        if n is not None and n != len(idx.ids):
+            raise ValueError(
+                f"index at {p} is inconsistent: {len(idx.ids)} ids for {n} vectors "
+                "(a truncated ids.json?); rebuild it or restore a backup"
+            )
         return idx
 
 

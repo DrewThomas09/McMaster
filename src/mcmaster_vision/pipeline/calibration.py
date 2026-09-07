@@ -98,7 +98,9 @@ class Calibration:
         if exact is not None:
             new.exact_threshold = float(exact)
         if likely is not None:
-            new.likely_threshold = float(min(likely, new.exact_threshold))
+            new.likely_threshold = float(likely)
+        # LIKELY must sit below EXACT whatever was (not) found
+        new.likely_threshold = float(min(new.likely_threshold, new.exact_threshold))
         return new
 
     @classmethod

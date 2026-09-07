@@ -8,6 +8,7 @@ re-implementing this class; nothing else in the system touches SQL.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -35,6 +36,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS parts_fts USING fts5(
     part_number, name, category, description, attributes
 );
 """
+
+
+def _like_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _fts_tokens(text: str) -> list[str]:
+    """The tokens FTS5's unicode61 tokenizer would produce (alphanumeric runs)."""
+    return re.findall(r"[0-9A-Za-z]+", text)
 
 
 class CatalogStore:
@@ -66,17 +76,37 @@ class CatalogStore:
         self.close()
 
     # ---------------------------------------------------------------- writes
-    def upsert(self, parts: Iterable[Part], batch_size: int = 5000) -> int:
+    def upsert(self, parts: Iterable[Part], batch_size: int = 5000, *, merge: bool = False) -> int:
+        """Insert or replace parts. With ``merge=True`` an existing row's image paths are
+        kept (union) and its name / category / description survive when the new record
+        has none, so enriching a part never erases what a previous import found."""
         n = 0
         batch: list[Part] = []
         for part in parts:
-            batch.append(part)
+            batch.append(self._merged(part) if merge else part)
             if len(batch) >= batch_size:
                 n += self._write_batch(batch)
                 batch = []
         if batch:
             n += self._write_batch(batch)
         return n
+
+    def _merged(self, part: Part) -> Part:
+        old = self.get(part.part_number)
+        if old is None:
+            return part
+        images = list(dict.fromkeys([*old.image_paths, *part.image_paths]))
+        return part.model_copy(
+            update={
+                "image_paths": images,
+                "name": part.name if part.name and part.name != part.part_number else old.name,
+                "category_path": part.category_path or old.category_path,
+                "description": part.description or old.description,
+                "attributes": {**old.attributes, **part.attributes},
+                "family_id": part.family_id or old.family_id,
+                "url": part.url or old.url,
+            }
+        )
 
     def _write_batch(self, batch: list[Part]) -> int:
         rows = [
@@ -95,9 +125,10 @@ class CatalogStore:
         with self._conn:
             self._conn.executemany("INSERT OR REPLACE INTO parts VALUES (?,?,?,?,?,?,?,?)", rows)
             if self._fts:
-                self._conn.executemany(
-                    "DELETE FROM parts_fts WHERE part_number = ?", [(p.part_number,) for p in batch]
-                )
+                # delete through the FTS index: a plain WHERE on an FTS5 table is a full
+                # scan per row, which made every ingest quadratic in catalog size
+                for p in batch:
+                    self._fts_delete(p.part_number)
                 self._conn.executemany(
                     "INSERT INTO parts_fts(part_number, name, category, description, attributes) "
                     "VALUES (?,?,?,?,?)",
@@ -120,6 +151,18 @@ class CatalogStore:
         )
         self._conn.commit()
         return len(batch)
+
+    def _fts_delete(self, part_number: str) -> None:
+        tokens = _fts_tokens(part_number)
+        if tokens:
+            phrase = 'part_number:"' + " ".join(tokens).replace('"', '""') + '"'
+            self._conn.execute(
+                "DELETE FROM parts_fts WHERE rowid IN (SELECT rowid FROM parts_fts "
+                "WHERE parts_fts MATCH ? AND part_number = ?)",
+                (phrase, part_number),
+            )
+        else:  # no indexable token (punctuation only): the slow path is the only one
+            self._conn.execute("DELETE FROM parts_fts WHERE part_number = ?", (part_number,))
 
     def set_meta(self, key: str, value: str) -> None:
         with self._conn:
@@ -183,17 +226,24 @@ class CatalogStore:
             return []
         ordered: list[str] = []
         for row in self._conn.execute(
-            "SELECT part_number FROM parts WHERE part_number LIKE ? ORDER BY part_number LIMIT ?",
-            (f"{query.upper()}%", limit),
+            "SELECT part_number FROM parts WHERE part_number LIKE ? ESCAPE '\\' "
+            "ORDER BY part_number LIMIT ?",
+            (f"{_like_escape(query.upper())}%", limit),
         ):
             ordered.append(row["part_number"])
         if len(ordered) < limit:
-            if self._fts:
-                safe = " ".join(f'"{tok}"' for tok in query.replace('"', " ").split())
-                rows = self._conn.execute(
-                    "SELECT part_number FROM parts_fts WHERE parts_fts MATCH ? ORDER BY rank LIMIT ?",
-                    (safe, limit),
-                ).fetchall()
+            safe = " ".join(f'"{tok}"' for tok in query.replace('"', " ").split())
+            if self._fts and safe:
+                try:
+                    rows = self._conn.execute(
+                        "SELECT part_number FROM parts_fts WHERE parts_fts MATCH ? "
+                        "ORDER BY rank LIMIT ?",
+                        (safe, limit),
+                    ).fetchall()
+                except sqlite3.OperationalError:  # FTS syntax we did not anticipate
+                    rows = []
+            elif self._fts:
+                rows = []
             else:
                 like = f"%{query}%"
                 rows = self._conn.execute(

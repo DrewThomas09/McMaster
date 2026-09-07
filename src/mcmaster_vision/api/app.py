@@ -124,6 +124,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 app.state.identifier = _load()
             except FileNotFoundError as e:
                 raise HTTPException(503, f"index not built yet: {e}") from e
+            except (RuntimeError, ValueError) as e:  # index / backbone mismatch, corrupt index
+                raise HTTPException(503, str(e)) from e
         elif settings.auto_reload:
             _maybe_reload()
         return app.state.identifier
@@ -136,7 +138,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             try:
                 app.state.identifier = _load()
                 log.info("identifier ready: %s", app.state.identifier.index.stats().model_dump())
-            except FileNotFoundError as e:
+            except (FileNotFoundError, RuntimeError, ValueError) as e:
                 log.warning("not ready: %s", e)
 
     app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
@@ -196,6 +198,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             app.state.identifier = _load()
         except FileNotFoundError as e:
             raise HTTPException(503, f"index not built yet: {e}") from e
+        except (RuntimeError, ValueError) as e:  # keep serving the previous index
+            raise HTTPException(409, str(e)) from e
         return {
             "reloaded": True,
             "index": app.state.identifier.index.stats().model_dump(mode="json"),

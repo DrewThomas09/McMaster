@@ -110,14 +110,14 @@ class FeedbackStore:
         """part_number -> real photo paths (for evaluation and extra training views)."""
         out: dict[str, list[str]] = {}
         for folder in sorted(self.root.iterdir()):
-            if folder.is_dir() and folder.name != UNKNOWN_DIR:
+            if folder.is_dir() and folder.name != UNKNOWN_DIR and not folder.name.startswith("."):
                 imgs = [
                     str(f.resolve())
                     for f in sorted(folder.iterdir())
                     if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
                 ]
-                if imgs:
-                    out[folder.name] = imgs
+                if imgs:  # folder names are part numbers; hand-made ones may be lower case
+                    out.setdefault(folder.name.upper(), []).extend(imgs)
         return out
 
 

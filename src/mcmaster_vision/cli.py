@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import typer
@@ -270,6 +271,8 @@ def doctor(
             checks.append((f"{name}", True, "installed"))
         except ImportError:
             checks.append((f"{name}", False, f"pip install -e '.[{extra}]'"))
+        except Exception as e:  # installed but broken (missing native library)
+            checks.append((f"{name}", False, f"import failed: {str(e)[:80]}"))
 
     for name, extra in (
         ("torch", "ml"),
@@ -292,7 +295,7 @@ def doctor(
                 f"{torch.cuda.device_count()} GPU(s)" if torch.cuda.is_available() else "CPU only",
             )
         )
-    except ImportError:
+    except Exception:  # no torch, or a torch that cannot load
         pass
     if s.backbone in ("tinycnn", "ensemble", "openclip", "dinov2"):
         ok = s.backbone_checkpoint is not None and Path(s.backbone_checkpoint).exists()
@@ -436,6 +439,18 @@ def retrain(
     typer.echo(
         f"1/3 training on catalog + {n_train_photos} confirmed photos ({len(held_out)} held out) ..."
     )
+    switched = cfg["backbone"] != s.backbone
+    if switched:
+        # the running API serves with *its* backbone and picks up a rebuilt index within
+        # seconds, so a different backbone's index goes to a sibling directory: switching
+        # is then an explicit env change + restart, never a cron side effect
+        s = s.model_copy(
+            update={"index_dir": s.index_dir.with_name(f"{s.index_dir.name}-{cfg['backbone']}")}
+        )
+        typer.echo(
+            f"recipe backbone {cfg['backbone']!r} differs from the deployment's {s.backbone!r}: "
+            f"the new index goes to {s.index_path} (the live index is untouched)"
+        )
     with CatalogStore(s.catalog_db) as store:
         ckpt = _train(store, cfg, extra_images=extra)
         s = s.model_copy(
@@ -479,6 +494,14 @@ def retrain(
     typer.echo(
         f"checkpoint {ckpt}; set MCV_BACKBONE_CHECKPOINT={ckpt}. Recall@1 {rep.recall_at.get(1)} on {rep.queries} queries"
     )
+    if switched:
+        typer.echo(
+            f"to serve it: MCV_BACKBONE={cfg['backbone']} MCV_BACKBONE_CHECKPOINT={ckpt} "
+            f"MCV_INDEX_DIR={s.index_dir} mcv serve (then future retrains update it in place)"
+        )
+        if reload_url:
+            typer.echo("skipping --reload-url: the running API uses a different backbone")
+            reload_url = None
     if reload_url:
         import httpx
 
@@ -630,7 +653,9 @@ def export_dataset(
             ]
             rel_paths = []
             for i, (src, kind) in enumerate(sources):
-                dst = folder / f"{part.part_number}_{kind}_{i}.jpg"
+                # re-encoded copies are JPEG; verbatim copies keep their real format
+                ext = ".jpg" if image_size else (Path(src).suffix.lower() or ".jpg")
+                dst = folder / f"{part.part_number}_{kind}_{i}{ext}"
                 try:
                     if image_size:
                         im = Image.open(src).convert("RGB")
@@ -696,7 +721,9 @@ def import_web(
         respect_robots=not no_robots,
     )
     with CatalogStore(s.catalog_db) as store:
-        stats = _ingest(WebSource(importer, todo), store)
+        # merge: a part that already has catalog images keeps them (and its name) when the
+        # page adds specs or fails to yield images
+        stats = _ingest(WebSource(importer, todo), store, merge=True)
     typer.echo(json.dumps(stats))
     typer.echo("Now run: mcv build-index")
 
@@ -822,7 +849,7 @@ def identify_dir(
         for f in files:
             try:
                 res = ident.identify_path(f, top_n=top_n)
-            except OSError as e:
+            except (OSError, ValueError) as e:  # unreadable, or refused as too large
                 w.writerow([f.name, "", "", "", "", "", str(e)])
                 continue
             w.writerow(
@@ -954,7 +981,23 @@ def up(
         chosen = _best_offline_backbone() if backbone == "auto" else backbone
         s = _demo_settings(demo_dir, backbone=chosen, checkpoint=None, train_epochs=0)
         s = s.model_copy(update={"demo_mode": True})
-        if not (s.index_path / "meta.json").exists():
+        meta = s.index_path / "meta.json"
+        if meta.exists():
+            # an earlier `mcv demo --backbone hash` built this index: serve it with the
+            # backbone it was built with (a mismatch would fail on every photo)
+            built_with = str(json.loads(meta.read_text(encoding="utf-8")).get("backbone", ""))
+            built_name = re.split(r"[@:]", built_with)[0]  # "tinycnn:w24:d128@ckpt" -> "tinycnn"
+            if built_name and built_name != chosen:
+                if backbone == "auto":
+                    typer.echo(f"reusing the demo index built with {built_name}")
+                    s = _demo_settings(
+                        demo_dir, backbone=built_name, checkpoint=None, train_epochs=0
+                    )
+                    s = s.model_copy(update={"demo_mode": True})
+                else:
+                    typer.echo(f"demo index was built with {built_name}; rebuilding for {chosen}")
+                    _build_demo(s, parts=parts, images_per_part=3, gallery_augment=2)
+        else:
             _build_demo(s, parts=parts, images_per_part=3, gallery_augment=2)
     run(s, host="0.0.0.0", port=port, https=https, qr=True)
 

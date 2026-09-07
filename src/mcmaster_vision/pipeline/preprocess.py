@@ -237,6 +237,8 @@ def pad_to_square(img: Image.Image, fill: tuple[int, int, int] | None = None) ->
 def preprocess(
     img: Image.Image, size: int = 224, crop: bool = True, segment: bool = False
 ) -> Image.Image:
+    if img.mode != "RGB":  # grayscale / palette photos from a folder of confirmations
+        img = img.convert("RGB")
     if segment:
         img = remove_background(img)
     if crop:

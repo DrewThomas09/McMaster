@@ -73,22 +73,26 @@ def part_from_record(rec: dict[str, Any], base_dir: Path | None = None) -> Part:
         "url",
     }
     for k, v in rec.items():
-        if k not in known and v not in (None, ""):
-            attributes.setdefault(k, v)
+        if k is None or k in known or v in (None, ""):  # None: a ragged CSV row's extras
+            continue
+        attributes.setdefault(str(k), v if isinstance(v, str) else str(v))
 
     images = _split_list(rec.get("image_paths") or rec.get("images"))
     if base_dir is not None:
         images = [str((base_dir / p).resolve()) if not Path(p).is_absolute() else p for p in images]
 
+    pn = str(rec.get("part_number") or "").strip().upper()
+    if not pn:
+        raise ValueError("record without part_number")
     return Part(
-        part_number=str(rec["part_number"]).strip(),
-        name=str(rec.get("name") or rec.get("description") or rec["part_number"]).strip(),
+        part_number=pn,
+        name=str(rec.get("name") or rec.get("description") or pn).strip(),
         category_path=_split_path(rec.get("category_path") or rec.get("category")),
         description=str(rec.get("description") or ""),
         attributes=attributes,
         image_paths=images,
-        family_id=rec.get("family_id") or None,
-        url=rec.get("url") or None,
+        family_id=str(rec["family_id"]) if rec.get("family_id") not in (None, "") else None,
+        url=str(rec["url"]) if rec.get("url") else None,
     )
 
 
@@ -121,12 +125,14 @@ class CSVSource(CatalogSource):
         self.path = Path(path)
 
     def __iter__(self) -> Iterator[Part]:
-        with open(self.path, encoding="utf-8", newline="") as fh:
+        # utf-8-sig: Excel's "CSV UTF-8" writes a BOM that would otherwise become part of
+        # the first header ("\ufeffpart_number")
+        with open(self.path, encoding="utf-8-sig", newline="") as fh:
             for rec in csv.DictReader(fh):
                 yield part_from_record(rec, self.path.parent)
 
     def __len__(self) -> int:
-        with open(self.path, encoding="utf-8", newline="") as fh:
+        with open(self.path, encoding="utf-8-sig", newline="") as fh:
             return max(0, sum(1 for _ in fh) - 1)
 
 
@@ -137,7 +143,7 @@ class DirectorySource(CatalogSource):
         self.root = Path(root)
 
     def __iter__(self) -> Iterator[Part]:
-        for folder in sorted(p for p in self.root.iterdir() if p.is_dir()):
+        for folder in sorted(p for p in self.root.iterdir() if _is_part_dir(p)):
             meta_path = folder / "meta.json"
             rec: dict[str, Any] = {"part_number": folder.name, "name": folder.name}
             if meta_path.exists():
@@ -148,7 +154,7 @@ class DirectorySource(CatalogSource):
             yield part_from_record(rec)
 
     def __len__(self) -> int:
-        return sum(1 for p in self.root.iterdir() if p.is_dir())
+        return sum(1 for p in self.root.iterdir() if _is_part_dir(p))
 
 
 class FlatImageSource(CatalogSource):
@@ -218,11 +224,17 @@ class McMasterApiSource(CatalogSource):
                 break
 
 
+def _is_part_dir(p: Path) -> bool:
+    """A part folder: not hidden, not macOS zip clutter, not an importer cache."""
+    return p.is_dir() and not p.name.startswith((".", "__MACOSX", "_"))
+
+
 def open_source(path: str | Path) -> CatalogSource:
     p = Path(path)
     if p.is_dir():
-        has_subdirs = any(c.is_dir() for c in p.iterdir())
-        return DirectorySource(p) if has_subdirs else FlatImageSource(p)
+        has_images = any(c.is_file() and c.suffix.lower() in IMAGE_EXTS for c in p.iterdir())
+        has_subdirs = any(_is_part_dir(c) for c in p.iterdir())
+        return DirectorySource(p) if has_subdirs and not has_images else FlatImageSource(p)
     if p.suffix.lower() in {".jsonl", ".ndjson"}:
         return JSONLSource(p)
     if p.suffix.lower() == ".csv":

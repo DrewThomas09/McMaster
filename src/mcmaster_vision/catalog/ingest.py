@@ -35,6 +35,7 @@ def ingest(
     *,
     strict: bool = False,
     progress: Callable[[int], None] | None = None,
+    merge: bool = False,
 ) -> dict[str, int]:
     """Load every part from ``source`` into ``store``. Returns ingestion statistics."""
     src = source if isinstance(source, CatalogSource) else open_source(source)
@@ -46,7 +47,7 @@ def ingest(
                 progress(i)
             yield part
 
-    written = store.upsert(gen())
+    written = store.upsert(gen(), merge=merge)
     stats["written"] = written
     log.info("ingested %s parts (%s without images)", written, stats["without_images"])
     return stats

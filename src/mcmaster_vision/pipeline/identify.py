@@ -331,10 +331,16 @@ def load_identifier(settings: Settings) -> Identifier:
     embedder = PartEmbedder(backbone)
     indexed_with = index.meta.get("backbone")
     if indexed_with and indexed_with != embedder.version:
-        log.warning(
-            "index was built with %s but backbone is %s; rebuild the index",
-            indexed_with,
-            embedder.version,
+        # serving a mismatched pair would 500 on every photo (or silently degrade when the
+        # dimensions happen to agree); refuse, and say exactly what to change
+        raise RuntimeError(
+            f"index at {settings.index_path} was built with backbone {indexed_with!r} but the "
+            f"configured backbone is {embedder.version!r}: set MCV_BACKBONE / "
+            "MCV_BACKBONE_CHECKPOINT to match, or run `mcv build-index`"
+        )
+    if index.dim != embedder.dim:
+        raise RuntimeError(
+            f"index dimension {index.dim} != backbone dimension {embedder.dim}; rebuild the index"
         )
     calibration = Calibration.load(settings.model_dir / "calibration.json")
     ocr = OCREngine() if settings.ocr_enabled else None

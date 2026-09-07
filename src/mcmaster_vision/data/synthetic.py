@@ -778,6 +778,11 @@ class SyntheticCatalog:
         self.images_per_part = images_per_part
         self.size = size
         self.rng = random.Random(seed)
+        unknown = set(kinds or []) - set(_FAMILIES)
+        if unknown:
+            raise ValueError(
+                f"unknown part kinds: {sorted(unknown)}; choose from {list(_FAMILIES)}"
+            )
         self.kinds = kinds or list(_FAMILIES)
 
     # --------------------------------------------------------- rendering

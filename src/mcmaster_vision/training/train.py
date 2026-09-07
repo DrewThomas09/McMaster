@@ -332,6 +332,8 @@ def _train_cached(
     k = int(cfg["cache_views"])
     epochs = int(cfg["epochs"])
     n_parts = len(train_parts)
+    if n_parts < 2:
+        raise ValueError("training needs at least two parts with images")
     bs = max(2, min(int(cfg["batch_size"]), n_parts))  # a batch cannot hold more parts than exist
     clf = (
         torch.nn.Linear(cfg["embedding_dim"], n_parts).to(device)
@@ -419,7 +421,7 @@ def _train_cached(
             x = to_tensor(x_u8[np.sort(idx)][np.argsort(np.argsort(idx))]).to(device)
             labels = part_labels[sel].to(device)
             feats = backbone._forward(x)
-            emb = head(feats).reshape(bs, 2, -1)
+            emb = head(feats).reshape(len(sel), 2, -1)  # the sampler's tail batch is shorter
             loss = supcon_loss(emb, labels, cfg["temperature"])
             if clf is not None:
                 loss = loss + float(cfg["ce_weight"]) * F.cross_entropy(
