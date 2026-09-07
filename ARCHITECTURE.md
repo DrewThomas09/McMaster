@@ -195,7 +195,8 @@ size is parsed to millimetres (fractions, inches, mm, `M6`, `#8-32`) and scored
 +1 inside a tolerance band (a screw's length excludes the head) falling to -1
 one catalog size away; the fusion reranker weights it like 0.2 of cosine
 similarity, enough to reorder look-alikes but not to overturn a clear visual
-match.
+match. Measuring costs about 16 ms on a 1280 px photo (one core) and only runs
+when a scale is supplied.
 
 ## Multi-photo queries and family answers
 
