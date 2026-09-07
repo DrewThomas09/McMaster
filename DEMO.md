@@ -28,6 +28,9 @@ accept the certificate warning once on the phone.
 5. **Look-alikes:** when the answer is a family ("Looks like Socket Head
    Screw across 3 look-alike SKUs"), tap a length/thread chip to resolve it in
    one step.
+5b. **Measure it:** put a quarter (or a card) next to the part, tap **Measure**,
+   tap the two ends of the coin, pick "US quarter". The verdict now shows the
+   measured size and every candidate says whether its catalog length / OD fits.
 6. **Learning loop:** tap **This is it** on the right candidate. Then open
    `/metrics` on the laptop: the confirmed top-1 rate is the live scorecard,
    and `mcv retrain` folds those photos into the next model.

@@ -29,6 +29,7 @@ def _png(size=(300, 200), color=(120, 120, 120), mode="RGB") -> bytes:
 def test_validate_source_reports_problems(tmp_path, jsonl_path):
     rep = validate_source(jsonl_path)
     assert rep.ok() and rep.parts == 40 and rep.with_images == 40 and rep.images == 80
+    assert 0 < rep.with_dimensions <= 40  # synthetic parts carry length / OD / thread specs
     assert rep.families > 0 and rep.categories > 0
     bad = tmp_path / "bad.jsonl"
     (tmp_path / "corrupt.png").write_bytes(b"not an image")

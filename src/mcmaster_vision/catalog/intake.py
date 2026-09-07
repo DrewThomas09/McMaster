@@ -46,6 +46,7 @@ class ValidationReport:
     categories: int = 0
     families: int = 0
     tiny_images: int = 0  # < 64 px on the long side: useless for retrieval
+    with_dimensions: int = 0  # parts with a parseable length / OD / thread size (size matching)
     examples: dict[str, list[str]] = field(default_factory=dict)
 
     def note(self, key: str, value: str, limit: int = 5) -> None:
@@ -66,6 +67,19 @@ def _image_hash(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 16), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+_DIMENSION_KEYS = ("length", "od", "outside_diameter", "diameter", "width", "thread_size")
+
+
+def _has_dimension(attributes: dict) -> bool:
+    from mcmaster_vision.pipeline.measure import parse_length_mm
+
+    return any(
+        parse_length_mm(v) is not None
+        for k, v in attributes.items()
+        if k.lower().replace("-", "_").replace(" ", "_") in _DIMENSION_KEYS
+    )
 
 
 def validate_source(
@@ -94,6 +108,8 @@ def validate_source(
             rep.without_category += 1
         if part.family_id:
             fams.add(part.family_id)
+        if _has_dimension(part.attributes):
+            rep.with_dimensions += 1
         good = 0
         for p in part.image_paths:
             rep.images += 1

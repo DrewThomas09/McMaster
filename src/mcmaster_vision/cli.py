@@ -173,7 +173,9 @@ def bootstrap(
         typer.echo("1/4 validating ...")
         rep = validate_source(source, check_images=False)
         typer.echo(
-            f"  {rep.parts} parts, {rep.with_images} with images, {rep.missing_files} missing files, {rep.duplicate_part_numbers} duplicate part numbers"
+            f"  {rep.parts} parts, {rep.with_images} with images, {rep.with_dimensions} with a "
+            f"length/OD/thread spec (size matching), {rep.missing_files} missing files, "
+            f"{rep.duplicate_part_numbers} duplicate part numbers"
         )
         if not rep.ok():
             typer.echo(rep.to_json(), err=True)
