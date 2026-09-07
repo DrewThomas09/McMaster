@@ -73,6 +73,9 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   serving and then `POST /admin/reload` is safe.
 * **Removed or changed SKUs**: `mcv build-index` (full rebuild, same command).
 * **Better model**: set `MCV_BACKBONE=openclip` (or `dinov2`), `MCV_BACKBONE_CHECKPOINT=...`, rebuild the index.
+  The API refuses to serve an index built with a different backbone than it is configured
+  for (it would fail on every photo); `mcv retrain` with a recipe for another backbone writes
+  its index to a sibling directory and prints the environment to switch to.
 * **Hard cases**: `MCV_RERANK_LLM_ENABLED=true` sends the top candidates and the
   photo to Claude for a structured verdict (needs `ANTHROPIC_API_KEY`); `MCV_OCR_ENABLED=true`
   reads part numbers printed on bags and parts.
@@ -107,6 +110,7 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 | `MCV_RATE_LIMIT_PER_MINUTE=60` | per-client cap on `/identify`; `MCV_API_TOKEN` protects `/admin/*` |
 | `MCV_MAX_CONCURRENCY=4` | simultaneous identifications (default: CPU count); live previews queue behind real photos |
 | `mcv build-index --with-feedback` | confirmed photos become gallery entries (no training needed) |
+| `MCV_FORWARDED_ALLOW_IPS="*"` | trust X-Forwarded-For from the reverse proxy so rate limits are per phone, not per proxy |
 | `mcv backup` / `mcv restore <tar.gz>` | one archive of everything learned at run time; see section 4c |
 | `POST /admin/backup`, `GET /admin/backups` | the same from the API (token-protected) |
 
