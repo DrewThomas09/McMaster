@@ -61,3 +61,6 @@ picks the restored index up within 15 s.
 * Hold the part 20-40 cm away on a plain background; use "Add another angle"
   for screws (head and side) and "This is it" when you confirm, which makes the
   system learn your parts.
+* Put a quarter or a card next to the part and tap **Measure**, then the two
+  ends of the coin: the measured size separates look-alikes (1" vs 1-1/4").
+* No signal? Confirmations wait in an outbox on the phone and sync on their own.
