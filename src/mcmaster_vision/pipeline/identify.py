@@ -208,7 +208,7 @@ class Identifier:
             if size is None:
                 notes.append("could not find the object outline to measure it; size not used")
             else:
-                tp = measure_thread_pitch(image, mm_per_px)
+                tp = measure_thread_pitch(image, mm_per_px, reference)
                 if tp is not None:
                     size.pitch_mm = tp.pitch_mm
         elif suggest_reference:

@@ -208,19 +208,26 @@ _RULES: list[tuple[tuple[str, ...], float, float, float]] = [
 
 _TPI = re.compile(r"(?:^|[\s\-x×])(\d{1,2}(?:\.\d)?)\s*(?:tpi|threads?\s*per\s*inch)?\s*$", re.I)
 _METRIC_PITCH = re.compile(r"^m\d+(?:\.\d+)?\s*[x×]\s*(\d+(?:\.\d+)?)", re.I)
-_INCH_THREAD = re.compile(r"^(?:#?\d+|\d+/\d+)\s*(?:\"|″|”)?\s*-\s*(\d{1,2})\b")
+_INCH_THREAD = re.compile(r"^(?:#?\d+(?:-\d+/\d+)?|\d+/\d+)\s*(?:\"|″|”)?\s*-\s*(\d{1,2})\b")
+_METRIC_DASH = re.compile(r"^m\d+(?:\.\d+)?\s*-\s*(\d+\.\d+)", re.I)  # M6-1.0
 
 
 def catalog_pitch_mm(attrs: dict[str, str], name: str = "") -> tuple[float, str] | None:
     """The thread pitch a catalog entry implies: ``1/4"-20`` -> 1.27 mm, ``M6 x 1`` -> 1 mm,
     ``#8-32`` -> 0.79 mm, or a pipe size with NPT / BSP -> its threads per inch."""
     ts = attrs.get("thread_size") or attrs.get("thread") or ""
-    m = _METRIC_PITCH.match(ts.strip())
+    m = _METRIC_PITCH.match(ts.strip()) or _METRIC_DASH.match(ts.strip())
     if m:
         return float(m.group(1)), f"thread {ts}"
     m = _INCH_THREAD.match(ts.strip())
     if m:
         return INCH / float(m.group(1)), f"thread {ts}"
+    tpi = attrs.get("threads_per_inch") or attrs.get("tpi")
+    if tpi:
+        try:
+            return INCH / float(str(tpi).split()[0]), f"{tpi} tpi"
+        except ValueError:
+            pass
     pitch = attrs.get("thread_pitch") or attrs.get("pitch")
     if pitch:
         p = parse_length_mm(pitch)
@@ -229,10 +236,12 @@ def catalog_pitch_mm(attrs: dict[str, str], name: str = "") -> tuple[float, str]
         m = _TPI.search(pitch)
         if m:
             return INCH / float(m.group(1)), f"pitch {pitch}"
-    pipe = next((attrs[k] for k in _PIPE_KEYS if k in attrs), None) or ts
+    text = (name + " " + " ".join(attrs.values())).upper()
+    pipe = next((attrs[k] for k in _PIPE_KEYS if k in attrs), None)
+    if not pipe and re.search(r"\b(NPT|NPTF|NPS[MHLC]?|BSP[TP]?|PIPE)\b", text):
+        pipe = ts  # a bare "1/4" is a pipe thread only when the entry says so
     key = normalise_pipe_size(pipe) if pipe else None
     if key in THREADS_PER_INCH:
-        text = (name + " " + " ".join(attrs.values())).upper()
         npt, bsp = THREADS_PER_INCH[key]
         if "BSP" in text and bsp:
             return INCH / bsp, f"{key} BSP {bsp} tpi"
@@ -252,8 +261,13 @@ def pitch_consistency(meas: Measurement | None, part: Part) -> tuple[float, str 
     if cat is None:
         return 0.0, None
     expected, label = cat
-    # coarse vs fine steps are ~1.3-1.4x (20 vs 28 tpi, M6x1 vs 0.75): -1 at that distance
-    sc = _ratio_score(meas.pitch_mm / expected, 0.93, 1.07, 1.3)
+    if " tpi" in label and ("NPT" in label or "BSP" in label):
+        # NPT vs BSP differ by only 3.6-5.5% at a given size: a tight band, and a measured
+        # pitch that lands between them stays neutral rather than endorsing both
+        sc = _ratio_score(meas.pitch_mm / expected, 0.985, 1.015, 1.06)
+    else:
+        # coarse vs fine steps are ~1.3-1.4x (20 vs 28 tpi, M6x1 vs 0.75): -1 at that distance
+        sc = _ratio_score(meas.pitch_mm / expected, 0.93, 1.07, 1.3)
     verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
     return sc, f"pitch {meas.pitch_mm:.2f} mm vs {label} ({expected:.2f} mm): {verdict}"
 

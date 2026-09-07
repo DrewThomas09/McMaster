@@ -83,3 +83,65 @@ def test_identify_reports_pitch_from_the_photo(store, index, embedder):
     res = ident.identify(_threaded_rod(20.0), tta="none", mm_per_px=1.0 / 20)
     assert res.measured and res.measured.get("pitch_mm") == pytest.approx(1.0, rel=0.08)
     assert res.measured["threads_per_inch"] == pytest.approx(25.4, rel=0.08)
+
+
+def test_pitch_ignores_the_reference_coin():
+    """A coin next to the part out-areas it; its face rings must not become the pitch."""
+    im = _threaded_rod(20.0, length=260, width=40, canvas=(900, 500))
+    d = ImageDraw.Draw(im)
+    cx, cy, rad = 150, 250, 120  # left of the rod (which is centred, x 320..580)
+    d.ellipse((cx - rad, cy - rad, cx + rad, cy + rad), fill=(184, 172, 120))
+    for r in range(20, rad, 24):  # concentric face detail
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(120, 110, 70), width=3)
+    ref = (cx - rad, cy, cx + rad, cy)
+    naive = measure_thread_pitch(im, 1 / 20)
+    with_ref = measure_thread_pitch(im, 1 / 20, ref)
+    assert with_ref is not None and with_ref.pitch_mm == pytest.approx(1.0, rel=0.08)
+    assert (
+        naive is None
+        or abs(naive.pitch_mm - 1.0) > 0.08
+        or naive.pitch_mm == pytest.approx(1.0, rel=0.08)
+    )
+
+
+def test_short_profiles_and_unthreaded_shapes_give_no_pitch():
+    small = Image.new("RGB", (100, 100), (240, 238, 232))
+    ImageDraw.Draw(small).rectangle((36, 45, 63, 55), fill=(70, 70, 74))  # a 28 px rod
+    assert measure_thread_pitch(small, 1 / 20) is None  # no crash on 24-30 sample profiles
+    washer = Image.new("RGB", (800, 600), (240, 238, 232))
+    d = ImageDraw.Draw(washer)
+    d.ellipse((200, 100, 600, 500), fill=(150, 150, 155))
+    d.ellipse((300, 200, 500, 400), fill=(240, 238, 232))
+    assert measure_thread_pitch(washer, 1 / 20) is None
+    nut = Image.new("RGB", (800, 600), (240, 238, 232))
+    d = ImageDraw.Draw(nut)
+    d.regular_polygon((400, 300, 200), n_sides=6, fill=(90, 90, 95))
+    d.ellipse((330, 230, 470, 370), fill=(240, 238, 232))
+    assert measure_thread_pitch(nut, 1 / 20) is None
+
+
+def test_catalog_pitch_edge_cases_and_pipe_band():
+    from mcmaster_vision.pipeline.measure import Measurement, catalog_pitch_mm, pitch_consistency
+    from mcmaster_vision.schemas import Part
+
+    assert catalog_pitch_mm({"thread_size": "1-1/4 - 7"})[0] == pytest.approx(3.63, abs=0.01)
+    assert catalog_pitch_mm({"thread_size": '1-1/4"-7'})[0] == pytest.approx(3.63, abs=0.01)
+    assert catalog_pitch_mm({"thread_size": "M6-1.0"})[0] == pytest.approx(1.0)
+    assert catalog_pitch_mm({"thread_size": "10-24"})[0] == pytest.approx(1.058, abs=0.01)
+    assert catalog_pitch_mm({"thread_size": '1/4"'}) is None  # a bare fastener size is not NPT
+    assert catalog_pitch_mm({"thread_size": '1/4"', "threads_per_inch": "20"})[0] == pytest.approx(
+        1.27
+    )
+    assert catalog_pitch_mm({"thread_size": '1/4"'}, "Pipe plug, NPT")[0] == pytest.approx(
+        25.4 / 18
+    )
+    npt = Part(
+        part_number="N", name="Elbow, NPT", category_path=["x"], attributes={"pipe_size": "1/8"}
+    )
+    bsp = Part(
+        part_number="B", name="Elbow, BSPT", category_path=["x"], attributes={"pipe_size": "1/8"}
+    )
+    m_npt = Measurement(30, 15, 0.1, pitch_mm=25.4 / 27)
+    assert pitch_consistency(m_npt, npt)[0] == 1.0 and pitch_consistency(m_npt, bsp)[0] < 0.5
+    m_between = Measurement(30, 15, 0.1, pitch_mm=(25.4 / 27 + 25.4 / 28) / 2)
+    assert pitch_consistency(m_between, npt)[0] < 1.0 and pitch_consistency(m_between, bsp)[0] < 1.0

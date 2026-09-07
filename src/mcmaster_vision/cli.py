@@ -236,6 +236,7 @@ def bootstrap(
         index=idx.stats().model_dump(mode="json"),
         index_path=str(s.index_path),
         backbone=embedder.version,
+        retrain_eval=None,  # a fresh build supersedes an older retrain's numbers
         evaluation=(report.to_json() and __import__("json").loads(report.to_json()))
         if report
         else None,
@@ -490,6 +491,7 @@ def retrain(
         checkpoint=str(ckpt),
         index=idx.stats().model_dump(mode="json"),
         retrain_eval=json.loads(rep.to_json()),
+        evaluation=None,  # the held-out real photos are the number that matters now
     )
     typer.echo(
         f"checkpoint {ckpt}; set MCV_BACKBONE_CHECKPOINT={ckpt}. Recall@1 {rep.recall_at.get(1)} on {rep.queries} queries"

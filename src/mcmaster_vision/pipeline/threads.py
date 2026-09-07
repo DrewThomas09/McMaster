@@ -4,8 +4,8 @@ Thread crests are a periodic light/dark pattern along the part's axis. Inside th
 foreground mask we sample the intensity along the major axis (averaged across the
 minor axis), remove the slow trend, and take the dominant period of the profile
 (FFT). With ``mm_per_px`` that period is the pitch; threads per inch = 25.4 / pitch.
-Combined with the pipe size this separates NPT from BSP (``pipe.thread_family_from_pitch``)
-and reads a fastener's pitch (M6x1 vs M6x0.75, 1/4-20 vs 1/4-28).
+It reads a fastener's pitch (M6x1 vs M6x0.75, 1/4-20 vs 1/4-28) and, when the
+measurement is within a couple of percent, helps separate NPT from BSP at a pipe size.
 """
 
 from __future__ import annotations
@@ -15,9 +15,11 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image
 
+from mcmaster_vision.pipeline.measure import Segment, _segment_mask
 from mcmaster_vision.pipeline.preprocess import foreground_mask
 
 INCH = 25.4
+MIN_SAMPLES = 32  # shorter profiles cannot hold enough crests to trust
 
 
 @dataclass
@@ -35,9 +37,12 @@ class ThreadPitch:
         }
 
 
-def axis_profile(image: Image.Image, work: int = 512) -> tuple[np.ndarray, float] | None:
+def axis_profile(
+    image: Image.Image, work: int = 512, exclude: Segment | None = None
+) -> tuple[np.ndarray, float] | None:
     """Mean intensity along the object's major axis (one sample per pixel) and the
-    scale factor from the analysed image back to ``image`` pixels."""
+    scale factor from the analysed image back to ``image`` pixels. ``exclude`` (image
+    pixels) marks the reference coin so its face is never mistaken for the part."""
     w, h = image.size
     s = min(1.0, work / max(w, h))
     small = image.convert("L").resize((max(1, round(w * s)), max(1, round(h * s))))
@@ -47,7 +52,8 @@ def axis_profile(image: Image.Image, work: int = 512) -> tuple[np.ndarray, float
     tiny = image.convert("RGB").resize(
         (max(1, round(small.size[0] * ms)), max(1, round(small.size[1] * ms)))
     )
-    mask_small = foreground_mask(np.asarray(tiny, dtype=np.float32))
+    excl = _segment_mask(tiny.size[::-1], exclude, s * ms, pad=2) if exclude else None
+    mask_small = foreground_mask(np.asarray(tiny, dtype=np.float32), exclude=excl)
     if mask_small is None or mask_small.sum() < 16:
         return None
     mask = (
@@ -72,7 +78,7 @@ def axis_profile(image: Image.Image, work: int = 512) -> tuple[np.ndarray, float
     vals = gray[ys[band], xs[band]]
     lo, hi = int(np.floor(along_b.min())), int(np.ceil(along_b.max()))
     n = hi - lo + 1
-    if n < 24:
+    if n < MIN_SAMPLES:
         return None
     sums = np.zeros(n)
     counts = np.zeros(n)
@@ -87,12 +93,15 @@ def axis_profile(image: Image.Image, work: int = 512) -> tuple[np.ndarray, float
 
 
 def dominant_period(
-    profile: np.ndarray, min_period: float = 3.0, max_frac: float = 0.5
+    profile: np.ndarray, min_period: float = 3.0, max_frac: float = 0.15
 ) -> tuple[float, float] | None:
     """(period in samples, peak strength) of the strongest periodic component after
-    detrending, or None when the profile has no clear periodicity."""
+    detrending, or None when the profile has no clear periodicity. A real thread shows
+    at least ~7 crests (``max_frac``); strength is the peak against the *largest* other
+    spectral feature, so a washer's two hole edges (a couple of broad low bins) do not
+    pass as a thread the way they would against the median."""
     n = len(profile)
-    if n < 24:
+    if n < MIN_SAMPLES:
         return None
     # remove the slow trend (shading along the part) with a window far wider than any
     # thread period, so the fundamental of a coarse thread survives
@@ -111,14 +120,18 @@ def dominant_period(
     spec_v = np.where(valid, spec, 0.0)
     k = int(np.argmax(spec_v))
     peak = spec_v[k]
-    rest = np.median(spec[valid]) + 1e-9
     if peak <= 0:
         return None
     # a narrow crest has strong harmonics: if half the frequency (double the period) also
     # stands out, that is the fundamental
     half = k // 2
-    if half >= 1 and valid[half] and spec[half] >= 0.35 * peak and spec[half] > 3 * rest:
+    med = np.median(spec[valid]) + 1e-9
+    if half >= 1 and valid[half] and spec[half] >= 0.35 * peak and spec[half] > 3 * med:
         k, peak = half, spec[half]
+    others = spec_v.copy()
+    for centre in (k, 2 * k):
+        others[max(0, centre - 2) : centre + 3] = 0.0
+    rest = float(others.max()) + 1e-9
     # refine the peak with a parabolic fit over neighbours
     if 0 < k < len(spec) - 1:
         a, b, c = spec[k - 1], spec[k], spec[k + 1]
@@ -131,14 +144,19 @@ def dominant_period(
 
 
 def measure_thread_pitch(
-    image: Image.Image, mm_per_px: float, *, min_strength: float = 3.0
+    image: Image.Image,
+    mm_per_px: float,
+    reference: Segment | None = None,
+    *,
+    min_strength: float = 2.5,
 ) -> ThreadPitch | None:
-    """``mm_per_px`` is in *uploaded* pixels (``image.info['upload_scale']`` corrects for a
-    reduced-size decode, as in ``measure.py``)."""
+    """``mm_per_px`` and ``reference`` are in *uploaded* pixels (``image.info['upload_scale']``
+    corrects for a reduced-size decode, as in ``measure.py``)."""
     if mm_per_px <= 0:
         return None
     k = float(image.info.get("upload_scale", 1.0) or 1.0)
-    out = axis_profile(image)
+    seg = tuple(v / k for v in reference) if reference else None
+    out = axis_profile(image, exclude=seg)  # type: ignore[arg-type]
     if out is None:
         return None
     prof, back = out
