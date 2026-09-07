@@ -164,3 +164,10 @@ def test_dashboard_shows_last_evaluation(identifier, tmp_path):
     )
     page = _client(identifier, tmp_path).get("/dashboard").text
     assert "Measured accuracy" in page and "55%" in page and "Fasteners" in page
+
+
+def test_part_page_has_add_to_cart(identifier, store, tmp_path):
+    client = _client(identifier, tmp_path)
+    part = next(store.iter_parts(with_images_only=True))
+    page = client.get(f"/part/{part.part_number}").text
+    assert 'id="addcart"' in page and "Add to cart" in page and "/cart" in page

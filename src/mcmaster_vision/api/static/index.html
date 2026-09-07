@@ -669,7 +669,7 @@ async function checkout() {
   document.querySelectorAll('.confirm button.yes').forEach(x => x.disabled = true);
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCart(); });
-loadCart();
+loadCart().then(() => { if (location.hash === '#cart') { history.replaceState(null, '', location.pathname); openCart(); } });
 
 // ---- feedback --------------------------------------------------------------
 async function confirm(partNumber, btn) {

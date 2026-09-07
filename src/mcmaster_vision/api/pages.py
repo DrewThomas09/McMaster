@@ -158,7 +158,27 @@ def part_page(part_number: str, request: Request) -> str:
         demo = f'<a class="ghost" href="/?try={pn}">Identify a photo-style render</a> '
     body = f"""<div class="crumbs">{crumbs or "&nbsp;"}</div>
 <h1 class="page">{pn} <span style="font-weight:400;color:var(--muted)">{e(part.name)}</span></h1>
-<p>{demo}<a class="ghost" href="https://www.mcmaster.com/{quote(part.part_number, safe="")}/" target="_blank" rel="noopener">Open on mcmaster.com ↗</a> <button class="ghost" onclick="navigator.clipboard&&navigator.clipboard.writeText({e(json.dumps(part.part_number))})">Copy part number</button></p>
+<p>{demo}<button class="btn small" id="addcart" type="button">&#128722; Add to cart</button> <a class="ghost" href="/#cart" id="opencart" hidden>view cart</a> <a class="ghost" href="https://www.mcmaster.com/{quote(part.part_number, safe="")}/" target="_blank" rel="noopener">Open on mcmaster.com ↗</a> <button class="ghost" onclick="navigator.clipboard&&navigator.clipboard.writeText({e(json.dumps(part.part_number))})">Copy part number</button></p>
+<script>
+(() => {{
+  const PN = {e(json.dumps(part.part_number))};
+  const cid = () => {{ let id = null; try {{ id = localStorage.getItem('mcv.client'); }} catch (_) {{}}
+    if (!id) {{ id = 'c-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); try {{ localStorage.setItem('mcv.client', id); }} catch (_) {{}} }} return id; }};
+  const b = document.getElementById('addcart');
+  b.onclick = async () => {{
+    b.disabled = true;
+    try {{
+      const r = await fetch('/cart', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify({{ client_id: cid(), part_number: PN, quantity: 1 }}) }});
+      if (!r.ok) throw new Error(r.status);
+      const cart = await r.json();
+      const n = cart.reduce((t, it) => t + it.quantity, 0);
+      b.textContent = '\u2713 In cart (' + n + ' item' + (n === 1 ? '' : 's') + ')';
+      document.getElementById('opencart').hidden = false;
+    }} catch (err) {{ b.textContent = 'Could not add (' + err.message + ')'; }}
+    b.disabled = false;
+  }};
+}})();
+</script>
 <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">{gallery}</div>
 <h2 class="page">Specifications</h2><div class="card" style="padding:8px 12px"><table class="spec">{specs or '<tr><td class="msg" colspan="2">No attributes recorded.</td></tr>'}</table>{f'<p class="crumbs">{e(part.description)}</p>' if part.description else ""}</div>
 {fits_html}{fam_html}"""
