@@ -228,7 +228,22 @@ usage prior, 2026-09-07):
 | top-1 on *new* photos of the same parts | 31% | 44% |
 | part found in the top 5 (new photos) | 73% | 72% |
 
-The learn step was incremental (88 photos in 24 s, index rows 1976 -> 2064). The
+With the shipped TinyCNN checkpoint on the same demo (same day, same
+protocol):
+
+| | before learning | after `mcv learn` |
+|---|---|---|
+| bought photos that were the top answer | 61% | 100% |
+| top-1 over all 120 customers | 59% | 96% |
+| top-1 on *new* photos of the same parts | 59% | 69% |
+| part found in the top 5 (new photos) | 96% | 97% |
+
+Its 115 calibration samples (45 wrong) raised the exact threshold from 0.90 to
+0.96 and the likely one from 0.60 to 0.90, because on real outcomes "likely"
+answers had been right only 73% of the time when bought and "candidate" ones
+50%; the tighter tiers are what the customer sees as confidence.
+
+The hash learn step was incremental (88 photos in 24 s, index rows 1976 -> 2064). The
 88 photos gave 88 calibration samples (51 wrong); the refit kept the temperature
 and the exact threshold and raised the "likely" threshold from 0.60 to 0.75,
 because no threshold reached 90% precision and 0.75 was the most precise one
