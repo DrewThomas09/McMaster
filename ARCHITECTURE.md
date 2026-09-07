@@ -78,6 +78,13 @@ catalog (TinyCNN, 300 queries) k=3 left Recall@1 unchanged and cost 3 points of
 family Recall@1, k=8 cost 3 points of Recall@1; raising `top_k` from 50 to 200
 changed nothing (2026-09-07).
 
+Hash descriptor: the anisotropy weighting of the oriented thumbnails was a
+no-op (undone by per-group normalisation) until 2026-09-07; applied properly it
+is worth +1.4 points Recall@1 and +2 points family Recall@1 on a 300-part
+catalog (0.237 vs 0.223, 0.293 vs 0.273). The synthetic renderer now gives every
+kind a distinct second view and keeps long parts on the canvas, which moved the
+shipped TinyCNN's held-out Recall@1 from 0.28 to 0.30 on the same seed.
+
 ## Training (`training/train.py`)
 
 * **Objective**: supervised contrastive (SupCon) over SKU labels with two

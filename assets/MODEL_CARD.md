@@ -49,3 +49,8 @@ Hardware 0.29 / 0.60 / 48; Power Transmission 0.37 / 0.91 / 67; Hand Tools 0.55 
 Fasteners (the largest group and the one with the most look-alikes) are where the
 size question, the coin hint and thread pitch matter most; the earlier 0.33 Recall@1
 came from a different seed and is within the spread of these small held-out sets.
+
+Same catalog seed after the renderer fix (every kind's second view is now a distinct
+rotation instead of a duplicate of the first; long parts stay on the canvas): Recall@1 /
+@5 / @10 = 0.30 / 0.73 / 0.87, Family Recall@1 0.50, MRR 0.49. Weakest categories:
+Sealing 0.11 (9 queries), Fastening & Joining 0.24 (220), Hardware 0.31 (48).
