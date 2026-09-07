@@ -139,3 +139,18 @@ def test_parsers_never_crash_on_junk():
         parse_length_mm(s)
         normalise_pipe_size(s)
         list(parse_page(s))
+
+
+def test_import_pages_dry_run_summarises(tmp_path):
+    from typer.testing import CliRunner
+
+    from mcmaster_vision.cli import app
+
+    txt = tmp_path / "catalog.txt"
+    txt.write_text(PAGE, encoding="utf-8")
+    r = CliRunner().invoke(
+        app, ["import-pages", str(txt), "--dry-run"], env={"MCV_DATA_DIR": str(tmp_path)}
+    )
+    assert r.exit_code == 0, r.output
+    assert "30 parts" in r.output and "Type 304 Stainless Steel" in r.output and "1/8" in r.output
+    assert not (tmp_path / "catalog").exists()  # nothing written

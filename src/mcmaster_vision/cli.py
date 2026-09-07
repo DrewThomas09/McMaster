@@ -733,10 +733,15 @@ def import_pages(
     files: list[Path] = typer.Argument(..., exists=True, help="OCR text of catalog pages"),
     config: Path | None = _config_opt,
     first_page: int = typer.Option(1, help="Catalog page number of the first page in the text"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Parse and summarise (sections, materials, sizes) without writing"
+    ),
 ) -> None:
     """Add the parts listed on printed catalog pages (an OCR text dump) to the store: part
     numbers, pipe sizes, materials, fitting types and prices. Images come later
-    (`mcv fetch-images` / `mcv import-web`)."""
+    (`mcv fetch-images` / `mcv import-web`). Use --dry-run first to check the parse."""
+    from collections import Counter
+
     from mcmaster_vision.catalog import CatalogStore
     from mcmaster_vision.catalog import ingest as _ingest
     from mcmaster_vision.catalog.pages import read_pages
@@ -748,6 +753,24 @@ def import_pages(
 
         def __len__(self) -> int:
             return sum(1 for _ in self)
+
+    if dry_run:
+        parts = list(_Pages())
+        sections = Counter(" > ".join(p.category_path) for p in parts)
+        materials = Counter(p.attributes.get("material", "?") for p in parts)
+        sizes = Counter(p.attributes.get("pipe_size", "?") for p in parts)
+        families = len({p.family_id for p in parts if p.family_id})
+        typer.echo(f"{len(parts)} parts, {families} families, {len(sections)} sections")
+        for name, n in sections.most_common(15):
+            typer.echo(f"  {n:5d}  {name}")
+        typer.echo("materials: " + ", ".join(f"{m} ({n})" for m, n in materials.most_common(8)))
+        typer.echo("sizes: " + ", ".join(f"{sz} ({n})" for sz, n in sizes.most_common(12)))
+        for p in parts[:5]:
+            typer.echo(f"  {p.part_number}: {p.name} {p.attributes}")
+        unsized = [p.part_number for p in parts if p.attributes.get("pipe_size", "?") == "?"]
+        if unsized:
+            typer.echo(f"{len(unsized)} parts without a size, e.g. {unsized[:5]}")
+        return
 
     s = _settings(config)
     with CatalogStore(s.catalog_db) as store:
