@@ -7,4 +7,4 @@ The system is a retrieval pipeline rather than a 700,000-way classifier:
 See ARCHITECTURE.md for the full design.
 """
 
-__version__ = "0.3.4"
+__version__ = "0.3.5"

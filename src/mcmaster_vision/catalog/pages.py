@@ -24,16 +24,24 @@ from pathlib import Path
 
 from mcmaster_vision.schemas import Part
 
-PART_PRICE = re.compile(r"(\d{4,5}[A-Z]\d{1,4}[A-Z]?)\s*[.\s]*\$?\s*(\d{1,4}\.\d\d)")
+PART_PRICE = re.compile(r"(\d{4,5}[A-Z]\d{1,4}[A-Z]?)\s*[.\s]*\$?\s*(\d{1,4}\.\d\d)(?!\d)")
+# a size never looks like money (a wrapped row's continuation starts with a price)
 SIZE_TOKEN = re.compile(
-    r"^\s*(?P<size>(?:\d+\s*[-\s]?\s*)?\d+/\d+|\d+(?:\.\d+)?)\s*(?:\"|″|”)?\s*(?:[.\s]|$)"
+    r"^\s*(?!\d+\.\d\d\b)(?P<size>(?:\d+\s*[-\s]?\s*)?\d+/\d+|\d+(?:\.\d+)?)\s*(?:\"|″|”)?\s*(?:[.\s]|$)"
 )
+# a second "size ...." cell on the same line: two-column pages OCR into interleaved rows
+COLUMN_BREAK = re.compile(
+    r"(?<=\d\.\d\d)\s+(?=(?:\d+\s*[-\s]\s*)?\d+(?:/\d+)?\s*(?:\"|″|”)?\s*\.{2,})"
+)
+PLACEHOLDER = re.compile(r"(?:—|–|-{2,}|n/a)", re.I)
 MATERIAL = re.compile(
     r"^\s*(type\s+\d{3}L?(?:/\d{3}L?)?\s+[a-z ]*?(?:stainless steel|steel)|"
     r"(?:brass|bronze|aluminum|nylon|pvc|cpvc|black steel|galvanized steel|"
-    r"cast iron|malleable iron|carbon steel|copper|titanium|polypropylene)[a-z ()\-/]*)\s*(?:\(cont\.?\))?\s*$",
+    r"cast iron|malleable iron|carbon steel|copper|titanium|polypropylene)"
+    r"(?:\s+(?:alloy|forged|cast|plated|coated|\d{3,4}|grade\s*\w+))?)\s*(?:\(cont\.?\))?\s*$",
     re.I,
 )
+CONT = re.compile(r"\s*\((?:cont(?:inued)?\.?|continued.*?)\)\s*", re.I)
 HEADER = re.compile(r"^\s*(pipe\s+size|pipe\s*/\s*thread\s+size|size|thread\s+size)\b", re.I)
 FOOTER = re.compile(r"mcmaster-?carr", re.I)
 NOISE_HEADINGS = {"pipe", "size", "lg.", "lg", "(a)", "(b)", "qty.", "dia."}
@@ -98,9 +106,24 @@ def _clean(s: str) -> str:
     return re.sub(r"\s+", " ", s.replace("’", "'")).strip(" .:")
 
 
+def _cells(line: str) -> list[str]:
+    return [_clean(c) for c in re.split(r"\s{2,}|\t", line) if _clean(c)]
+
+
+def _looks_like_header(line: str) -> bool:
+    """Three or more wide-spaced cells of words, no part numbers, not a size row: a table
+    header even when its first cell is not "Pipe Size" ("Thread   90° Elbows   Tees")."""
+    cells = _cells(line)
+    if len(cells) < 3 or PART_PRICE.search(line) or SIZE_TOKEN.match(line):
+        return False
+    return sum(1 for c in cells if re.search(r"[A-Za-z]{2}", c)) >= len(cells) - 1
+
+
 def _columns_from_header(line: str) -> list[str]:
-    body = HEADER.sub("", line, count=1)
-    names = [_clean(n) for n in re.split(r"\s{2,}|\t", body) if _clean(n)]
+    body = HEADER.sub("", line, count=1) if HEADER.match(line) else line
+    names = _cells(body)
+    if not HEADER.match(line) and names:
+        names = names[1:]  # the first cell names the row key ("Thread", "Size (A)")
     return [n for n in names if n.lower() not in NOISE_HEADINGS]
 
 
@@ -114,7 +137,12 @@ def _norm_size(raw: str) -> str:
 def _title(lines: list[str]) -> str:
     for ln in lines[:8]:
         t = _clean(ln)
-        if len(t) > 8 and re.search(r"[A-Za-z]{4}", t) and not FOOTER.search(t):
+        if (
+            len(t) > 8
+            and re.search(r"[A-Za-z]{4}", t)
+            and not FOOTER.search(t)
+            and not _looks_like_header(ln)
+        ):
             return re.sub(
                 r"^(?:cad\s*)?(?:for technical.*?mcmaster\.com\.?)?\s*", "", t, flags=re.I
             )
@@ -126,6 +154,8 @@ def _is_heading(t: str) -> bool:
     prose ("The 90° elbows are also known as...") is not."""
     if len(t) < 6 or len(t) > 90 or t.endswith((".", ":", ";")) or not t[0].isupper():
         return False
+    if len([c for c in re.split(r"\s{2,}|\t", t) if c.strip()]) >= 3:
+        return False  # three or more cells: a table header, not a section
     words = [w for w in re.findall(r"[A-Za-z][A-Za-z'-]*", t) if len(w) > 3]
     if not words:
         return False
@@ -140,7 +170,7 @@ def parse_page(text: str, page_label: str = "") -> Iterator[Part]:
         line = normalise_ocr(raw.rstrip())
         if not line.strip() or FOOTER.search(line):
             continue
-        if HEADER.match(line):
+        if HEADER.match(line) or _looks_like_header(line):
             cols = _columns_from_header(line)
             if cols:
                 ctx.columns = cols
@@ -152,14 +182,22 @@ def parse_page(text: str, page_label: str = "") -> Iterator[Part]:
         hits = PART_PRICE.findall(line)
         m_size = SIZE_TOKEN.match(line)
         if hits and m_size:
-            yield from _row_parts(ctx, _norm_size(m_size.group("size")), line, hits, m_size.end())
+            for seg in COLUMN_BREAK.split(line):  # interleaved two-column rows
+                seg_hits = PART_PRICE.findall(seg)
+                seg_size = SIZE_TOKEN.match(seg)
+                if seg_hits and seg_size:
+                    yield from _row_parts(
+                        ctx, _norm_size(seg_size.group("size")), seg, seg_hits, seg_size.end()
+                    )
             continue
         # a heading (no part numbers, not a size row) names the next table's section
         t = _clean(line)
         if not hits and _is_heading(t):
-            t = re.sub(r"\s*\(continued.*?\)\s*", "", t, flags=re.I)
+            cont = bool(CONT.search(t))
+            t = CONT.sub("", t).strip()
             ctx.section = t.title() if t.isupper() else t
-            ctx.columns = []
+            if not cont:  # a continued table keeps the header from the previous page
+                ctx.columns = []
 
 
 _LENGTH_COLUMN = re.compile(r"^\s*([\d\s/-]+(?:\"|″|”)?)\s*(?:lg\.?|lengths?)\s*$", re.I)
@@ -171,9 +209,21 @@ def _row_parts(
     # extra tokens between the size and the first part number (a nipple length, a thread)
     first_pn = hits[0][0]
     between = _clean(line[size_end : line.index(first_pn)]).strip(" .")
+    # column index by position: a placeholder ("—", "n/a") between two cells is a skipped
+    # column, so later part numbers must not shift left
+    col_idx = []
+    cursor = size_end
+    col = 0
+    for pn, _price in hits:
+        start = line.index(pn, cursor)
+        col += len(PLACEHOLDER.findall(line[cursor:start]))
+        col_idx.append(col)
+        col += 1
+        cursor = start + len(pn)
     for i, (pn, price) in enumerate(hits):
+        ci = col_idx[i]
         column = (
-            ctx.columns[i] if i < len(ctx.columns) else (ctx.columns[-1] if ctx.columns else "")
+            ctx.columns[ci] if ci < len(ctx.columns) else (ctx.columns[-1] if ctx.columns else "")
         )
         if len(ctx.columns) == 1 and len(hits) > 1:
             column = ctx.columns[0]
@@ -204,9 +254,11 @@ def _row_parts(
         )
 
 
-def parse_catalog_text(text: str, first_page: int = 1) -> Iterator[Part]:
-    """Parts from a whole OCR dump; duplicates keep the first occurrence."""
-    seen: set[str] = set()
+def parse_catalog_text(
+    text: str, first_page: int = 1, seen: set[str] | None = None
+) -> Iterator[Part]:
+    """Parts from a whole OCR dump; duplicates (``seen`` may span files) keep the first."""
+    seen = set() if seen is None else seen
     for i, page in enumerate(split_pages(text), first_page):
         for part in parse_page(page, page_label=str(i)):
             if part.part_number not in seen:
@@ -214,7 +266,12 @@ def parse_catalog_text(text: str, first_page: int = 1) -> Iterator[Part]:
                 yield part
 
 
-def read_pages(paths: Iterable[str | Path]) -> Iterator[Part]:
-    """One or more text files (a whole dump, or one file per page)."""
+def read_pages(paths: Iterable[str | Path], first_page: int = 1) -> Iterator[Part]:
+    """One or more text files (a whole dump, or one file per page): page numbers run on
+    across files and a part number is imported once."""
+    seen: set[str] = set()
+    page = first_page
     for path in paths:
-        yield from parse_catalog_text(Path(path).read_text(encoding="utf-8", errors="replace"))
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+        yield from parse_catalog_text(text, first_page=page, seen=seen)
+        page += len(split_pages(text))

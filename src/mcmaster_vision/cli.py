@@ -739,15 +739,12 @@ def import_pages(
     (`mcv fetch-images` / `mcv import-web`)."""
     from mcmaster_vision.catalog import CatalogStore
     from mcmaster_vision.catalog import ingest as _ingest
-    from mcmaster_vision.catalog.pages import parse_catalog_text
+    from mcmaster_vision.catalog.pages import read_pages
     from mcmaster_vision.catalog.sources import CatalogSource
 
     class _Pages(CatalogSource):
         def __iter__(self):
-            for f in files:
-                yield from parse_catalog_text(
-                    f.read_text(encoding="utf-8", errors="replace"), first_page=first_page
-                )
+            yield from read_pages(files, first_page=first_page)
 
         def __len__(self) -> int:
             return sum(1 for _ in self)

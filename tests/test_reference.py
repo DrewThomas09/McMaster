@@ -42,5 +42,6 @@ def test_no_coin_no_suggestion():
 
 
 def test_coin_alone_and_tiny_images():
-    assert find_coin(_scene(screw=False)) is not None
+    # a round blob with nothing else in the frame is the part (a washer), not a reference
+    assert find_coin(_scene(screw=False)) is None
     assert find_coin(Image.new("RGB", (3, 3), "white")) is None

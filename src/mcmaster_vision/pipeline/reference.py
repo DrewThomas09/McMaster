@@ -82,6 +82,7 @@ def find_coin(
     labels, sizes = label_components(mask)
     long_side = max(small.size)
     best: CoinCandidate | None = None
+    best_area = 0
     for lab, area in sizes.items():
         if area < 30:
             continue
@@ -113,5 +114,11 @@ def find_coin(
             circularity=round(circ, 3),
         )
         if best is None or cand.circularity > best.circularity:
-            best = cand
+            best, best_area = cand, area
+    if best is not None:
+        # a coin is a *reference next to* a part: with nothing else in the frame the round
+        # blob is the part itself (a washer), and offering it as the coin would exclude it
+        others = [a for a in sizes.values() if a != best_area and a >= 0.15 * best_area]
+        if not others:
+            return None
     return best

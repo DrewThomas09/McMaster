@@ -26,6 +26,7 @@ from mcmaster_vision.pipeline.preprocess import decode_image, preprocess
 from mcmaster_vision.pipeline.reference import find_coin
 from mcmaster_vision.pipeline.rerank import ClaudeVisionReranker, FusionReranker, Scored
 from mcmaster_vision.pipeline.retrieve import Retriever
+from mcmaster_vision.pipeline.threads import measure_thread_pitch
 from mcmaster_vision.schemas import (
     Candidate,
     ExtractedAttributes,
@@ -206,6 +207,10 @@ class Identifier:
             size = measure(image, mm_per_px, reference)
             if size is None:
                 notes.append("could not find the object outline to measure it; size not used")
+            else:
+                tp = measure_thread_pitch(image, mm_per_px)
+                if tp is not None:
+                    size.pitch_mm = tp.pitch_mm
         elif suggest_reference:
             coin = find_coin(image)
             if coin is not None:  # report it in *uploaded* pixels, like mm_per_px / ref

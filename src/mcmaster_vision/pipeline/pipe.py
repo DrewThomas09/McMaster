@@ -110,13 +110,16 @@ _SIZE = re.compile(
 def normalise_pipe_size(text) -> str | None:
     """``'3/8"'``, ``"1 1/4 NPT"``, ``"1-1/2"`` -> the catalog key (``"3/8"``, ``"1-1/4"``)."""
     t = str(text).strip().lower().replace("″", '"').replace("”", '"')
-    t = re.sub(r"\s*(pipe|size|thread|npt|bspt|bspp|nptf)\s*", " ", t).strip()
+    t = re.sub(r"\s*\b(pipe|size|thread|nptf|npt|bspt|bspp)\b\s*", " ", t).strip(" .")
     m = _SIZE.match(t)
     if not m or (m.group(1) is None and m.group(2) is None):
         return None
     whole, frac = m.group(1), m.group(2)
     if frac:
-        f = Fraction(frac)
+        num, den = frac.split("/")
+        if int(den) == 0:
+            return None
+        f = Fraction(int(num), int(den))
         if f >= 1 or f.denominator not in (2, 4, 8, 16):
             return None
         frac = f"{f.numerator}/{f.denominator}"

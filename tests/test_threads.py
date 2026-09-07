@@ -50,3 +50,36 @@ def test_pitch_maps_to_pipe_thread_family():
     # 1/8 NPT is 27 tpi (0.941 mm); BSP is 28 tpi (0.907 mm): a 3.6% difference
     tp = measure_thread_pitch(_threaded_rod(0.941 * 25), 1.0 / 25)
     assert tp is not None and thread_family_from_pitch("1/8", tp.threads_per_inch) == ["NPT"]
+
+
+def test_catalog_pitch_parsing_and_consistency():
+    from mcmaster_vision.pipeline.measure import Measurement, catalog_pitch_mm, size_consistency
+    from mcmaster_vision.schemas import Part
+
+    assert catalog_pitch_mm({"thread_size": '1/4"-20'})[0] == pytest.approx(1.27)
+    assert catalog_pitch_mm({"thread_size": "M6 x 1"})[0] == pytest.approx(1.0)
+    assert catalog_pitch_mm({"thread_size": "#8-32"})[0] == pytest.approx(0.794, abs=0.01)
+    assert catalog_pitch_mm({"thread_size": "M6"}) is None
+    assert catalog_pitch_mm({"pipe_size": "1/8"}, "Elbow, NPT")[0] == pytest.approx(0.941, abs=0.01)
+    assert catalog_pitch_mm({"pipe_size": "1/8"}, "Elbow, BSPT")[0] == pytest.approx(
+        0.907, abs=0.01
+    )
+    coarse = Part(
+        part_number="A", name="screw", category_path=["x"], attributes={"thread_size": '1/4"-20'}
+    )
+    fine = Part(
+        part_number="B", name="screw", category_path=["x"], attributes={"thread_size": '1/4"-28'}
+    )
+    m = Measurement(25.0, 6.3, 0.1, pitch_mm=1.25)
+    assert size_consistency(m, coarse)[0] > 0.5 and size_consistency(m, fine)[0] < 0
+    assert any("pitch" in r for r in size_consistency(m, coarse)[1])
+    assert m.as_dict()["threads_per_inch"] == pytest.approx(20.3, abs=0.1)
+
+
+def test_identify_reports_pitch_from_the_photo(store, index, embedder):
+    from mcmaster_vision.pipeline.identify import Identifier
+
+    ident = Identifier(store, index, embedder, top_k=10)
+    res = ident.identify(_threaded_rod(20.0), tta="none", mm_per_px=1.0 / 20)
+    assert res.measured and res.measured.get("pitch_mm") == pytest.approx(1.0, rel=0.08)
+    assert res.measured["threads_per_inch"] == pytest.approx(25.4, rel=0.08)

@@ -82,11 +82,11 @@ def test_size_matching_uses_pipe_od_not_the_nominal_number():
     assert size_consistency(m, elbow_34)[0] < 0  # 3/4 is 26.7 mm OD: too big
     assert size_consistency(m, elbow_18)[0] < 0  # 1/8 is 10.3 mm OD, body at most ~19.5
     assert "pipe OD" in size_consistency(m, elbow_38)[1][0]
-    # a female coupling: the bore is what shows
+    # a female coupling's body wraps the pipe: a 1/2 coupling is ~28 mm across
     coupling = Part(
         part_number="D",
         name="Coupling, female NPT",
         category_path=["x"],
         attributes={"pipe_size": '1/2"'},
     )
-    assert size_consistency(Measurement(25.0, 16.0, 0.1), coupling)[0] == 1.0
+    assert size_consistency(Measurement(40.0, 28.0, 0.1), coupling)[0] == 1.0

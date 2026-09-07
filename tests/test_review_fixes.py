@@ -186,3 +186,85 @@ def test_synthetic_rejects_unknown_kinds():
 
     with pytest.raises(ValueError, match="unknown part kinds"):
         SyntheticCatalog(n_parts=2, kinds=["hex_nut", "unobtainium"])
+
+
+def test_pipe_and_page_review_regressions(tmp_path):
+    from mcmaster_vision.catalog.pages import parse_page, read_pages
+    from mcmaster_vision.pipeline.measure import Measurement, size_consistency
+    from mcmaster_vision.pipeline.pipe import normalise_pipe_size
+
+    # gender: "female" must not read as male; a 1/2 female coupling is not a 3/8 one
+    m = Measurement(40.0, 28.0, 0.1)  # a 1/2 female coupling body
+    fem14 = _part("F14", name="Coupling, female NPT", attributes={"pipe_size": "1/4"})
+    fem12 = _part("F12", name="Coupling, female NPT", attributes={"pipe_size": "1/2"})
+    assert size_consistency(m, fem12)[0] == 1.0 and size_consistency(m, fem14)[0] < 0.5
+    assert "female" in size_consistency(m, fem12)[1][0]
+    # parser guards
+    assert normalise_pipe_size("1/0") is None and normalise_pipe_size("10/0") is None
+    assert normalise_pipe_size("1/2 NPTF") == "1/2" and normalise_pipe_size("1/2 in.") == "1/2"
+    hdr = "Pipe Size   90° Elbows   45° Elbows   Tees\nType 304 Stainless Steel\n"
+    # a wrapped row: the continuation starts with a price, which is not a size
+    parts = {
+        p.part_number: p
+        for p in parse_page(
+            hdr + "1/8 ..... 4464K11 ... $4.90   4464K35 ...\n6.94   4464K23 ... $6.48\n"
+        )
+    }
+    assert "4464K23" not in parts and parts["4464K11"].attributes["pipe_size"] == "1/8"
+    # interleaved two-column rows keep their own sizes
+    parts = {
+        p.part_number: p
+        for p in parse_page(hdr + "1/8 ..... 4464K11 ... $4.90   1/4 ..... 4464K12 ... $4.90\n")
+    }
+    assert parts["4464K12"].attributes["pipe_size"] == "1/4"
+    # a placeholder cell does not shift later columns
+    parts = {
+        p.part_number: p
+        for p in parse_page(hdr + "1/8 ..... 4464K11 ... $4.90   —   4464K47 ... $6.91\n")
+    }
+    assert parts["4464K47"].attributes["fitting_type"] == "Tees"
+    # a dimension is not a price
+    parts = {p.part_number: p for p in parse_page(hdr + "1/8 ..... 4464K11 ... 0.675\n")}
+    assert not parts
+    # (cont.) tables keep the family and the previous header
+    text = (
+        hdr
+        + "1/8 ..... 4464K11 ... $4.90\nElbows, Tees, Crosses, and Unions (cont.)\n1/4 ..... 4464K12 ... $4.90\n"
+    )
+    parts = {p.part_number: p for p in parse_page("Elbows, Tees, Crosses, and Unions\n" + text)}
+    assert parts["4464K11"].family_id == parts["4464K12"].family_id
+    assert parts["4464K12"].attributes["fitting_type"] == "90° Elbows"
+    # a page title starting with a material is a heading, not a material
+    parts = {
+        p.part_number: p
+        for p in parse_page("Brass Pipe Fittings\n" + hdr + "1/8 ..... 4464K11 ... $4.90\n")
+    }
+    assert parts["4464K11"].attributes["material"] == "Type 304 Stainless Steel"
+    # a header without "Pipe Size" is still a header
+    parts = {
+        p.part_number: p
+        for p in parse_page(
+            "Thread   90° Elbows   Tees\n1/8 ..... 4464K11 ... $4.90   4464K47 ... $6.91\n"
+        )
+    }
+    assert parts["4464K47"].attributes.get("fitting_type") == "Tees"
+    # one file per page: page numbers run on, duplicates across files are dropped
+    (tmp_path / "p4.txt").write_text(hdr + "1/8 ..... 4464K11 ... $4.90\n")
+    (tmp_path / "p5.txt").write_text(
+        hdr + "1/8 ..... 4464K11 ... $4.90   1/4 ..... 4464K12 ... $4.90\n"
+    )
+    got = list(read_pages([tmp_path / "p4.txt", tmp_path / "p5.txt"], first_page=4))
+    assert [p.part_number for p in got] == ["4464K11", "4464K12"]
+    assert got[1].attributes["catalog_page"] == "5"
+
+
+def test_round_part_alone_is_not_offered_as_a_coin():
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.reference import find_coin
+
+    im = Image.new("RGB", (640, 480), (238, 236, 230))
+    ImageDraw.Draw(im).ellipse((240, 160, 400, 320), fill=(150, 150, 155))  # a washer, alone
+    assert find_coin(im) is None
+    ImageDraw.Draw(im).rectangle((40, 220, 200, 260), fill=(60, 60, 65))  # now with a part
+    assert find_coin(im) is not None

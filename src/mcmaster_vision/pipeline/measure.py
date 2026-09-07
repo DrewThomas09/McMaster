@@ -19,7 +19,11 @@ from fractions import Fraction
 import numpy as np
 from PIL import Image
 
-from mcmaster_vision.pipeline.pipe import pipe_id_mm, pipe_od_mm
+from mcmaster_vision.pipeline.pipe import (
+    THREADS_PER_INCH,
+    normalise_pipe_size,
+    pipe_od_mm,
+)
 from mcmaster_vision.pipeline.preprocess import foreground_mask
 from mcmaster_vision.schemas import Part
 
@@ -97,13 +101,18 @@ class Measurement:
     long_mm: float
     short_mm: float
     mm_per_px: float
+    pitch_mm: float | None = None  # thread pitch read from the photo, when there is one
 
     def as_dict(self) -> dict[str, float]:
-        return {
+        out = {
             "long_mm": round(self.long_mm, 1),
             "short_mm": round(self.short_mm, 1),
             "mm_per_px": round(self.mm_per_px, 5),
         }
+        if self.pitch_mm:
+            out["pitch_mm"] = round(self.pitch_mm, 3)
+            out["threads_per_inch"] = round(INCH / self.pitch_mm, 1)
+        return out
 
 
 Segment = tuple[float, float, float, float]  # x1, y1, x2, y2 in image pixels
@@ -197,6 +206,58 @@ _RULES: list[tuple[tuple[str, ...], float, float, float]] = [
 ]
 
 
+_TPI = re.compile(r"(?:^|[\s\-x×])(\d{1,2}(?:\.\d)?)\s*(?:tpi|threads?\s*per\s*inch)?\s*$", re.I)
+_METRIC_PITCH = re.compile(r"^m\d+(?:\.\d+)?\s*[x×]\s*(\d+(?:\.\d+)?)", re.I)
+_INCH_THREAD = re.compile(r"^(?:#?\d+|\d+/\d+)\s*(?:\"|″|”)?\s*-\s*(\d{1,2})\b")
+
+
+def catalog_pitch_mm(attrs: dict[str, str], name: str = "") -> tuple[float, str] | None:
+    """The thread pitch a catalog entry implies: ``1/4"-20`` -> 1.27 mm, ``M6 x 1`` -> 1 mm,
+    ``#8-32`` -> 0.79 mm, or a pipe size with NPT / BSP -> its threads per inch."""
+    ts = attrs.get("thread_size") or attrs.get("thread") or ""
+    m = _METRIC_PITCH.match(ts.strip())
+    if m:
+        return float(m.group(1)), f"thread {ts}"
+    m = _INCH_THREAD.match(ts.strip())
+    if m:
+        return INCH / float(m.group(1)), f"thread {ts}"
+    pitch = attrs.get("thread_pitch") or attrs.get("pitch")
+    if pitch:
+        p = parse_length_mm(pitch)
+        if p:
+            return p, f"pitch {pitch}"
+        m = _TPI.search(pitch)
+        if m:
+            return INCH / float(m.group(1)), f"pitch {pitch}"
+    pipe = next((attrs[k] for k in _PIPE_KEYS if k in attrs), None) or ts
+    key = normalise_pipe_size(pipe) if pipe else None
+    if key in THREADS_PER_INCH:
+        text = (name + " " + " ".join(attrs.values())).upper()
+        npt, bsp = THREADS_PER_INCH[key]
+        if "BSP" in text and bsp:
+            return INCH / bsp, f"{key} BSP {bsp} tpi"
+        if npt:
+            return INCH / npt, f"{key} NPT {npt} tpi"
+    return None
+
+
+def pitch_consistency(meas: Measurement | None, part: Part) -> tuple[float, str | None]:
+    """+1 when the measured pitch matches the catalog thread, -1 one thread standard away."""
+    if meas is None or not meas.pitch_mm:
+        return 0.0, None
+    attrs = {
+        k.lower().replace("-", "_").replace(" ", "_"): str(v) for k, v in part.attributes.items()
+    }
+    cat = catalog_pitch_mm(attrs, part.name)
+    if cat is None:
+        return 0.0, None
+    expected, label = cat
+    # coarse vs fine steps are ~1.3-1.4x (20 vs 28 tpi, M6x1 vs 0.75): -1 at that distance
+    sc = _ratio_score(meas.pitch_mm / expected, 0.93, 1.07, 1.3)
+    verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
+    return sc, f"pitch {meas.pitch_mm:.2f} mm vs {label} ({expected:.2f} mm): {verdict}"
+
+
 def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[str]]:
     """(score in [-1, 1], reasons): does the measured object fit this part's dimensions?"""
     if meas is None:
@@ -207,34 +268,6 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
     has_length = any(k in attrs and parse_length_mm(attrs[k]) for k in _LENGTH_KEYS)
     votes: list[float] = []
     reasons: list[str] = []
-    # pipe size is nominal: a "3/8" fitting is 0.675" across male threads and 0.49" inside
-    # female ones. Compare the measured short axis with whichever the part's gender implies
-    # (either when unknown: a fitting body is at least the pipe OD wide).
-    pipe = next((attrs[k] for k in _PIPE_KEYS if k in attrs), None)
-    if pipe and (od := pipe_od_mm(pipe)):
-        text = " ".join([part.name.lower(), *attrs.values()]).lower()
-        female = "female" in text or "fpt" in text
-        male = "male" in text or "mpt" in text or "nipple" in text
-        targets = []
-        if male or not female:
-            targets.append(("pipe OD", od))
-        if female or not male:
-            pid = pipe_id_mm(pipe)
-            if pid:
-                targets.append(("pipe ID", pid))
-        # a fitting body (hex, elbow) is wider than its thread but never narrower: allow up
-        # to 1.5x the OD, and fall off fast below it (the next size down is 0.8x)
-        scores = []
-        for label, mm in targets:
-            r = meas.short_mm / mm
-            scores.append((_ratio_score(r, 0.9, 1.5, 1.25 if r < 0.9 else 1.4), label, mm))
-        if scores:
-            sc, label, mm = max(scores)
-            votes.append(sc)
-            verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
-            reasons.append(
-                f"measured {meas.short_mm:.0f} mm vs pipe size {pipe} ({label} {mm:.1f} mm): {verdict}"
-            )
     for keys, lo, hi, falloff in _RULES:
         for key in keys:
             if key not in attrs:
@@ -251,6 +284,34 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
                 f"measured {measured:.0f} mm vs {key} {attrs[key]} ({mm:.1f} mm): {verdict}"
             )
             break
+    # pipe size is nominal: a "3/8" fitting is 0.675" across its male threads. What a
+    # photo shows is the silhouette, so the short axis is compared with the pipe OD: a
+    # male thread is the OD itself (a hex body up to 1.5x), a female fitting's body wraps
+    # the pipe and must be wider (1.1x to 1.6x). Female look-alikes one size apart are
+    # genuinely ambiguous from a silhouette; two sizes apart are not.
+    pipe = next((attrs[k] for k in _PIPE_KEYS if k in attrs), None)
+    if pipe and (od := pipe_od_mm(pipe)):
+        text = " ".join([part.name.lower(), *attrs.values()]).lower()
+        female = "female" in text or "fpt" in text
+        male = bool(re.search(r"(?<!fe)male\b", text)) or "mpt" in text or "nipple" in text
+        if female and not male:
+            lo, hi = 1.1, 1.6
+        elif male and not female:
+            lo, hi = 0.9, 1.5
+        else:
+            lo, hi = 0.9, 1.6
+        r = meas.short_mm / od
+        sc = _ratio_score(r, lo, hi, 1.25 if r < lo else 1.4)
+        votes.append(sc)
+        verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
+        reasons.append(
+            f"measured {meas.short_mm:.0f} mm vs pipe size {pipe} (pipe OD {od:.1f} mm, "
+            f"{'female' if female and not male else 'male' if male and not female else 'fitting'} body): {verdict}"
+        )
+    p_sc, p_reason = pitch_consistency(meas, part)
+    if p_reason:
+        votes.append(p_sc)
+        reasons.append(p_reason)
     if not votes:
         return 0.0, []
     return float(np.clip(np.mean(votes), -1.0, 1.0)), reasons

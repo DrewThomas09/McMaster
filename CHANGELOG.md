@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.5
+
+- Thread pitch from the photo: with a scale set, the crest period along the part's axis
+  gives the pitch (threads per inch); candidates whose catalog thread (`1/4"-20`, `M6 x 1`,
+  `#8-32`, or pipe size + NPT/BSP) disagrees lose score. Shown in the verdict.
+- Evaluation reports Recall by category and the hardest queries; the dashboard shows the
+  last measured accuracy.
+- Page importer review fixes: interleaved two-column rows, wrapped rows whose continuation
+  starts with a price, placeholder cells, "(cont.)" tables, dimensions mistaken for prices,
+  material-named page titles, headers not starting with "Pipe Size", page numbering and
+  de-duplication across files.
+- Size matching for pipe fittings compares the silhouette with the pipe OD for both
+  genders (a female body wraps the pipe, 1.1x to 1.6x); "female" no longer reads as male.
+- Pipe size parsing: zero denominators, `NPTF`, and `1/2 in.`; a round part alone in the
+  frame is no longer offered as the coin; measurement notes get a "clear scale" action.
+- `mcv serve` / `mcv up` refuse a busy port with a clear message.
+
 ## 0.3.4
 
 Built from the catalog's own "Selecting and Measuring Pipe & Fittings" pages.
