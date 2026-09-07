@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.6
+
+- Phone UI review: the `hidden` attribute now wins over class display rules (the live
+  overlay, install and connect buttons and the coin chooser were always visible); yellow
+  badges readable in dark mode; one reset path for every new query so measure points and
+  stale results never carry over; request sequencing for samples, search and "Start over";
+  the shutter always starts a new query; camera and Live ID generation guards; the offline
+  outbox stores a small image and reports a real failure; confirming a sample files
+  feedback; keyboard-focusable capture buttons; Escape closes the lightbox.
+- Thread pitch review: the reference coin is excluded from the profile; short profiles and
+  hole edges no longer yield a pitch; mixed-number and `M6-1.0` threads, `threads_per_inch`
+  attributes; bare fastener sizes are not pipe threads; NPT/BSP band tightened to ±1.5%.
+- `identify-dir --coin` (the coin in each photo sets the scale) and `import-pages --dry-run`.
+
 ## 0.3.5
 
 - Thread pitch from the photo: with a scale set, the crest period along the part's axis
