@@ -301,9 +301,12 @@ def calibrate_from_samples(settings: Settings, rows: list[dict]) -> dict[str, An
 
 
 def mark_retrained(
-    settings: Settings, *, started_at: str | None = None, **fields: Any
+    settings: Settings, *, started_at: str | None = None, learned: bool = True, **fields: Any
 ) -> dict[str, Any]:
     """Stamp the manifest after a retrain; ``started_at`` (taken before training) keeps
-    confirmations that arrived during the run counted as new."""
+    confirmations that arrived during the run counted as new. ``learned=False`` when the
+    retrain went to sibling directories: the served index has not seen those photos, so
+    ``learned_at`` stays where it was and the next ``mcv learn`` still adds them."""
     now = started_at or datetime.now(timezone.utc).isoformat()
-    return update_manifest(settings, retrained_at=now, learned_at=now, **fields)
+    stamp = {"retrained_at": now, **({"learned_at": now} if learned else {})}
+    return update_manifest(settings, **stamp, **fields)

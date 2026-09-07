@@ -527,6 +527,7 @@ def _retrain(s: Settings, train_config: Path, epochs: int | None, reload_url: st
     mark_retrained(
         s,
         started_at=started_at,
+        learned=not switched,  # a sibling index learned them; the served one did not
         # only the live index's evaluation depends on these; a switched retrain wrote a
         # sibling index and must not withhold photos from the served gallery
         held_out_paths=[] if switched else [path for _, path in held_out],

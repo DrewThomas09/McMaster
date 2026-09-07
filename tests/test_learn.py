@@ -320,3 +320,12 @@ def test_event_log_compaction_is_locked_and_keeps_late_rows(tmp_path):
     again = EventLog(path, keep=5)
     assert again.identify_row("late") is not None
     assert len(path.read_text().splitlines()) == 5 and not list(tmp_path.glob("*.tmp"))
+
+
+def test_switched_retrain_does_not_claim_the_live_index_learned(tmp_path, demo_dir, index):
+    s = _settings(tmp_path, demo_dir, index)
+    mark_retrained(s, started_at="2026-01-01T00:00:00+00:00", learned=False, checkpoint="x")
+    m = read_manifest(s)
+    assert m["retrained_at"] == "2026-01-01T00:00:00+00:00" and "learned_at" not in m
+    mark_retrained(s, started_at="2026-01-02T00:00:00+00:00", checkpoint="y")
+    assert read_manifest(s)["learned_at"] == "2026-01-02T00:00:00+00:00"
