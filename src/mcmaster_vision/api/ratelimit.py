@@ -20,8 +20,10 @@ class RateLimiter:
             try:
                 import ipaddress
 
-                net = ipaddress.ip_network(f"{host}/64", strict=False)
-                return str(net)
+                ip = ipaddress.ip_address(host)
+                if ip.version == 6 and ip.ipv4_mapped:  # "::ffff:1.2.3.4" behind a "::" listener
+                    return str(ip.ipv4_mapped)
+                return str(ipaddress.ip_network(f"{host}/64", strict=False))
             except ValueError:
                 return host
         return host

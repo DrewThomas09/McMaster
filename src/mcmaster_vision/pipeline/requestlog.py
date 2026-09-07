@@ -63,9 +63,17 @@ class RequestLog:
                 fh.flush()
 
     def known(self, request_id: str) -> bool:
-        """Was this id issued recently (the window)? Guards /feedback uploads."""
+        """Was this id issued recently? Guards /feedback uploads. The in-memory window is
+        per process, so on a miss the shared log file (any worker's ids) is scanned."""
         with self._lock:
-            return any(r.get("request_id") == request_id for r in self._recent)
+            if any(r.get("request_id") == request_id for r in self._recent):
+                return True
+        needle = f'"request_id": "{request_id}"'
+        try:
+            with open(self.path, encoding="utf-8") as fh:
+                return any(needle in line for line in fh)
+        except OSError:
+            return False
 
     def recent(self, n: int = 50) -> list[dict]:
         with self._lock:

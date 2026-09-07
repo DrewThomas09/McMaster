@@ -440,18 +440,7 @@ def retrain(
     typer.echo(
         f"1/3 training on catalog + {n_train_photos} confirmed photos ({len(held_out)} held out) ..."
     )
-    switched = cfg["backbone"] != s.backbone
-    if switched:
-        # the running API serves with *its* backbone and picks up a rebuilt index within
-        # seconds, so a different backbone's index goes to a sibling directory: switching
-        # is then an explicit env change + restart, never a cron side effect
-        s = s.model_copy(
-            update={"index_dir": s.index_dir.with_name(f"{s.index_dir.name}-{cfg['backbone']}")}
-        )
-        typer.echo(
-            f"recipe backbone {cfg['backbone']!r} differs from the deployment's {s.backbone!r}: "
-            f"the new index goes to {s.index_path} (the live index is untouched)"
-        )
+    live = s
     with CatalogStore(s.catalog_db) as store:
         ckpt = _train(store, cfg, extra_images=extra)
         s = s.model_copy(
@@ -461,8 +450,28 @@ def retrain(
                 "backbone_pretrained": cfg.get("backbone_pretrained", s.backbone_pretrained),
             }
         )
-        typer.echo("2/3 rebuilding index (catalog renders + confirmed photos) ...")
         embedder = PartEmbedder(load_backbone(s))
+        # the running API serves with *its* backbone and checkpoint and picks up a rebuilt
+        # index within seconds, then refuses one whose version differs. So unless the new
+        # embedder is exactly what the deployment serves, everything (index, calibration,
+        # manifest) goes to sibling directories: switching is an explicit env change and
+        # restart, never a cron side effect
+        switched = _retrain_switches(live, embedder.version)
+        if switched:
+            tag = cfg["backbone"]
+            s = s.model_copy(
+                update={
+                    "index_dir": live.index_dir.with_name(f"{live.index_dir.name}-{tag}"),
+                    "model_dir": live.model_dir.with_name(f"{live.model_dir.name}-{tag}"),
+                }
+            )
+            s.ensure_dirs()
+            typer.echo(
+                f"the deployment serves {live.backbone!r} ({live.backbone_checkpoint or 'no checkpoint'}); "
+                f"the new model is {embedder.version!r}: index -> {s.index_path}, calibration -> "
+                f"{s.model_dir} (the live ones are untouched)"
+            )
+        typer.echo("2/3 rebuilding index (catalog renders + confirmed photos) ...")
         idx = build_index(
             store,
             embedder,
@@ -499,7 +508,8 @@ def retrain(
     if switched:
         typer.echo(
             f"to serve it: MCV_BACKBONE={cfg['backbone']} MCV_BACKBONE_CHECKPOINT={ckpt} "
-            f"MCV_INDEX_DIR={s.index_dir} mcv serve (then future retrains update it in place)"
+            f"MCV_INDEX_DIR={s.index_dir} MCV_MODEL_DIR={s.model_dir} mcv serve "
+            "(then future retrains update it in place)"
         )
         if reload_url:
             typer.echo("skipping --reload-url: the running API uses a different backbone")
@@ -557,6 +567,19 @@ def restore(
     res = restore_backup(s, archive, components=only or None)
     for name, dest in res["restored"].items():
         typer.echo(f"restored {name} -> {dest}")
+
+
+def _retrain_switches(live: Settings, new_version: str) -> bool:
+    """Would serving ``new_version`` need different settings than ``live`` has? True when
+    the deployment's own embedder (backbone + checkpoint) has a different version string,
+    which is exactly what ``load_identifier`` compares the index against."""
+    from mcmaster_vision.models import PartEmbedder, load_backbone
+
+    try:
+        current = PartEmbedder(load_backbone(live)).version
+    except Exception:  # the live backbone cannot even load: anything new is a switch
+        return True
+    return current != new_version
 
 
 @app.command("review-unknowns")
@@ -1080,16 +1103,22 @@ def up(
             # backbone it was built with (a mismatch would fail on every photo)
             built_with = str(json.loads(meta.read_text(encoding="utf-8")).get("backbone", ""))
             built_name = re.split(r"[@:]", built_with)[0]  # "tinycnn:w24:d128@ckpt" -> "tinycnn"
-            if built_name and built_name != chosen:
-                if backbone == "auto":
-                    typer.echo(f"reusing the demo index built with {built_name}")
-                    s = _demo_settings(
-                        demo_dir, backbone=built_name, checkpoint=None, train_epochs=0
-                    )
-                    s = s.model_copy(update={"demo_mode": True})
-                else:
-                    typer.echo(f"demo index was built with {built_name}; rebuilding for {chosen}")
-                    _build_demo(s, parts=parts, images_per_part=3, gallery_augment=2)
+            if built_name and built_name != chosen and backbone == "auto":
+                typer.echo(f"reusing the demo index built with {built_name}")
+                s = _demo_settings(demo_dir, backbone=built_name, checkpoint=None, train_epochs=0)
+                s = s.model_copy(update={"demo_mode": True})
+            # the *full* version (checkpoint included) must match what will be served
+            from mcmaster_vision.models import PartEmbedder, load_backbone
+
+            try:
+                serving = PartEmbedder(load_backbone(s)).version
+            except Exception:
+                serving = ""
+            if built_with != serving:
+                typer.echo(
+                    f"demo index was built with {built_with!r}; rebuilding for {serving or chosen!r}"
+                )
+                _build_demo(s, parts=parts, images_per_part=3, gallery_augment=2)
         else:
             _build_demo(s, parts=parts, images_per_part=3, gallery_augment=2)
     run(s, host="0.0.0.0", port=port, https=https, qr=True)

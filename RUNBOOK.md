@@ -75,7 +75,9 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
 * **Better model**: set `MCV_BACKBONE=openclip` (or `dinov2`), `MCV_BACKBONE_CHECKPOINT=...`, rebuild the index.
   The API refuses to serve an index built with a different backbone than it is configured
   for (it would fail on every photo); `mcv retrain` with a recipe for another backbone writes
-  its index to a sibling directory and prints the environment to switch to.
+  its index and calibration to sibling directories (`index-<backbone>`, `models-<backbone>`)
+  and prints the environment to switch to. "Different" means the full model version,
+  checkpoint included: a retrain from the shipped checkpoint is a switch too.
 * **Hard cases**: `MCV_RERANK_LLM_ENABLED=true` sends the top candidates and the
   photo to Claude for a structured verdict (needs `ANTHROPIC_API_KEY`); `MCV_OCR_ENABLED=true`
   reads part numbers printed on bags and parts.

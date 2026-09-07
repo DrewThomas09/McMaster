@@ -96,8 +96,16 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     app.state.record = record
 
     def _load() -> Identifier:
-        ident = load_identifier(settings)
-        app.state.index_mtime = index_meta.stat().st_mtime if index_meta.exists() else None
+        # sample the mtime *before* reading: a swap that lands during the read is then
+        # noticed on the next poll instead of being recorded against the old data
+        mtime = index_meta.stat().st_mtime if index_meta.exists() else None
+        try:
+            ident = load_identifier(settings)
+        except Exception:
+            app.state.failed_mtime = mtime  # do not retry this exact index every 15 s
+            raise
+        app.state.index_mtime = mtime
+        app.state.failed_mtime = None
         app.state.last_index_check = time.time()
         return ident
 
@@ -112,8 +120,14 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             mtime = index_meta.stat().st_mtime if index_meta.exists() else None
         except OSError:
             return
-        # any change counts (a restore puts back files with *older* mtimes)
-        if mtime and app.state.index_mtime and mtime != app.state.index_mtime:
+        # any change counts (a restore puts back files with *older* mtimes); an index that
+        # already failed to load is left alone until it changes again
+        if (
+            mtime
+            and app.state.index_mtime
+            and mtime != app.state.index_mtime
+            and mtime != getattr(app.state, "failed_mtime", None)
+        ):
             try:
                 app.state.identifier = _load()
                 log.info("index changed on disk; reloaded")
@@ -596,10 +610,16 @@ def port_in_use(host: str, port: int) -> str | None:
     """A short reason when nothing can listen on host:port, else None."""
     import socket
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    bind_host = "" if host in ("0.0.0.0", "::") else host
+    try:
+        sock = socket.socket(family, socket.SOCK_STREAM)
+    except OSError as e:  # no IPv6 on this machine at all
+        return e.strerror or str(e)
+    with sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            sock.bind(("" if host in ("0.0.0.0", "::") else host, port))
+            sock.bind((bind_host, port))
         except OSError as e:
             return e.strerror or str(e)
     return None
@@ -651,7 +671,16 @@ def run(
     # proxies may set it (MCV_FORWARDED_ALLOW_IPS="*" in the compose deployment)
     proxy = {"proxy_headers": True, "forwarded_allow_ips": settings.forwarded_allow_ips}
     if workers > 1:
-        # Each worker process loads its own copy of the index; size RAM accordingly.
+        # Each worker process loads its own copy of the index; size RAM accordingly. The
+        # factory builds Settings() from the environment, so the resolved settings (a YAML
+        # config, programmatic overrides) are exported first or the workers would serve
+        # the defaults.
+        for key, value in settings.model_dump(mode="json").items():
+            if value is None or isinstance(value, (dict, list)):
+                continue
+            os.environ[f"MCV_{key.upper()}"] = (
+                str(value).lower() if isinstance(value, bool) else str(value)
+            )
         uvicorn.run(
             "mcmaster_vision.api.app:get_app",
             factory=True,

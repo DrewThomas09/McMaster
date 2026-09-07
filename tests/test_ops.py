@@ -103,7 +103,12 @@ def test_retrain_end_to_end(tmp_path, demo_dir, index, store):
     assert "1 held out" in r.output and "checkpoint" in r.output
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["checkpoint"].endswith("best.pt") and manifest["retrain_eval"]["queries"] == 1
-    assert (tmp_path / "m" / "calibration.json").exists()
+    # the deployment serves hash: the tinycnn recipe is a switch, so the new index and
+    # calibration go to sibling directories and the live ones are untouched
+    assert (tmp_path / "m-tinycnn" / "calibration.json").exists()
+    assert not (tmp_path / "m" / "calibration.json").exists()
+    assert (tmp_path / "index-tinycnn" / "parts" / "meta.json").exists()
+    assert "MCV_MODEL_DIR=" in r.output and "untouched" in r.output
 
 
 def test_doctor_reports_backup_state(tmp_path, demo_dir):

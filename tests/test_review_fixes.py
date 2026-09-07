@@ -268,3 +268,43 @@ def test_round_part_alone_is_not_offered_as_a_coin():
     assert find_coin(im) is None
     ImageDraw.Draw(im).rectangle((40, 220, 200, 260), fill=(60, 60, 65))  # now with a part
     assert find_coin(im) is not None
+
+
+def test_second_pass_review_regressions(tmp_path):
+    import socket
+
+    from mcmaster_vision.api.app import port_in_use
+    from mcmaster_vision.api.ratelimit import RateLimiter
+    from mcmaster_vision.pipeline.requestlog import RequestLog
+
+    # IPv4 phones behind a "::" listener are separate clients, not one /64
+    assert RateLimiter.bucket("::ffff:192.168.1.5") != RateLimiter.bucket("::ffff:10.0.0.9")
+    assert RateLimiter.bucket("2001:db8::1") == RateLimiter.bucket("2001:db8::2")
+    # an IPv6 host is probed with an IPv6 socket (skipped where the machine has no IPv6)
+    try:
+        taken = socket.socket(socket.AF_INET6)
+        taken.bind(("::1", 0))
+    except OSError:
+        taken = None
+    if taken is not None:
+        with taken:
+            taken.listen(1)
+            port = taken.getsockname()[1]
+            assert port_in_use("::1", port)
+        assert port_in_use("::1", port) is None
+    else:
+        assert port_in_use("::1", 8000)  # reported as a reason, never a crash
+    # a request id issued by another worker is known through the shared log file
+    path = tmp_path / "requests.jsonl"
+    a = RequestLog(path)
+    path.open("a").write('{"request_id": "fromworker2", "tier": "candidate"}\n')
+    assert a.known("fromworker2") and not a.known("nope")
+
+
+def test_retrain_switch_is_decided_on_the_full_version():
+    from mcmaster_vision.cli import _retrain_switches
+    from mcmaster_vision.config import Settings
+
+    live = Settings(backbone="hash")
+    assert _retrain_switches(live, "tinycnn:w24:d128:96px@best")
+    assert not _retrain_switches(live, "hash")
