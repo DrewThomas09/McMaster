@@ -4,7 +4,7 @@ Photo -> McMaster-Carr part number. Retrieval pipeline (embed -> vector search -
 Read `ARCHITECTURE.md` for design and measured numbers, `RUNBOOK.md` for operating it.
 
 ## Commands
-- `pip install -e ".[dev]"` then `python3 -m pytest -q` (200+ tests; browser tests skip without Playwright Chromium)
+- `pip install -e ".[dev]"` then `python3 -m pytest -q` (290+ tests; browser tests skip without Playwright Chromium)
 - `mcv selfcheck` proves a machine end to end (build, identify, coin measure, feedback, purchase loop, backup, restore)
 - `ruff check src tests && ruff format src tests`
 - `mcv demo --parts 300 --no-serve` end-to-end smoke on the synthetic catalog; `mcv --help` for the rest
