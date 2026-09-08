@@ -59,6 +59,8 @@ one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 | tinycnn (24 epochs on 8,000 parts, previous shipped checkpoint) | 2 | 0.33 | 0.72 | 0.88 | **1.00** | 0.50 | 92 |
 | tinycnn retrained on the fixed renderer, 24 epochs (2026-09-07; seed 4242, 400 queries) | 2 | 0.47 | 0.86 | 0.97 | **1.00** | 0.63 | 92 |
 | **tinycnn 48 epochs (shipped `assets/tinycnn_synthetic.pt`, 2026-09-08; seed 4242, 400 queries)** | 2 | **0.55** | **0.93** | **0.99** | **1.00** | **0.71** | 92 |
+| ensemble tinycnn(48ep)+hash (1:0.3) on the 800-part demo, 200 queries (2026-09-08) | 2 | 0.56 | 0.95 | 1.00 | 1.00 | 0.72 | 200 |
+| tinycnn(48ep) alone, same demo and queries | 2 | 0.56 | 0.96 | 0.99 | 1.00 | 0.72 | 92 |
 | tinycnn (42 epochs) + query expansion k=3 | 2 | 0.28 | 0.72 | **0.87** | 1.00 | 0.47 | 92 |
 | ensemble tinycnn(42ep)+hash (1:1) | 2 | 0.27 | 0.73 | 0.87 | 1.00 | 0.47 | 200 |
 | ensemble tinycnn(42ep)+hash (1:0.5) | 2 | 0.31 | 0.74 | **0.88** | 1.00 | 0.49 | 200 |
