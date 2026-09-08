@@ -100,3 +100,11 @@ about 10 h on 4 CPU cores alongside other load. Head to head on the fresh held-o
 
 The longer schedule keeps improving on the fixed renderer; the 24-epoch numbers of the
 earlier sections are superseded.
+
+By top-level category on the 800-part demo evaluation (200 photo-style queries, gallery
+augmentation 2; Recall@1 / Recall@5 / queries): Pipe, Tubing, Hose & Fittings 0.49 / 0.95 /
+39; Hardware 0.55 / 1.00 / 22; Fastening & Joining 0.55 / 0.95 / 92; Sawing & Cutting 0.56 /
+0.78 / 9; Sealing 0.60 / 1.00 / 5; Power Transmission 0.65 / 1.00 / 31. Overall Recall@1
+0.56, Recall@5 0.96, family Recall@1 0.77, MRR 0.72. Fittings remain the weakest category
+(up from 0.38), which is what the size question, the coin, the bore and the thread pitch
+are for.

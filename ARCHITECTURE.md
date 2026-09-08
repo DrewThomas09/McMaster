@@ -232,18 +232,21 @@ usage prior, 2026-09-07):
 | top-1 on *new* photos of the same parts | 31% | 44% |
 | part found in the top 5 (new photos) | 73% | 72% |
 
-With the shipped TinyCNN checkpoint (retrained on the fixed renderer) on the
-same demo, same protocol:
+With the shipped TinyCNN checkpoint (48 epochs on the fixed renderer,
+2026-09-08) on the same demo, same protocol, half the customers using a coin:
 
 | | before learning | after `mcv learn` |
 |---|---|---|
-| bought photos that were the top answer | 74% | 100% |
-| top-1 over all 120 customers | 71% | 98% |
-| top-1 on *new* photos of the same parts | 71% | 84% |
-| part found in the top 5 (new photos) | 98% | 99% |
+| bought photos that were the top answer | 82% | 97% |
+| top-1 over all 120 customers | 78% | 94% |
+| top-1 on *new* photos of the same parts | 78% | 84% |
+| part found in the top 5 (new photos) | 97% | 98% |
 
-(The previous checkpoint on the same protocol: 61% -> 100%, 59% -> 96%,
-59% -> 69%, 96% -> 97%.) Its 118 calibration samples (34 wrong) raised the
+Purchases whose photo carried a coin measurement were the top answer 23/23
+times before learning, against 76% without one; "exact" answers were right 54
+of 55 times when bought. (The 24-epoch checkpoint on the same protocol without
+coins: 74% -> 100%, 71% -> 98%, 71% -> 84%, 98% -> 99%; the first TinyCNN
+checkpoint: 61% -> 100%, 59% -> 96%, 59% -> 69%, 96% -> 97%.) Its 118 calibration samples (34 wrong) raised the
 exact threshold from 0.90 to 0.97 and the likely one from 0.60 to 0.78, because
 on real outcomes "likely" answers had been right 86% of the time when bought and
 "candidate" ones 57%; the tighter tiers are what the customer sees as
