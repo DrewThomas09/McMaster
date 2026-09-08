@@ -3,8 +3,9 @@
 ## 0.4.0
 
 - Shipped model: `assets/tinycnn_synthetic.pt` retrained on the fixed renderer (same recipe,
-  8,000 parts, 24 epochs). Held-out 800-part catalog, 400 photo-style queries: Recall@1
-  0.30 -> 0.47, Recall@5 0.70 -> 0.86, family Recall@1 0.49 -> 0.65, MRR 0.48 -> 0.63.
+  8,000 parts), first for 24 epochs and then 48. Held-out 800-part catalog, 400 photo-style
+  queries: Recall@1 0.30 -> 0.47 -> 0.55, Recall@5 0.70 -> 0.86 -> 0.93, family Recall@1
+  0.49 -> 0.65 -> 0.74, MRR 0.48 -> 0.63 -> 0.71.
 
 - Purchase loop: `POST /cart`, `DELETE /cart/{pn}`, `POST /checkout`, `GET /orders`; the phone
   UI gets Add-to-cart on the verdict and candidates, a cart drawer with quantities and the

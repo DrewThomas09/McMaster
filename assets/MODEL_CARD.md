@@ -84,3 +84,19 @@ Fastening & Joining 0.50 / 0.91 / 92; Power Transmission 0.58 / 0.90 / 31. Overa
 Recall@1 0.47, Recall@5 0.89, family Recall@1 0.68, MRR 0.63. Fittings and hardware
 remain the weakest: the size question, the coin, the bore and the thread pitch are the
 levers there, not the model alone.
+
+
+## 48-epoch retrain (2026-09-08, shipped)
+
+Same recipe and data as the previous section, with the cosine schedule stretched to 48
+epochs (`epochs: 48`); best epoch 42 (validation Recall@1 0.266 on the 8k-part split),
+about 10 h on 4 CPU cores alongside other load. Head to head on the fresh held-out
+800-part catalog (seed 4242, 400 photo-style queries, `scripts/compare_checkpoints.py`):
+
+| checkpoint | R@1 | R@5 | R@10 | family R@1 | MRR |
+|---|---|---|---|---|---|
+| 24-epoch (previous shipped) | 0.468 | 0.863 | 0.968 | 0.645 | 0.628 |
+| **48-epoch (shipped)** | **0.550** | **0.932** | **0.990** | **0.743** | **0.707** |
+
+The longer schedule keeps improving on the fixed renderer; the 24-epoch numbers of the
+earlier sections are superseded.
