@@ -48,6 +48,7 @@
   .imgwrap svg { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
   .imgwrap svg line { stroke:var(--yellow); stroke-width:3; stroke-linecap:round; }
   .imgwrap svg circle { fill:var(--yellow); stroke:var(--green); stroke-width:2; }
+  .chips button.usual { border-color:var(--green); background:var(--green); color:#fff; }
   #coinsvg { pointer-events:none; cursor:default; }
   #coinsvg circle { fill:none; stroke:var(--yellow); stroke-width:3; stroke-dasharray:8 6; }
   #coinsvg text { fill:var(--yellow); font-size:14px; font-weight:700; paint-order:stroke; stroke:#000; stroke-width:3px; }
@@ -461,7 +462,8 @@ function render(res) {
     ? `<div class="family">${esc(n)} &middot; <button type="button" class="linkbtn" onclick="clearScale()">clear scale</button></div>`
     : `<div class="family">${esc(n)} &middot; <button type="button" class="linkbtn" onclick="clearConstraints()">clear filters</button></div>`;
   if (res.family) {
-    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(label(k))}:</span> ${v.map(val => `<button type="button" onclick="refine(${js(k)}, ${js(val)})">${esc(val)}</button>`).join('')}</div>`).join('');
+    const usual = res.family.usual || {};
+    const diffs = Object.entries(res.family.distinguishing_attributes).map(([k, v]) => `<div class="chips"><span>${esc(label(k))}:</span> ${v.map(val => `<button type="button" class="${usual[k] === val ? 'usual' : ''}" title="${usual[k] === val ? 'what you usually buy' : ''}" onclick="refine(${js(k)}, ${js(val)})">${esc(val)}${usual[k] === val ? ' &#9733;' : ''}</button>`).join('')}</div>`).join('');
     const sizeKeys = Object.keys(res.family.distinguishing_attributes).filter(k => /length|pipe_size|^od$|diameter|width|thread_size|wall|schedule/i.test(k));
     const boreKeys = sizeKeys.filter(k => /pipe_size|wall|schedule/i.test(k));
     const nudge = (sizeKeys.length && !scale) ? `<div class="crumbs" style="margin-top:6px">These differ by ${sizeKeys.map(k => esc(label(k))).join(' / ')}: put a coin next to the part and tap <b>Measure</b> (or pick the coin above) to let the photo decide.${boreKeys.length ? ' For a fitting, photograph its open end: the bore tells the size and the wall apart.' : ''}</div>` : '';

@@ -406,6 +406,14 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 )
         except (OSError, ValueError) as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
+        if client_id and result.family and result.family.distinguishing_attributes:
+            # the size or material this shop usually buys, when it is one of the choices
+            usual = customer_book().usual_values(client_id)
+            result.family.usual = {
+                k: usual[k]
+                for k, vals in result.family.distinguishing_attributes.items()
+                if k in usual and usual[k] in vals
+            }
         if log:  # keep the first photo so /feedback can file it under the confirmed part
             await record(result, blobs[0])
         return result
@@ -474,7 +482,36 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             pass
         a["issues"] = issues(a)
         a["learning"] = _learning_state()
+        a["segment_precision_bought"] = _segment_precision()
         return a
+
+    def _segment_precision() -> dict:
+        """Bought-top-1 precision per customer segment: which kind of shop the ranking
+        serves worst."""
+        try:
+            book = customer_book()
+        except HTTPException:
+            return {}
+        ident_rows = {r.get("request_id"): r for r in app.state.events.rows("identify")}
+        seg_of = {cid: p.segment for cid, p in book.profiles.items() if p.segment is not None}
+        labels = {s["segment"]: s["label"] for s in book.segments}
+        tally: dict[int, list[int]] = {}
+        for c in app.state.events.rows("checkout"):
+            seg = seg_of.get(c.get("client_id"))
+            if seg is None:
+                continue
+            for it in c.get("items", []):
+                src = ident_rows.get(it.get("request_id"))
+                if not src:
+                    continue
+                t = tally.setdefault(seg, [0, 0])
+                t[0] += 1
+                t[1] += int(src.get("best") == it.get("part_number"))
+        return {
+            labels.get(seg, str(seg)): {"bought": n, "top1_right": k, "precision": round(k / n, 3)}
+            for seg, (n, k) in sorted(tally.items(), key=lambda kv: kv[1][1] / kv[1][0])
+            if n
+        }
 
     def _learning_state() -> dict:
         from mcmaster_vision.pipeline.learn import learning_state

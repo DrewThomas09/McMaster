@@ -17,9 +17,9 @@ what other customers bought in the same order (co-purchase lift) and drive the
 from __future__ import annotations
 
 import math
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -47,6 +47,7 @@ class Profile:
     sizes: Counter = field(default_factory=Counter)
     parts: Counter = field(default_factory=Counter)
     recent: list[str] = field(default_factory=list)  # part numbers of the last order
+    bought_at: dict[str, list[datetime]] = field(default_factory=dict)  # part -> when
     segment: int | None = None
 
     def as_dict(self, top: int = 5) -> dict[str, Any]:
@@ -104,10 +105,13 @@ class CustomerBook:
             prof.recent = [it.part_number for it in o.items]
             self.n_orders += 1
             pns = []
+            when = o.created_at if isinstance(o.created_at, datetime) else None
             for it in o.items:
                 part = self.parts.get(it.part_number)
                 prof.items += it.quantity
                 prof.parts[it.part_number] += 1
+                if when is not None:
+                    prof.bought_at.setdefault(it.part_number, []).append(when)
                 self.part_counts[it.part_number] += 1
                 pns.append(it.part_number)
                 if part is None:
@@ -240,6 +244,52 @@ class CustomerBook:
             out[pn] = max(-1.0, min(1.0, weight * soft + strong))
         return out
 
+    def usual_values(self, client_id: str | None) -> dict[str, str]:
+        """attribute -> the value this customer buys most (sizes and material), when it
+        is clearly their habit (at least twice and over 40% of the times it appeared)."""
+        prof = self.profiles.get(client_id or "")
+        if prof is None:
+            return {}
+        per_key: dict[str, Counter] = defaultdict(Counter)
+        for token, n in prof.sizes.items():
+            key, _, val = token.partition("=")
+            per_key[key][val] += n
+        for val, n in prof.materials.items():
+            per_key["material"][val] += n
+        out = {}
+        for key, c in per_key.items():
+            val, n = c.most_common(1)[0]
+            if n >= 2 and n / sum(c.values()) >= 0.4:
+                out[key] = val
+        return out
+
+    def due(self, client_id: str | None, now: datetime | None = None) -> list[dict[str, Any]]:
+        """Staples whose usual re-order interval has passed: a part bought three times or
+        more, with the median gap between purchases shorter than the time since the last."""
+        prof = self.profiles.get(client_id or "")
+        if prof is None:
+            return []
+        now = now or datetime.now(timezone.utc)
+        out = []
+        for pn, times in prof.bought_at.items():
+            if len(times) < 3:
+                continue
+            ts = sorted(t if t.tzinfo else t.replace(tzinfo=timezone.utc) for t in times)
+            gaps = sorted((b - a).total_seconds() for a, b in zip(ts, ts[1:], strict=False))
+            median = gaps[len(gaps) // 2]
+            since = (now - ts[-1]).total_seconds()
+            if median > 0 and since >= median:
+                out.append(
+                    {
+                        "part_number": pn,
+                        "every_days": round(median / 86400, 1),
+                        "last_days_ago": round(since / 86400, 1),
+                        "times": len(ts),
+                    }
+                )
+        out.sort(key=lambda d: -d["last_days_ago"] / max(d["every_days"], 0.01))
+        return out
+
     # ------------------------------------------------------------ complements
     def complements(self, part_number: str, n: int = 5) -> list[tuple[str, float]]:
         """Parts bought in the same order as ``part_number``, by lift (co-purchases over
@@ -271,6 +321,12 @@ class CustomerBook:
             out.append({"part_number": pn, "why": why, "score": round(score, 3)})
 
         if prof is not None:
+            for d in self.due(client_id):
+                add(
+                    d["part_number"],
+                    f"usually every {d['every_days']:g} days, last {d['last_days_ago']:g} days ago",
+                    2.0,
+                )
             for pn, c in prof.parts.most_common():
                 if c >= 2:
                     add(pn, f"you ordered this {c} times", 1.0 + c / 10)

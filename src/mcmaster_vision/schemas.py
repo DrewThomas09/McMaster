@@ -84,6 +84,10 @@ class FamilyHint(BaseModel):
     name: str
     part_numbers: list[str]
     probability: float = Field(..., description="Summed confidence of the family's candidates")
+    usual: dict[str, str] = Field(
+        default_factory=dict,
+        description="attribute -> the value this customer usually buys (from their orders)",
+    )
     distinguishing_attributes: dict[str, list[str]] = Field(
         default_factory=dict,
         description="attribute -> the values that differ across the family's candidates",

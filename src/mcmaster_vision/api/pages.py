@@ -275,8 +275,22 @@ def _customers_html(request: Request) -> str:
     summ = book.summary()
     if not summ["orders"]:
         return ""
+    ident_rows = {r.get("request_id"): r for r in request.app.state.events.rows("identify")}
+    seg_of = {cid: p.segment for cid, p in book.profiles.items() if p.segment is not None}
+    prec: dict[int, list[int]] = {}
+    for c in request.app.state.events.rows("checkout"):
+        seg = seg_of.get(c.get("client_id"))
+        if seg is None:
+            continue
+        for it in c.get("items", []):
+            src = ident_rows.get(it.get("request_id"))
+            if src:
+                t = prec.setdefault(seg, [0, 0])
+                t[0] += 1
+                t[1] += int(src.get("best") == it.get("part_number"))
     rows = "".join(
-        f"<tr><td>{s['segment']}</td><td>{e(s['label'])}</td><td>{s['customers']}</td><td>{s['orders']}</td></tr>"
+        f"<tr><td>{s['segment']}</td><td>{e(s['label'])}</td><td>{s['customers']}</td><td>{s['orders']}</td>"
+        f"<td>{(str(round(100 * prec[s['segment']][1] / prec[s['segment']][0])) + '%') if prec.get(s['segment']) else '—'}</td></tr>"
         for s in summ["segments"]
     )
     return f"""<h2 class="page">Customers and segments</h2>
@@ -286,7 +300,7 @@ def _customers_html(request: Request) -> str:
   <div class="card stat"><b>{summ["orders"]}</b><span>orders</span></div>
   <div class="card stat"><b>{len(summ["segments"])}</b><span>segments (industry proxy)</span></div>
 </div>
-<div class="card" style="padding:8px 12px"><table class="spec"><tr><th>segment</th><th>what they buy</th><th>customers</th><th>orders</th></tr>{rows or '<tr><td class="msg" colspan="4">Not enough orders to segment yet.</td></tr>'}</table>
+<div class="card" style="padding:8px 12px"><table class="spec"><tr><th>segment</th><th>what they buy</th><th>customers</th><th>orders</th><th>photo top-1 when bought</th></tr>{rows or '<tr><td class="msg" colspan="5">Not enough orders to segment yet.</td></tr>'}</table>
 <p class="crumbs">Segments and each customer's own history re-rank search results and photo candidates as a tie-breaker; <code>mcv simulate-market</code> measures the lift. <a href="/segments">/segments</a></p></div>"""
 
 

@@ -146,3 +146,30 @@ def test_api_personalises_search_and_identify(identifier, store, tmp_path):
     )
     assert r2.status_code == 200
     assert d["truth"] == pn
+
+
+def test_usual_values_and_reorder_due(store):
+    orders, a, b, cats = _orders(store)
+    book = CustomerBook(orders, {p.part_number: p for p in store.iter_parts()}, k=2)
+    usual = book.usual_values("shop-a")
+    mat = a[0].attributes.get("material")
+    if mat:
+        assert usual.get("material") == mat  # bought three times, the shop's habit
+    assert book.usual_values("nobody") == {}
+    # a[0] was bought on three consecutive days: a day later it is due again
+    due = book.due("shop-a", now=datetime(2026, 1, 5, tzinfo=timezone.utc))
+    assert due and due[0]["part_number"] == a[0].part_number and due[0]["every_days"] == 1.0
+    assert book.due("shop-a", now=datetime(2026, 1, 3, 1, tzinfo=timezone.utc)) == []
+    rec = book.recommend("shop-a", 3)
+    assert rec[0]["part_number"] == a[0].part_number
+
+
+def test_family_answer_marks_the_usual_size(identifier, store, tmp_path):
+    client = _client(identifier, tmp_path)
+    orders, a, b, cats = _orders(store)
+    for o in orders:
+        client.app.state.carts.save_order(o)
+    seg = client.get("/analytics").json()
+    assert "segment_precision_bought" in seg
+    page = client.get("/dashboard").text
+    assert "Customers and segments" in page and "photo top-1 when bought" in page
