@@ -349,7 +349,11 @@ The bigger the catalog, the more a shop's history is worth: a text search that
 lands the right part first 23% of the time on its own lands it 72% of the time
 for a part the shop has bought before, and the coin is worth 11 points on a
 photo. The 200-part numbers above are the demo; this row is closer to a real
-catalog.
+catalog. What the whole marketplace buys now also breaks ties among a name's
+variants for a stranger (`popularity_boosts`, at most 0.3 inside a bm25 tier):
+the same run with it reads plain search 26.1% top-1 (MRR 0.442), rising from
+24% in a shop's first three orders to 27% from its ninth as purchases pile up,
+with personalised search unchanged at 44.5% (a shop's own history outranks it).
 
 An earlier run at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147
 searches and 4,141 photos, before the eraser fixes and the segment vector
