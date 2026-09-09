@@ -73,7 +73,8 @@ def test_profiles_segments_priors_and_complements(store):
     assert all(v == 0 for v in book.boosts("stranger", [a[1].part_number]).values())
     # a repeat part is a re-order suggestion; complements come from co-purchases
     rec = book.recommend("shop-a", 5)
-    assert rec and rec[0]["part_number"] == a[0].part_number and "3 times" in rec[0]["why"]
+    assert rec and rec[0]["part_number"] == a[0].part_number
+    assert "3 times" in rec[0]["why"] or "usually every" in rec[0]["why"]  # a staple, due again
     comp = dict(book.complements(a[0].part_number))
     assert a[1].part_number in comp  # bought together twice
     assert customer_boost_weight(0) == 0 and customer_boost_weight(5) == 1.0
