@@ -357,18 +357,22 @@ gained a nut vote):
 | photos only, 1,979 lookups | plain | personalised | bought before | never bought |
 |---|---|---|---|---|
 | no coin | 80.2% | 83.0% | 84% -> 91% | 76% -> 74% |
-| every photo next to a quarter | 78.2% | 79.9% | 79% -> 83% | 78% -> 77% |
+| every photo next to a quarter (eraser fixed) | 81.7% | 83.5% | 83% -> 87% | 81% -> 80% |
+| the same, before the eraser fix | 78.2% | 79.9% | 79% -> 83% | 78% -> 77% |
 
-That run said the coin cost 2 points overall, and a sweep of every part in three
-poses found why: one pose in three puts the part on a dark bench close to the
-coin's colour, and with the coin filling 43% of the close-up the eraser took its
-ruler path, grew the coin's colour across the whole bench and painted the part
-over (that pose: 81% -> 63% with a coin, the other two 83% -> 90% and 80% ->
-96%). Coin or ruler is now decided by shape, and a coin on a bench of its own
-colour erases only its disc. The same sweep after the fix, no customer prior:
-top-1 81.3% without a coin, 89.2% with one, every pose gaining. The marketplace
-comparison is being re-run on the fixed eraser and the table above will be
-replaced.
+The first all-coin run said the coin cost 2 points overall, and a sweep of
+every part in three poses found why: one pose in three puts the part on a dark
+bench close to the coin's colour, and with the coin filling 43% of the close-up
+the eraser took its ruler path, grew the coin's colour across the whole bench
+and painted the part over (that pose: 81% -> 63% with a coin, the other two
+83% -> 90% and 80% -> 96%). Coin or ruler is now decided by shape, and a coin
+on a bench of its own colour erases only its disc. After the fix the sweep,
+no customer prior, reads 81.3% without a coin and 89.2% with one, every pose
+gaining; in the marketplace the coin lifts never-bought parts by 4.6 points
+and cuts the prior's loss there to one, while re-orders under the prior give
+back 4 (a size vote that endorses the sibling the shop bought) and MRR stays a
+shade lower (0.880 against 0.893), so the composite still has a residual cost
+worth a look. The coin stays a user choice; the prior stays a tie-breaker.
 
 Segments recovered the six industries with purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
 and cabinetry, overlap in what they buy, which is honest, since the boost works
