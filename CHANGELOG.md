@@ -32,7 +32,11 @@
   colour region, a coin on a bench of its own colour erases only its disc, and foreground
   beyond the rim is kept. Size rules gained a nut vote (width across flats per thread
   size, ASME B18.2.2 / ISO 4032) and the demo stages a coin for nuts and pipe fittings.
-  Every catalog part in three poses, no customer prior: top-1 81.3% -> 89.2% with a coin.
+  The fill samples the bench clear of the rim with a robust noise level, the crop trusts a
+  small part once the coin is gone, and the short axis is the narrowest width over all
+  directions (a turned nut still measures across flats). Every catalog part in three
+  poses, no customer prior: top-1 81.3% -> 91.5% with a coin; in the marketplace, photos
+  only, 80.2% -> 85.6% plain and 76% -> 84% on parts the shop had never bought.
 - Recommendation take rate: `/analytics` and the dashboard's customers panel report, of the
   orders that followed a For-you strip, how many took a part from it and how many took a
   part the customer had never bought (`recommendation_take`), with an issue when the strip

@@ -354,25 +354,33 @@ to a quarter rules the 1" out, a 5/16" nut rules #6 out). Measured on the same
 coin, after the demo learned to stage nuts and fittings and the size rules
 gained a nut vote):
 
-| photos only, 1,979 lookups | plain | personalised | bought before | never bought |
-|---|---|---|---|---|
-| no coin | 80.2% | 83.0% | 84% -> 91% | 76% -> 74% |
-| every photo next to a quarter (eraser fixed) | 81.7% | 83.5% | 83% -> 87% | 81% -> 80% |
-| the same, before the eraser fix | 78.2% | 79.9% | 79% -> 83% | 78% -> 77% |
+| photos only, 1,979 lookups | plain | personalised | MRR (plain) | bought before | never bought |
+|---|---|---|---|---|---|
+| no coin | 80.2% | 83.0% | 0.893 | 84% -> 91% | 76% -> 74% |
+| every photo next to a quarter | 85.6% | 87.2% | 0.914 | 87% -> 91% | 84% -> 83% |
+| the same, before the eraser fixes | 78.2% | 79.9% | 0.844 | 79% -> 83% | 78% -> 77% |
 
 The first all-coin run said the coin cost 2 points overall, and a sweep of
-every part in three poses found why: one pose in three puts the part on a dark
-bench close to the coin's colour, and with the coin filling 43% of the close-up
-the eraser took its ruler path, grew the coin's colour across the whole bench
-and painted the part over (that pose: 81% -> 63% with a coin, the other two
-83% -> 90% and 80% -> 96%). Coin or ruler is now decided by shape, and a coin
-on a bench of its own colour erases only its disc. After the fix the sweep,
-no customer prior, reads 81.3% without a coin and 89.2% with one, every pose
-gaining; in the marketplace the coin lifts never-bought parts by 4.6 points
-and cuts the prior's loss there to one, while re-orders under the prior give
-back 4 (a size vote that endorses the sibling the shop bought) and MRR stays a
-shade lower (0.880 against 0.893), so the composite still has a residual cost
-worth a look. The coin stays a user choice; the prior stays a tie-breaker.
+every part in three poses found why, in three parts. One pose in three puts the
+part on a dark bench close to the coin's colour, and with the coin filling 43%
+of the close-up the eraser took its ruler path, grew the coin's colour across
+the whole bench and painted the part over (that pose: 81% -> 63% with a coin).
+The fill's noise was sampled from the coin's anti-aliased rim, so the painted
+disc was speckled on a smooth bench and read as foreground, spoiling the crop.
+And a 1/4" screw next to a quarter is under the crop's minimum blob, so it
+stayed an eighth of the frame. Coin or ruler is now decided by shape (the
+colour region must fill the disc on both sides of the segment), a coin on a
+bench of its own colour erases only its disc, the bench is sampled clear of
+the rim with a robust noise level, and the crop trusts a smaller blob once a
+reference has been erased. The short axis is now the narrowest width over all
+directions, so a turned nut still measures across flats. The sweep after all
+of it, no customer prior: top-1 81.3% without a coin, 91.5% with one, every
+pose gaining; what still loses is a size vote that is right about the render
+(the synthetic nipple is drawn fatter than a real 3/8" one, so the vote prefers
+the 1/2" sibling), a renderer fidelity item. In the marketplace the coin lifts
+never-bought parts by 8 points and leaves the prior costing one there, and
+re-orders keep their gain. The coin is worth asking for; the prior stays a
+tie-breaker.
 
 Segments recovered the six industries with purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
 and cabinetry, overlap in what they buy, which is honest, since the boost works
