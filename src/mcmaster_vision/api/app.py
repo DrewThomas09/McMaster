@@ -480,9 +480,9 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             enrich_confusions(a, get_identifier().store)
         except HTTPException:  # nothing built yet: the pairs stay unexplained
             pass
+        a["segment_precision_bought"] = _segment_precision()
         a["issues"] = issues(a)
         a["learning"] = _learning_state()
-        a["segment_precision_bought"] = _segment_precision()
         return a
 
     def _segment_precision() -> dict:

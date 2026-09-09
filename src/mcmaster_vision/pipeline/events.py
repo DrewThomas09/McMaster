@@ -369,6 +369,17 @@ def issues(a: dict) -> list[dict]:
                     "purchases), and check its attributes and images in the catalog",
                 }
             )
+    for seg, v in list(a.get("segment_precision_bought", {}).items())[:1]:
+        if v["bought"] >= 10 and v["precision"] < 0.5:
+            out.append(
+                {
+                    "severity": "medium",
+                    "what": f"shops that buy {seg} got the top answer only {v['precision']:.0%} "
+                    f"of the time ({v['bought']} purchases)",
+                    "do": "the segment the ranking serves worst: their purchase photos teach the "
+                    "most (`mcv learn`), and their categories deserve a look in the catalog",
+                }
+            )
     conf = a.get("confidence", {})
     if conf.get("when_wrong") is not None and conf.get("when_right") is not None:
         if conf["when_wrong"] > conf["when_right"] - 0.05:

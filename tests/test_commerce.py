@@ -310,3 +310,12 @@ def test_identify_event_carries_category(identifier, tmp_path):
     pn, d = _identify_sample(client, seed=6)
     row = client.app.state.events.identify_row(d["result"]["request_id"])
     assert row["category"] and " > " in row["category"]
+
+
+def test_segment_issue_names_the_worst_served_shops(tmp_path):
+    a = analytics(EventLog(tmp_path / "e.jsonl"))
+    a["segment_precision_bought"] = {
+        "Pipe > Fittings": {"bought": 12, "top1_right": 4, "precision": 0.333}
+    }
+    found = issues(a)
+    assert any("Pipe > Fittings" in i["what"] for i in found)

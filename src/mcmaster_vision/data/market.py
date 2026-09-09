@@ -269,7 +269,7 @@ def simulate_market(
         settings = scratch_settings(settings, scratch)
         say(f"scratch copy of the deployment in {scratch}")
     s = settings.model_copy(
-        update={"demo_mode": True, "rate_limit_per_minute": 1_000_000, "customers_refresh_s": 1.0}
+        update={"demo_mode": True, "rate_limit_per_minute": 1_000_000, "customers_refresh_s": 5.0}
     )
     with CatalogStore(s.catalog_db) as store:
         parts = list(store.iter_parts(with_images_only=True))
