@@ -31,6 +31,7 @@ real-browser runs of the phone UI and of the cart-to-checkout flow):
 | operations | bootstrap, doctor, status, metrics, retrain (cron), auto reload, rate limit, request log, runbook |
 | durability | every confirmation, photo, log and index is on disk; `mcv backup` / `mcv restore`; offline outbox on the phone; usage prior from confirmations |
 | sizing | Measure tool and coin hint; nominal pipe size -> real OD/ID; thread pitch from the photo (NPT vs BSP, coarse vs fine); catalog-page importer |
+| marketplace | customer model from orders (profiles, segments as an industry proxy, complements); personalised search and photo ranking as a tie-breaker; For-you strip with re-order prompts; `mcv simulate-market` proves the lift on 1000 shops |
 | purchase loop | cart, Buy now, checkout; purchases become weighted confirmations; `mcv learn` adds them to the index in seconds and retrains when enough arrived; calibration refit on real outcomes; event log, `/analytics`, dashboard "Learning loop" with issues and a daily trend; `mcv simulate` self-runs the journey and reports before/after |
 | needs you | McMaster images (any of the intake paths), a GPU for CLIP/DINOv2, real photos via the feedback loop |
 

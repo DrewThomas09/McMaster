@@ -305,12 +305,25 @@ shops, 6-10 orders each, hash backbone (2026-09-09):
 | photo identification top-1 | 29% | 36% |
 | photo top-1, shops on their 9th order or later | 30% | 43% |
 
-Segments recovered the industries with purity 0.60 (eight segments for six
-industries, the "general" persona spreading across them), and a recommendation
-was in the next order 49% of the time (mostly re-orders of staples). The boost
-is capped so a text match or the photo is never overturned: it decides among
-look-alikes that differ by size, material or family, which is exactly where the
-catalog is ambiguous.
+At scale, 1000 shops and 14,947 orders (10-20 each) on the shipped 48-epoch
+TinyCNN (2026-09-09, 20,375 searches and 13,740 photos, each asked with and
+without the shop id):
+
+| | plain | personalised | shops on order 1-3 | order 4-8 | order 9+ |
+|---|---|---|---|---|---|
+| search top-1 | 48.6% | 59.2% | 49% -> 56% | 49% -> 60% | 48% -> 60% |
+| search MRR | 0.665 | 0.742 | | | |
+| photo top-1 | 79.8% | 83.6% | 78% -> 79% | 81% -> 85% | 80% -> 85% |
+| photo MRR | 0.889 | 0.911 | | | |
+
+The lift grows with a shop's history and settles after about four orders. A
+recommendation was in the next order 67% of the time (staples due for re-order,
+complements, segment favourites). Segments recovered the six industries with
+purity 0.55 at k = 8: plumbing and fluid systems, and machine shop, maintenance
+and cabinetry, overlap in what they buy, which is honest, since the boost works
+off the shared category mix either way. The boost is capped so a text match or
+the photo is never overturned: it decides among look-alikes that differ by
+size, material or family, which is exactly where the catalog is ambiguous.
 
 ## Durability (nothing learned at run time is lost)
 

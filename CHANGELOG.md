@@ -8,7 +8,8 @@
   tie-breaker; `/me`, `/recommend`, `/segments`; a "For you" strip on the phone and a
   "Customers and segments" panel on the dashboard. `mcv simulate-market` runs shops from six
   industries through 10-20 orders each and measures the lift with and without the shop id
-  (first run: search top-1 52% -> 62%, photo top-1 29% -> 36%, growing with history).
+  (1000 shops, 14,947 orders on the shipped model: search top-1 49% -> 59%, photo top-1
+  80% -> 84%, growing with each shop's history; recommendations in the next order 67%).
 
 - Shipped model: `assets/tinycnn_synthetic.pt` retrained on the fixed renderer (same recipe,
   8,000 parts), first for 24 epochs and then 48. Held-out 800-part catalog, 400 photo-style
