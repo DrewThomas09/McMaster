@@ -317,25 +317,33 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
     comp &= ~protect
     if not comp.any():
         return image
+
     # the bench around the erased region: median colour and noise level of a ring just
     # outside it (never the part's pixels), sampled at working resolution
-    ring = comp.copy()
-    for _ in range(6):
-        d = ring.copy()
-        d[1:, :] |= ring[:-1, :]
-        d[:-1, :] |= ring[1:, :]
-        d[:, 1:] |= ring[:, :-1]
-        d[:, :-1] |= ring[:, 1:]
-        ring = d
-    ring &= ~comp
-    ring &= ~mask
+    # a ring 3-8 px outside the erased region: the 2 px nearest it still carry the
+    # reference's anti-aliased rim and shadow, and would tint and speckle the fill (a
+    # speckled disc on a smooth bench reads as foreground and spoils the crop)
+    def _dilate(m: np.ndarray, n: int) -> np.ndarray:
+        for _ in range(n):
+            d = m.copy()
+            d[1:, :] |= m[:-1, :]
+            d[:-1, :] |= m[1:, :]
+            d[:, 1:] |= m[:, :-1]
+            d[:, :-1] |= m[:, 1:]
+            m = d
+        return m
+
+    near = _dilate(comp, 2)
+    ring = _dilate(near, 6) & ~near & ~mask
     if ring.sum() < 20:
         ring = ~comp & ~mask
     if ring.sum() < 20:
         return image
     samples = arr[ring]
     base = np.median(samples, axis=0)
-    sigma = np.clip(samples.std(axis=0), 0, 12)
+    # a robust noise level: the median absolute deviation, so a few stray rim pixels
+    # cannot make a smooth bench look grainy
+    sigma = np.clip(1.4826 * np.median(np.abs(samples - base), axis=0), 0, 12)
     full = (
         np.asarray(
             Image.fromarray((comp * 255).astype(np.uint8)).resize((w, h), Image.Resampling.BILINEAR)
@@ -347,6 +355,7 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
     out[full] = base + rng.normal(0, 1, (int(full.sum()), 3)) * sigma
     result = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
     result.info.update(image.info)
+    result.info["reference_erased"] = True  # the crop may trust a small remaining blob
     return result
 
 

@@ -472,3 +472,19 @@ def test_erase_reference_keeps_the_part_when_a_big_coin_sits_on_a_dark_bench():
     img, seg = _bench_with_coin(bench=(245, 245, 240), coin=(200, 190, 120), part=(40, 40, 45))
     out = np.asarray(erase_reference(img, seg), dtype=np.float32)
     assert out[125:170, 252:260].mean() < 80 and out[290:310, 310:330].mean() > 200
+
+
+def test_erased_photo_crops_to_a_small_part():
+    import numpy as np
+
+    from mcmaster_vision.pipeline.measure import erase_reference
+    from mcmaster_vision.pipeline.preprocess import saliency_crop
+
+    img, seg = _bench_with_coin(bench=(245, 245, 240), coin=(200, 190, 120), part=(40, 40, 45))
+    erased = erase_reference(img, seg)
+    assert erased.info.get("reference_erased") is True
+    arr = np.asarray(erased, dtype=np.float32)
+    assert arr[290:310, 310:330].std() < 3  # the painted disc is as smooth as the bench
+    crop = saliency_crop(erased)
+    assert crop.size[0] < img.size[0] // 2 and crop.size[1] < img.size[1] // 2
+    assert np.asarray(crop, dtype=np.float32).min() < 60  # the part is in the crop

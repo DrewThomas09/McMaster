@@ -184,7 +184,11 @@ def saliency_crop(img: Image.Image, margin: float = 0.2) -> Image.Image:
     small = img.copy()
     small.thumbnail((128, 128))
     arr = np.asarray(small).astype(np.float32)
-    mask = foreground_mask(arr, min_area=0.005, max_area=0.9)
+    # a part photographed next to a coin can be a quarter of the coin's size: once the
+    # coin is erased the part is what is left, however small, so the crop may trust a
+    # blob a third as big as it would otherwise
+    min_area = 0.0015 if img.info.get("reference_erased") else 0.005
+    mask = foreground_mask(arr, min_area=min_area, max_area=0.9)
     if mask is None:
         return img
     ys, xs = np.nonzero(mask)
