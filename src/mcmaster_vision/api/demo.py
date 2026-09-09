@@ -186,7 +186,8 @@ def part_long_mm(part, render: Image.Image | None = None) -> float | None:
         ts = next((attrs[k] for k in ("thread_size", "thread", "size") if attrs.get(k)), None)
         w = nut_width_mm(ts) if ts else None
         if w:
-            return w * ratio
+            # face on, the short axis is across flats; on edge the long axis is
+            return w * ratio if ratio < 1.5 else 1.08 * w
     pipe = next(
         (attrs[k] for k in ("pipe_size", "pipe", "nominal_pipe_size") if attrs.get(k)), None
     )

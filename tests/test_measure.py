@@ -488,3 +488,37 @@ def test_erased_photo_crops_to_a_small_part():
     crop = saliency_crop(erased)
     assert crop.size[0] < img.size[0] // 2 and crop.size[1] < img.size[1] // 2
     assert np.asarray(crop, dtype=np.float32).min() < 60  # the part is in the crop
+
+
+def test_card_edge_is_not_a_coin_and_the_part_beside_it_survives():
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.measure import erase_reference
+
+    img = Image.new("RGB", (512, 512), (245, 245, 240))
+    d = ImageDraw.Draw(img)
+    d.rectangle([100, 300, 400, 490], fill=(210, 205, 190))  # a card, segment on its top edge
+    d.rectangle([240, 230, 252, 270], fill=(40, 40, 45))  # a screw 30 px above the edge
+    out = np.asarray(erase_reference(img, (100, 300, 400, 300)), dtype=np.float32)
+    assert out[235:265, 242:250].mean() < 60  # the part is still there
+    assert out[400, 250].mean() > 230  # the card is painted bench
+
+
+def test_short_axis_is_across_flats_for_a_turned_square():
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.measure import object_extent_px
+
+    for rot in (10, 30, 45):
+        img = Image.new("RGB", (400, 400), (255, 255, 255))
+        sq = Image.new("RGBA", (120, 120), (0, 0, 0, 0))
+        ImageDraw.Draw(sq).rectangle([10, 10, 110, 110], fill=(50, 50, 55, 255))
+        img.paste(
+            sq.rotate(rot, expand=True, resample=Image.Resampling.BICUBIC),
+            (120, 120),
+            sq.rotate(rot, expand=True, resample=Image.Resampling.BICUBIC),
+        )
+        long_px, short_px = object_extent_px(img)
+        assert abs(short_px - 100) < 8, (rot, short_px)
+        assert short_px <= long_px <= 100 * 1.42 + 8

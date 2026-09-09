@@ -165,8 +165,15 @@ def object_extent_px(
     proj = pts @ vecs
     # the mask includes the anti-aliased edge (about half a pixel each side at the
     # working size), so the raw extent over-reads by roughly one pixel
-    extents = np.maximum(proj.max(axis=0) - proj.min(axis=0) - 1.0, 1.0)
-    long_px, short_px = float(extents[1]) / s, float(extents[0]) / s
+    long_px = max(1.0, float(proj[:, 1].max() - proj[:, 1].min()) - 1.0)
+    # the short axis is the narrowest width over all directions (rotating calipers): a
+    # nut's width across flats whatever its turn, where the covariance of a regular
+    # polygon is isotropic and its minor axis would be arbitrary
+    angles = np.deg2rad(np.arange(0.0, 180.0, 3.0))
+    dirs = np.stack([np.cos(angles), np.sin(angles)], axis=1)
+    widths = (pts @ dirs.T).max(axis=0) - (pts @ dirs.T).min(axis=0)
+    short_px = max(1.0, float(widths.min()) - 1.0)
+    long_px, short_px = long_px / s, short_px / s
     return max(long_px, short_px), min(long_px, short_px)
 
 
@@ -287,7 +294,11 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
     limit = d2 <= (1.5 * half) ** 2
     grown = _grow(probe & alike, alike, limit)
     inner = d2 <= (0.9 * half) ** 2
-    fill = float((grown & inner).sum()) / max(1.0, float(inner.sum()))
+    # a coin fills the disc on both sides of the segment; a card edge or a ruler fills
+    # at most the one side the card is on
+    side = (x2 - x1) * (yy - y1) - (y2 - y1) * (xx - x1)
+    halves = [inner & (side > 0), inner & (side < 0)]
+    fill = min(float((grown & hf).sum()) / max(1.0, float(hf.sum())) for hf in halves)
     protect = np.zeros_like(mask)
     if fill >= 0.5:  # a coin: the disc it spans, plus whatever of its colour it grew to
         disc = d2 <= (1.12 * half) ** 2
@@ -297,14 +308,20 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
             grown = grown & disc
             protect = mask & ~alike & (d2 > (1.12 * half + 3) ** 2)
         comp = disc | grown
+        core = comp
     else:  # a card or ruler: its own colour region, plus a thin band along the segment
         grown = _grow(probe & alike, alike, None)
-        if grown.sum() > 0.35 * hh * ww:
-            # the reference is the colour of the bench: its region is the whole photo,
+        bench = ~mask
+        if (grown & bench).sum() > 0.6 * max(1, int(bench.sum())):
+            # the reference is the colour of the bench: its region is the bench itself,
             # so only the band the user drew is safe to erase
             grown = probe
+        core = grown  # the band along the segment may graze the part: per pixel only
         comp = grown | _segment_mask(mask.shape, seg, s, pad=max(2, int(0.03 * max(hh, ww))))
-    touched = comp & mask
+    # foreground blobs the reference's own region reaches are the reference (its rim,
+    # its shadow), erased whole; what only the band touches is erased pixel by pixel;
+    # blobs neither reaches are the part, spared whole
+    touched = _grow(core & mask, mask, None) | (comp & mask)
     for _ in range(3):  # a little beyond the edge, for the anti-aliased rim and shadow
         d = comp.copy()
         d[1:, :] |= comp[:-1, :]
@@ -453,9 +470,14 @@ def nut_width_mm(thread_size: str) -> float | None:
     return 1.6 * d
 
 
+_NOT_A_NUT = re.compile(r"driver|wrench|flange|\bt-nut|speed|push|panel|peanut|\bnut plate", re.I)
+
+
 def is_nut(part: Part) -> bool:
+    """A nut whose silhouette is its width across flats: hex, square, jam, wing, lock
+    and nylon-insert nuts; not a nut driver, a flange nut or a T-nut."""
     text = " ".join([part.name, *part.category_path]).lower()
-    return bool(re.search(r"\bnuts?\b", text)) and "insert" not in part.name.lower().split()[:1]
+    return bool(re.search(r"\b\w*nuts?\b", text)) and not _NOT_A_NUT.search(text)
 
 
 _TPI = re.compile(r"(?:^|[\s\-x×])(\d{1,2}(?:\.\d)?)\s*(?:tpi|threads?\s*per\s*inch)?\s*$", re.I)
@@ -556,11 +578,15 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
         ts = next((attrs[k] for k in _THREAD_KEYS if attrs.get(k)), None)
         width = nut_width_mm(ts) if ts else None
         if width:
-            sc = _ratio_score(meas.short_mm / width, 0.85, 1.15, 1.3)
+            # face on, the narrowest width is across flats; on edge (long over short
+            # above 1.5) the short axis is the thickness and the long one is across
+            # flats to across corners, so the long axis over 1.08 stands in
+            across = meas.short_mm if meas.long_mm < 1.5 * meas.short_mm else meas.long_mm / 1.08
+            sc = _ratio_score(across / width, 0.85, 1.15, 1.3)
             votes.append(sc)
             verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
             reasons.append(
-                f"measured {meas.short_mm:.0f} mm across vs a {ts} nut ({width:.1f} mm): {verdict}"
+                f"measured {across:.0f} mm across vs a {ts} nut ({width:.1f} mm): {verdict}"
             )
     # pipe size is nominal: a "3/8" fitting is 0.675" across its male threads. What a
     # photo shows is the silhouette, so the short axis is compared with the pipe OD: a
