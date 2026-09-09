@@ -42,7 +42,14 @@ accept the certificate warning once on the phone.
    run `mcv learn`): the bought photos join the gallery in seconds and the
    phone finds the same part again from that angle. `mcv simulate --customers
    40 --learn` shows the whole loop, before and after, with no phone at all.
-8. **Paper demo:** tap **print a sheet**, print it, and photograph the paper
+8. **Marketplace:** after a couple of orders the home screen shows **For you**
+   (re-orders, complements, favourites of shops like this one) and search
+   results re-sort towards what this shop buys; the family answer stars the
+   size they usually take. On the laptop, `/dashboard` lists the customer
+   segments and how well each is served, and `mcv simulate-market --shops 200`
+   replays a thousand-order marketplace to show the lift with and without the
+   shop id.
+9. **Paper demo:** tap **print a sheet**, print it, and photograph the paper
    with the phone: the same pipeline, real camera, real lighting.
 
 ## What to say
