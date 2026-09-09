@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -315,15 +316,28 @@ class CustomerBook:
         out.sort(key=lambda x: -x[1])
         return out[:n]
 
-    def recommend(self, client_id: str | None, n: int = 6) -> list[dict[str, Any]]:
+    def recommend(
+        self,
+        client_id: str | None,
+        n: int = 6,
+        *,
+        browse: Callable[[str], list[Part]] | None = None,
+        new_slots: int = 1,
+    ) -> list[dict[str, Any]]:
         """What to show this customer before they search: parts they re-order, then
-        complements of what they bought last, then their segment's favourites."""
+        complements of what they bought last, then their segment's favourites.
+
+        A list of a shop's own history fills itself after a few orders, so ``new_slots``
+        places at the end are kept for things the shop has never bought (complements,
+        segment favourites, and, given ``browse(category) -> parts``, unbought parts in
+        its usual category and material): one thing new next to the re-orders.
+        """
         prof = self.profiles.get(client_id or "")
         out: list[dict[str, Any]] = []
         seen: set[str] = set()
 
-        def add(pn: str, why: str, score: float) -> None:
-            if pn in seen or pn not in self.parts:
+        def add(pn: str, why: str, score: float, known: bool = False) -> None:
+            if pn in seen or (pn not in self.parts and not known):
                 return
             seen.add(pn)
             out.append({"part_number": pn, "why": why, "score": round(score, 3)})
@@ -365,11 +379,33 @@ class CustomerBook:
             for pn, c in fav.most_common(2 * n):
                 if prof is None or not prof.parts.get(pn):
                     add(pn, "popular with shops like yours", 0.2 + 0.2 * min(1.0, c / 50))
+        if prof is not None and browse is not None and prof.categories:
+            # something new in the shop's usual aisle, in the material it prefers
+            mats = {m for m, _ in prof.materials.most_common(2)}
+            for cat, _ in prof.categories.most_common(2):
+                for part in browse(cat):
+                    if prof.parts.get(part.part_number):
+                        continue
+                    mat = str(part.attributes.get("material") or "")
+                    if mats and mat not in mats:
+                        continue
+                    add(
+                        part.part_number,
+                        f"new in {cat.split(' > ')[-1]}" + (f", {mat}" if mat else ""),
+                        0.45,
+                        known=True,
+                    )
         if not out:
             for pn, c in self.part_counts.most_common(n):
                 add(pn, "popular", 0.2 * min(1.0, c / 50))
         out.sort(key=lambda r: -r["score"])  # stable: equal scores keep their reason order
-        return out[:n]
+        if prof is None or new_slots <= 0:
+            return out[:n]
+        own = [r for r in out if prof.parts.get(r["part_number"])]
+        new = [r for r in out if not prof.parts.get(r["part_number"])]
+        keep = max(0, n - new_slots) if new else n
+        head = own[:keep]
+        return (head + new[: n - len(head)] + own[keep:])[:n]
 
     def summary(self) -> dict[str, Any]:
         return {

@@ -738,7 +738,13 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         check_rate(request)
         book = customer_book()
         out = []
-        for r in book.recommend(client_id, n):
+        recs = book.recommend(
+            client_id,
+            n,
+            browse=lambda cat: ident.store.by_category(cat.split(" > "), limit=60),
+            new_slots=max(1, n // 6),
+        )
+        for r in recs:
             part = ident.store.get(r["part_number"])
             if part is None:
                 continue

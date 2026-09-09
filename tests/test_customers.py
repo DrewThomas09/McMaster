@@ -263,3 +263,19 @@ def test_personalised_search_pages_never_overlap_or_skip(identifier, store, tmp_
     ]
     assert len(pages) == len(set(pages))  # no duplicates across pages
     assert pages == full[: len(pages)]  # and the same order as one long page
+
+
+def test_recommend_keeps_a_slot_for_something_new(store):
+    orders, a, b, cats = _orders(store)
+    parts = {p.part_number: p for p in store.iter_parts()}
+    book = CustomerBook(orders, parts, k=2)
+    by_cat = lambda cat: [p for p in parts.values() if " > ".join(p.category_path[:2]) == cat]  # noqa: E731
+    rec = book.recommend("shop-a", 4, browse=by_cat)
+    mine = {it.part_number for o in orders if o.client_id == "shop-a" for it in o.items}
+    fresh = [r for r in rec if r["part_number"] not in mine]
+    assert len(rec) == 4 and fresh and fresh[0]["why"].startswith("new in")
+    assert rec[-1] is fresh[-1]  # the new thing sits after the re-orders
+    assert all(r["part_number"] in mine for r in rec[:-1])
+    assert parts[fresh[0]["part_number"]].category_path[0] == a[0].category_path[0]
+    # no slot is wasted when there is nothing new to say
+    assert len(book.recommend("shop-a", 4)) == 4
