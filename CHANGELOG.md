@@ -37,6 +37,9 @@
   directions (a turned nut still measures across flats). Every catalog part in three
   poses, no customer prior: top-1 81.3% -> 91.5% with a coin; in the marketplace, photos
   only, 80.2% -> 85.6% plain and 76% -> 84% on parts the shop had never bought.
+- Synthetic renderer: pipe nipples are drawn to the catalog's length over pipe OD and never
+  shorter than two thread engagements, so a render next to a coin measures like the part
+  (nipples with a coin 75% -> 100% top-1 in the sweep).
 - Recommendation take rate: `/analytics` and the dashboard's customers panel report, of the
   orders that followed a For-you strip, how many took a part from it and how many took a
   part the customer had never bought (`recommendation_take`), with an issue when the strip

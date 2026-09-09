@@ -375,9 +375,13 @@ the rim with a robust noise level, and the crop trusts a smaller blob once a
 reference has been erased. The short axis is now the narrowest width over all
 directions, so a turned nut still measures across flats. The sweep after all
 of it, no customer prior: top-1 81.3% without a coin, 91.5% with one, every
-pose gaining; what still loses is a size vote that is right about the render
-(the synthetic nipple is drawn fatter than a real 3/8" one, so the vote prefers
-the 1/2" sibling), a renderer fidelity item. In the marketplace the coin lifts
+pose gaining. What still lost was a size vote that was right about the render
+and wrong about the part: the synthetic nipple was drawn 2.2:1 where a real
+3/8" x 2-1/2" one is 3.7:1, so the vote preferred the 1/2" sibling; the renderer
+now draws nipples to the catalog's length over OD, and on a catalog rendered
+that way nipples with a coin go 75% -> 100% (the sweep overall 83.0% -> 91.5%).
+The rest are near-ties where both siblings fit the measurement (a bearing
+measured between 1" and 1-1/4"). In the marketplace the coin lifts
 never-bought parts by 8 points and leaves the prior costing one there, and
 re-orders keep their gain. The coin is worth asking for; the prior stays a
 tie-breaker.
