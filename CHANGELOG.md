@@ -6,10 +6,14 @@
   profiles, k-means segments as an industry proxy, blended category priors, co-purchase
   complements) re-ranks `/search?client_id` and nudges `/identify?client_id` candidates as a
   tie-breaker; `/me`, `/recommend`, `/segments`; a "For you" strip on the phone and a
-  "Customers and segments" panel on the dashboard. `mcv simulate-market` runs shops from six
-  industries through 10-20 orders each and measures the lift with and without the shop id
-  (1000 shops, 14,947 orders on the shipped model: search top-1 49% -> 59%, photo top-1
-  80% -> 84%, growing with each shop's history; recommendations in the next order 67%).
+  "Customers and segments" panel on the dashboard. On search the history re-orders hits
+  only inside a bm25 tier (the variants of one name), never a weaker text match over a
+  stronger one. `mcv simulate-market` runs shops from six industries through 10-20 orders
+  each and measures the lift with and without the shop id on the same query, split by
+  whether the shop had bought the part before, with an order-again baseline for the
+  recommendations (60 shops, 870 orders on the shipped model: search top-1 53% -> 70%,
+  84% on re-orders; photo top-1 81% -> 84%; a recommendation in the next order 65% against an
+  order-again baseline of 76%, before once-bought parts joined the list).
 
 - Shipped model: `assets/tinycnn_synthetic.pt` retrained on the fixed renderer (same recipe,
   8,000 parts), first for 24 epochs and then 48. Held-out 800-part catalog, 400 photo-style

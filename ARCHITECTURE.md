@@ -283,10 +283,14 @@ orders.jsonl -> CustomerBook: per-customer histograms (categories, families, mat
                 prior (personal + segment + global, weighted by history) plus family /
                 size / material nudges (soft, scaled by history) and "bought this before"
                 (strong, from the first order); clipped to [-1, 1]
-             -> /search?client_id re-sorts text hits (part-number matches stay pinned)
-                /identify?client_id adds w_customer x boost in the fusion (a tie-breaker)
-                /recommend: re-orders, complements of the last order, segment favourites
-                /me, /segments; the dashboard's "Customers and segments" panel
+             -> /search?client_id re-sorts text hits inside bm25 tiers: the history
+                decides among hits that match the words equally well (the size, material
+                and finish variants of one name) and never lifts a weaker text match over
+                a stronger one; part-number matches stay first
+                /identify?client_id adds w_customer x max(0, boost) in the fusion
+                /recommend: parts due again, staples, recent buys, complements of the
+                last order, segment favourites; /me, /segments (five customers or more);
+                the dashboard's "Customers and segments" panel
 ```
 
 `mcv simulate-market --shops N --min-orders 10 --max-orders 20` builds a demo
@@ -294,36 +298,42 @@ marketplace: shops drawn from six industries (plumbing, machine shop,
 maintenance, cabinetry, fluid systems, general) with jittered category mixes,
 two preferred materials and a few staples they re-order; each finds its items by
 text search or by photo, buys them, and comes back. Every lookup is asked with
-and without the shop's id, so the lift is measured on the same query, and the
-report breaks it down by how many orders the shop has placed. First run, 60
-shops, 6-10 orders each, hash backbone (2026-09-09):
+and without the shop's id, so the lift is measured on the same query (the same
+photo pose for both arms, only the personalised arm logged), the customer model
+is rebuilt once per order round (a nightly rebuild, so the run is reproducible),
+and the report splits the lift by how many orders the shop has placed and by
+whether it had bought that part before. 60 shops, 870 orders (10-20 each) on the
+shipped 48-epoch TinyCNN (2026-09-09, 1,215 searches and 790 photos):
 
-| | plain | personalised |
-|---|---|---|
-| search top-1 (intended part first) | 52% | 62% |
-| search MRR | 0.68 | 0.76 |
-| photo identification top-1 | 29% | 36% |
-| photo top-1, shops on their 9th order or later | 30% | 43% |
+| | plain | personalised | bought before | never bought | order 1-3 | order 4-8 | order 9+ |
+|---|---|---|---|---|---|---|---|
+| search top-1 | 53.3% | 69.6% | 55% -> 84% (n=675) | 51% -> 52% (n=540) | 54% -> 61% | 52% -> 72% | 54% -> 72% |
+| search MRR | 0.699 | 0.810 | | | | | |
+| photo top-1 | 81.0% | 83.9% | 83% -> 90% (n=393) | 79% -> 78% (n=397) | 78% -> 80% | 81% -> 82% | 83% -> 87% |
+| photo MRR | 0.896 | 0.912 | | | | | |
 
-At scale, 1000 shops and 14,947 orders (10-20 each) on the shipped 48-epoch
-TinyCNN (2026-09-09, 20,375 searches and 13,740 photos, each asked with and
-without the shop id):
-
-| | plain | personalised | shops on order 1-3 | order 4-8 | order 9+ |
-|---|---|---|---|---|---|
-| search top-1 | 48.6% | 59.2% | 49% -> 56% | 49% -> 60% | 48% -> 60% |
-| search MRR | 0.665 | 0.742 | | | |
-| photo top-1 | 79.8% | 83.6% | 78% -> 79% | 81% -> 85% | 80% -> 85% |
-| photo MRR | 0.889 | 0.911 | | | |
-
-The lift grows with a shop's history and settles after about four orders. A
-recommendation was in the next order 67% of the time (staples due for re-order,
-complements, segment favourites). Segments recovered the six industries with
-purity 0.55 at k = 8: plumbing and fluid systems, and machine shop, maintenance
+Read the split, not the headline: nearly all of the search lift is the shop's
+own re-orders being put first among the variants of a name, which is what a
+customer expects and the text rank alone cannot do; on a part the shop has
+never bought the category and material prior is worth one point on search and
+costs one on photos (the fusion term pulls toward what the shop usually buys,
+and a new part is by definition not that). The lift grows with a shop's history
+and settles after about four orders. Segments recovered the six industries with
+purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
 and cabinetry, overlap in what they buy, which is honest, since the boost works
-off the shared category mix either way. The boost is capped so a text match or
-the photo is never overturned: it decides among look-alikes that differ by
-size, material or family, which is exactly where the catalog is ambiguous.
+off the shared category mix either way.
+
+Recommendations are scored against the dumbest baseline, the shop's six
+most-bought parts (an order-again list). With only staples (parts bought twice or
+more) recommended, a recommendation was in the next order 65% of the time against
+the baseline's 76%, so the list now also carries the shop's recent one-off buys;
+the re-run with that change is pending and this number will be replaced.
+
+An earlier run of 1000 shops and 14,947 orders (2026-09-09) used a search
+re-rank that could lift any hit in a 50-row window by up to 0.3 of the position
+score; it showed search top-1 48.6% -> 59.2% and photo top-1 79.8% -> 83.6%,
+but the review found the weight could overturn a text match, and those numbers
+are superseded by the tiered re-rank above.
 
 ## Durability (nothing learned at run time is lost)
 
