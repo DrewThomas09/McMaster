@@ -288,8 +288,15 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
     grown = _grow(probe & alike, alike, limit)
     inner = d2 <= (0.9 * half) ** 2
     fill = float((grown & inner).sum()) / max(1.0, float(inner.sum()))
+    protect = np.zeros_like(mask)
     if fill >= 0.5:  # a coin: the disc it spans, plus whatever of its colour it grew to
-        comp = (d2 <= (1.12 * half) ** 2) | grown
+        disc = d2 <= (1.12 * half) ** 2
+        if grown.sum() > 1.6 * disc.sum():
+            # the bench is the coin's colour too: the growth says nothing, the disc is
+            # the coin, and foreground beyond its rim (a part beside it) is kept
+            grown = grown & disc
+            protect = mask & ~alike & (d2 > (1.12 * half + 3) ** 2)
+        comp = disc | grown
     else:  # a card or ruler: its own colour region, plus a thin band along the segment
         grown = _grow(probe & alike, alike, None)
         if grown.sum() > 0.35 * hh * ww:
@@ -307,6 +314,7 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
         comp = d
     spared = mask & ~touched
     comp &= ~spared  # never paint over foreground the reference's colour did not reach
+    comp &= ~protect
     if not comp.any():
         return image
     # the bench around the erased region: median colour and noise level of a ring just
