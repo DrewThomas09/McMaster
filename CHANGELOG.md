@@ -2,6 +2,14 @@
 
 ## 0.4.0
 
+- Marketplace personalisation: a customer model from the orders (`pipeline/customers.py`:
+  profiles, k-means segments as an industry proxy, blended category priors, co-purchase
+  complements) re-ranks `/search?client_id` and nudges `/identify?client_id` candidates as a
+  tie-breaker; `/me`, `/recommend`, `/segments`; a "For you" strip on the phone and a
+  "Customers and segments" panel on the dashboard. `mcv simulate-market` runs shops from six
+  industries through 10-20 orders each and measures the lift with and without the shop id
+  (first run: search top-1 52% -> 62%, photo top-1 29% -> 36%, growing with history).
+
 - Shipped model: `assets/tinycnn_synthetic.pt` retrained on the fixed renderer (same recipe,
   8,000 parts), first for 24 epochs and then 48. Held-out 800-part catalog, 400 photo-style
   queries: Recall@1 0.30 -> 0.47 -> 0.55, Recall@5 0.70 -> 0.86 -> 0.93, family Recall@1

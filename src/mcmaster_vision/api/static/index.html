@@ -158,6 +158,10 @@
     <button type="submit">Search</button>
   </form>
 
+  <section class="card" id="foryou" hidden>
+    <div class="samples-head"><b>For you</b> <span class="meta" id="foryouwhy">from what you ordered before</span></div>
+    <div class="strip" id="foryoustrip"></div>
+  </section>
   <section class="card" id="samples" hidden>
     <div class="samples-head"><b>No part at hand? Tap a sample</b> <span class="meta">a photo-style render is identified live</span> <button type="button" class="linkbtn" id="moresamples">shuffle</button> <a class="linkbtn" href="/demo/sheet" target="_blank" rel="noopener">print a sheet</a></div>
     <div class="strip" id="samplestrip"></div>
@@ -410,6 +414,7 @@ async function send() {
   const q = new URLSearchParams({ top_n: $('topn').value, tta }); if ($('llm').checked) q.set('use_llm', 'true');
   if (Object.keys(constraints).length) q.set('constraints', JSON.stringify(constraints));
   if (scale) { q.set('mm_per_px', scale.toFixed(6)); if (refSeg) q.set('ref', refSeg.map(v => v.toFixed(1)).join(',')); }
+  q.set('client_id', clientId());  // what this shop buys nudges the ranking (a tie-breaker)
   let r;
   try { r = await fetch(`/identify?${q}`, { method: 'POST', body: fd }); }
   catch (e) { if (seq === sendSeq) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
@@ -512,7 +517,7 @@ async function search(q) {
   const seq = ++sendSeq;
   results.innerHTML = '<p><span class="spinner"></span>Searching&hellip;</p>';
   let r;
-  try { r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10`); }
+  try { r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10&client_id=${encodeURIComponent(clientId())}`); }
   catch (e) { if (seq === sendSeq) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
   if (seq !== sendSeq) return;
   if (!r.ok) { results.innerHTML = `<p style="color:var(--bad)">Search failed (${r.status})</p>`; return; }
@@ -667,6 +672,15 @@ function renderCart() {
   $('carttotal').innerHTML = `${cartCount()} item${cartCount() === 1 ? '' : 's'}${total ? ' &middot; $' + esc(total.toFixed(2)) : ''}`;
   $('checkoutrow').hidden = false; $('cartorder').hidden = true;
 }
+async function loadForYou() {  // re-orders, complements, favourites of shops like this one
+  let recs = [];
+  try { const r = await fetch(`/recommend?client_id=${encodeURIComponent(clientId())}&n=8`); if (r.ok) recs = await r.json(); } catch (_) {}
+  const box = $('foryou'); if (!box) return;
+  const known = recs.some(r => !/popular$/.test(r.why));
+  box.hidden = !recs.length || !known;
+  if (box.hidden) return;
+  $('foryoustrip').innerHTML = recs.map(r => `<figure><img src="${esc(r.thumb)}" alt="" loading="lazy" title="${esc(r.why)}" tabindex="0" role="button" onclick="addToCart(${js(r.part_number)}, null)" onkeydown="if (event.key === 'Enter') addToCart(${js(r.part_number)}, null)"><figcaption>${esc(r.part_number)}<br><small>${esc(r.why)}</small></figcaption></figure>`).join('');
+}
 function openCart() { renderCart(); loadOrders(); $('cart').classList.add('on'); }
 async function loadOrders() {
   let orders = [];
@@ -712,9 +726,11 @@ async function checkout() {
   toast('Order placed — thank you');
   document.querySelectorAll('.confirm button.yes').forEach(x => x.disabled = true);
   loadOrders();  // the new order appears under "Your orders" right away
+  loadForYou();
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCart(); });
 loadCart().then(() => { if (location.hash === '#cart') { history.replaceState(null, '', location.pathname); openCart(); } });
+loadForYou();
 
 // ---- feedback --------------------------------------------------------------
 async function confirm(partNumber, btn) {

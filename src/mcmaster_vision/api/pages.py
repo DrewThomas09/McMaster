@@ -266,6 +266,30 @@ def _fits_with(part) -> str:
     )
 
 
+def _customers_html(request: Request) -> str:
+    """Who buys: customers, repeat customers, and the segments their orders form."""
+    try:
+        book = request.app.state.customer_book()
+    except HTTPException:
+        return ""
+    summ = book.summary()
+    if not summ["orders"]:
+        return ""
+    rows = "".join(
+        f"<tr><td>{s['segment']}</td><td>{e(s['label'])}</td><td>{s['customers']}</td><td>{s['orders']}</td></tr>"
+        for s in summ["segments"]
+    )
+    return f"""<h2 class="page">Customers and segments</h2>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
+  <div class="card stat"><b>{summ["customers"]}</b><span>customers</span></div>
+  <div class="card stat"><b>{summ["repeat_customers"]}</b><span>came back</span></div>
+  <div class="card stat"><b>{summ["orders"]}</b><span>orders</span></div>
+  <div class="card stat"><b>{len(summ["segments"])}</b><span>segments (industry proxy)</span></div>
+</div>
+<div class="card" style="padding:8px 12px"><table class="spec"><tr><th>segment</th><th>what they buy</th><th>customers</th><th>orders</th></tr>{rows or '<tr><td class="msg" colspan="4">Not enough orders to segment yet.</td></tr>'}</table>
+<p class="crumbs">Segments and each customer's own history re-rank search results and photo candidates as a tie-breaker; <code>mcv simulate-market</code> measures the lift. <a href="/segments">/segments</a></p></div>"""
+
+
 def _learning_loop_html(request: Request) -> str:
     """The purchase funnel, what customers bought vs what was predicted, the issues the
     analytics found, and how much the model has learned from it."""
@@ -439,6 +463,7 @@ def dashboard(request: Request) -> str:
     if sto.get("backup_stale"):
         backup_line += ' <span class="tier candidate">changed since</span>'
     loop_html = _learning_loop_html(request)
+    cust_html = _customers_html(request)
     body = f"""<h1 class="page">Dashboard</h1>
 {'<div class="notice">The catalog changed after the index was built: run <code>mcv build-index --only-new</code> then <code>POST /admin/reload</code>.</div>' if stale else ""}
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">
@@ -452,6 +477,7 @@ def dashboard(request: Request) -> str:
 <h2 class="page">Answer tiers (recent window)</h2><div class="card" style="padding:8px 12px"><table class="spec">{tier_rows or "<tr><td>No requests yet.</td></tr>"}</table></div>
 <h2 class="page">Recent identifications</h2><div class="card" style="padding:8px 12px;overflow-x:auto"><table class="spec"><tr><th>time</th><th>tier</th><th>best</th><th>conf.</th><th>latency</th></tr>{recent_rows or '<tr><td class="msg" colspan="5">None yet.</td></tr>'}</table></div>
 {loop_html}
+{cust_html}
 {eval_html}
 <h2 class="page">Storage</h2><div class="card" style="padding:8px 12px"><table class="spec"><tr><th>state</th><th>size</th><th>updated</th></tr>{storage_rows}</table>
 <p class="crumbs" id="backupline">{backup_line} · <button class="btn small" type="button" id="backupbtn">Back up now</button> <code>mcv backup</code> / <code>mcv restore</code></p></div>

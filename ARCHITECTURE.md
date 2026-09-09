@@ -273,6 +273,45 @@ new angles of the same part by almost half; the rest is what the full retrain is
 for. The analytics also flagged four confusion pairs and that "likely" answers
 were right only half the time when bought, which is the hash backbone's ceiling.
 
+## Marketplace: customers, segments and personalised ranking
+
+```
+orders.jsonl -> CustomerBook: per-customer histograms (categories, families, materials,
+                sizes, parts), k-means segments over category mixes (an industry proxy),
+                co-purchase pairs
+             -> boosts(customer, candidates): log-odds of the customer's blended category
+                prior (personal + segment + global, weighted by history) plus family /
+                size / material nudges (soft, scaled by history) and "bought this before"
+                (strong, from the first order); clipped to [-1, 1]
+             -> /search?client_id re-sorts text hits (part-number matches stay pinned)
+                /identify?client_id adds w_customer x boost in the fusion (a tie-breaker)
+                /recommend: re-orders, complements of the last order, segment favourites
+                /me, /segments; the dashboard's "Customers and segments" panel
+```
+
+`mcv simulate-market --shops N --min-orders 10 --max-orders 20` builds a demo
+marketplace: shops drawn from six industries (plumbing, machine shop,
+maintenance, cabinetry, fluid systems, general) with jittered category mixes,
+two preferred materials and a few staples they re-order; each finds its items by
+text search or by photo, buys them, and comes back. Every lookup is asked with
+and without the shop's id, so the lift is measured on the same query, and the
+report breaks it down by how many orders the shop has placed. First run, 60
+shops, 6-10 orders each, hash backbone (2026-09-09):
+
+| | plain | personalised |
+|---|---|---|
+| search top-1 (intended part first) | 52% | 62% |
+| search MRR | 0.68 | 0.76 |
+| photo identification top-1 | 29% | 36% |
+| photo top-1, shops on their 9th order or later | 30% | 43% |
+
+Segments recovered the industries with purity 0.60 (eight segments for six
+industries, the "general" persona spreading across them), and a recommendation
+was in the next order 49% of the time (mostly re-orders of staples). The boost
+is capped so a text match or the photo is never overturned: it decides among
+look-alikes that differ by size, material or family, which is exactly where the
+catalog is ambiguous.
+
 ## Durability (nothing learned at run time is lost)
 
 Every run-time artefact is a file under `data/` and is written before the
