@@ -133,3 +133,13 @@ validation split's Recall@1 (0.25-0.29) is a poor guide to the held-out number: 
 split is 8k parts of the training catalog with many near-twins, the held-out catalog
 is 800 unseen parts. Thirteen epochs of the schedule remain unrun; the cosine tail
 would have taken the learning rate to zero and may have added a little more.
+
+By top-level category on the 800-part demo evaluation (200 photo-style queries, gallery
+augmentation 2; Recall@1 / Recall@5 / queries): Sealing 0.40 / 1.00 / 5; Hand Tools 0.50 /
+1.00 / 2; Fastening & Joining 0.59 / 0.98 / 93; Hardware 0.65 / 1.00 / 20; Pipe, Tubing,
+Hose & Fittings 0.73 / 0.98 / 41; Power Transmission 0.77 / 1.00 / 31; Sawing & Cutting
+0.88 / 1.00 / 8. Overall Recall@1 0.66, Recall@5 0.985, family Recall@1 0.85, MRR 0.80;
+tier precision exact 1.00 (21 queries), likely 0.94 (35), candidate 0.54 (144). Fittings,
+the weakest category of the 48-epoch model at 0.49, are now 0.73; fasteners are the
+weakest at 0.59, which is the size and thread question the coin and the pitch reader are
+for.
