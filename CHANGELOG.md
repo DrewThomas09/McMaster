@@ -40,6 +40,9 @@
 - Synthetic renderer: pipe nipples are drawn to the catalog's length over pipe OD and never
   shorter than two thread engagements, so a render next to a coin measures like the part
   (nipples with a coin 75% -> 100% top-1 in the sweep).
+- Segments cluster damped category shares (top level plus the second level at half
+  weight) instead of raw second-level shares: the six synthetic industries come back with
+  purity 0.77-0.85 where they came back with 0.55; the priors use each segment's member mix.
 - Recommendation take rate: `/analytics` and the dashboard's customers panel report, of the
   orders that followed a For-you strip, how many took a part from it and how many took a
   part the customer had never bought (`recommendation_take`), with an issue when the strip

@@ -277,8 +277,8 @@ were right only half the time when bought, which is the hash backbone's ceiling.
 
 ```
 orders.jsonl -> CustomerBook: per-customer histograms (categories, families, materials,
-                sizes, parts), k-means segments over category mixes (an industry proxy),
-                co-purchase pairs
+                sizes, parts), k-means segments over damped category shares (top level,
+                plus the second level at half weight: an industry proxy), co-purchase pairs
              -> boosts(customer, candidates): log-odds of the customer's blended category
                 prior (personal + segment + global, weighted by history) plus family /
                 size / material nudges (soft, scaled by history) and "bought this before"
@@ -322,7 +322,7 @@ The same at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147 searches and
 | photo top-1 | 79.9% | 82.6% | 81% -> 88% (n=2219) | 78% -> 77% (n=1922) | 78% -> 80% | 81% -> 83% | 81% -> 84% |
 | photo MRR | 0.889 | 0.905 | | | | | |
 
-Segment purity 0.55 at k = 8; a recommendation in the next order 74.6% against an
+Segment purity 0.55 at k = 8 (second-level vectors, since replaced); a recommendation in the next order 74.6% against an
 order-again baseline of 76.1%, 2.3% of orders taking a never-bought part (this run
 predates the material-aware browse of the new-thing slot).
 
@@ -333,6 +333,15 @@ never bought the category and material prior is worth one point on search and
 costs one on photos (the fusion term pulls toward what the shop usually buys,
 and a new part is by definition not that). The lift grows with a shop's history
 and settles after about four orders.
+
+Segments: clustering the raw second-level category shares recovered the six
+industries with purity 0.55-0.58 (k = 8), because a shop's staple sub-category,
+bought every week, dominated its vector. Square-rooted shares of the top level
+plus the second level at half weight, unit length, give 0.85 offline on the
+300-shop orders (six seeds, 0.77-0.88) and 0.77 in a fresh 60-shop run, where
+the one merge left is plumbing with fluid systems, which the personas define
+over the same categories. The ranking lift did not move with it (search top-1
++16 points either way, photos +3).
 
 The photo term's weight (`w_customer`) was swept on the same 60 shops, photos
 only (2,005 lookups, 1,068 of parts bought before, 937 never bought; 2026-09-09):
@@ -386,9 +395,10 @@ never-bought parts by 8 points and leaves the prior costing one there, and
 re-orders keep their gain. The coin is worth asking for; the prior stays a
 tie-breaker.
 
-Segments recovered the six industries with purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
-and cabinetry, overlap in what they buy, which is honest, since the boost works
-off the shared category mix either way.
+Segments recovered the six industries with purity 0.58 at k = 8 with the original second-level vectors (see below for the
+fix): plumbing and fluid systems, and machine shop, maintenance and cabinetry,
+overlap in what they buy, which is honest, since the boost works off the shared
+category mix either way.
 
 Recommendations are scored against the dumbest baseline, the shop's six
 most-bought parts (an order-again list). On the same 60 shops, six slots:
