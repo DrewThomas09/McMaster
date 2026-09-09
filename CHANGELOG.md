@@ -39,6 +39,9 @@
   directions (a turned nut still measures across flats). Every catalog part in three
   poses, no customer prior: top-1 81.3% -> 91.5% with a coin; in the marketplace, photos
   only, 80.2% -> 85.6% plain and 76% -> 84% on parts the shop had never bought.
+- Training: `init_checkpoint` in the train config starts a run from a saved checkpoint's
+  backbone and projection head (a run cut short by a restart, or a fine-tuning tail);
+  `warm_start` keeps its meaning of loading only the backbone for a new head.
 - Synthetic renderer: pipe nipples are drawn to the catalog's length over pipe OD and never
   shorter than two thread engagements, so a render next to a coin measures like the part
   (nipples with a coin 75% -> 100% top-1 in the sweep).

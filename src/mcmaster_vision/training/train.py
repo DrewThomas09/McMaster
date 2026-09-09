@@ -49,6 +49,10 @@ DEFAULTS: dict[str, Any] = {
     "head_lr": 1e-3,
     "weight_decay": 0.05,
     "warmup_steps": 500,
+    # a checkpoint from ``mcv train`` to start from (backbone and projection head), for
+    # a run cut short or a fine-tuning tail: unlike ``warm_start`` it loads both halves
+    # into the modules being trained, so the schedule continues the same embedding
+    "init_checkpoint": None,
     "freeze_backbone_epochs": 1,
     "hard_negative_mining": True,
     "mining_refresh_every": 1,
@@ -166,6 +170,12 @@ def train(
     head = ProjectionHead(
         backbone.dim, cfg["embedding_dim"], dropout=float(cfg.get("head_dropout", 0.0))
     ).to(device)
+    if cfg.get("init_checkpoint"):
+        state = torch.load(cfg["init_checkpoint"], map_location=device, weights_only=False)
+        net.load_state_dict(state["backbone"], strict=True)
+        if state.get("projection") is not None:
+            head.load_state_dict(state["projection"], strict=True)
+        log.info("initialised backbone and head from %s", cfg["init_checkpoint"])
     arc = None
     if cfg.get("arcface_labels", "family") == "part":
         fam_ids = sorted(p.part_number for p in train_parts)
