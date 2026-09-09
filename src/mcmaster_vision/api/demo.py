@@ -164,15 +164,35 @@ def part_long_mm(part, render: Image.Image | None = None) -> float | None:
             if mm:
                 return mm
     roundish = True
+    ratio = 1.0  # long over short extent of the render
     if render is not None:
         ext = object_extent_px(render)
-        roundish = bool(ext) and ext[1] / ext[0] > 0.7
+        if ext:
+            roundish = ext[1] / ext[0] > 0.7
+            ratio = max(ext) / max(1, min(ext))
     if roundish:
         for k in ("od", "outside_diameter", "diameter", "width"):
             if k in attrs:
                 mm = parse_length_mm(attrs[k])
                 if mm:
                     return mm
+    # a nut is its width across flats on the short axis; a threaded fitting's body
+    # wraps the pipe (about 1.35x the pipe OD on the short axis): the long axis follows
+    # the render's proportions, which is what the size rules compare
+    from mcmaster_vision.pipeline.measure import is_nut, nut_width_mm
+    from mcmaster_vision.pipeline.pipe import pipe_od_mm
+
+    if is_nut(part):
+        ts = next((attrs[k] for k in ("thread_size", "thread", "size") if attrs.get(k)), None)
+        w = nut_width_mm(ts) if ts else None
+        if w:
+            return w * ratio
+    pipe = next(
+        (attrs[k] for k in ("pipe_size", "pipe", "nominal_pipe_size") if attrs.get(k)), None
+    )
+    od = pipe_od_mm(pipe) if pipe else None
+    if od:
+        return 1.35 * od * ratio
     return None
 
 

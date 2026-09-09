@@ -346,14 +346,14 @@ only (2,005 lookups, 1,068 of parts bought before, 937 never bought; 2026-09-09)
 
 Every step buys re-orders and sells new parts: the prior pulls a photo of a new
 part toward the look-alike the shop bought before. 0.06 stays: most of the gain
-for a third of the loss. The obvious hope, that a coin in the frame would settle
-that case, was tested (`--coin-rate 1.0`, same shops, photos only, 1,979
-lookups) and did not hold: never-bought parts went 76.4% -> 75.5% with the prior
-even with the size known, and the coin composite itself cost about a point of
-plain accuracy (79.1% against 80.8%). The look-alikes the prior confuses are
-material and finish variants that share one catalog image and one size, so the
-honest answer for a shop's new part is the size chips and the candidate strip,
-not a bigger prior.
+for a third of the loss. The pairs the prior confuses are size siblings (O-rings
+one OD apart, elbows 1/2" against 1", nuts #6 against 5/16"), which a coin in the
+frame should settle. A first all-coin run (`--coin-rate 1.0`, photos only) did
+not show it: never-bought parts went 76.4% -> 75.5%, but only 797 of its 1,979
+photos had actually been staged with a coin, because the demo could not derive
+a size for a nut or a pipe fitting and the size rules had no vote for a thread
+size. Both are being fixed; the number will be re-measured with coverage
+reported.
 
 Segments recovered the six industries with purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
 and cabinetry, overlap in what they buy, which is honest, since the boost works

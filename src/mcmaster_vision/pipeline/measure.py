@@ -368,6 +368,60 @@ _RULES: list[tuple[tuple[str, ...], float, float, float]] = [
     (_LENGTH_KEYS, 0.85, 1.4, 1.6),
     (_DIAMETER_KEYS, 0.85, 1.15, 1.35),
 ]
+_THREAD_KEYS = ("thread_size", "thread", "size")
+# width across flats of a standard hex nut by nominal thread diameter (ASME B18.2.2
+# inch series, ISO 4032 metric), in mm; square nuts and nylon-insert locknuts match
+NUT_WIDTH_MM: dict[float, float] = {
+    **{
+        d * INCH: w * INCH
+        for d, w in (
+            (0.112, 0.25),
+            (0.125, 0.3125),
+            (0.138, 0.3125),
+            (0.164, 0.34375),
+            (0.19, 0.375),
+            (0.216, 0.4375),
+            (0.25, 0.4375),
+            (0.3125, 0.5),
+            (0.375, 0.5625),
+            (0.4375, 0.6875),
+            (0.5, 0.75),
+            (0.5625, 0.875),
+            (0.625, 0.9375),
+            (0.75, 1.125),
+            (0.875, 1.3125),
+            (1.0, 1.5),
+        )
+    },
+    **{
+        3.0: 5.5,
+        4.0: 7.0,
+        5.0: 8.0,
+        6.0: 10.0,
+        8.0: 13.0,
+        10.0: 16.0,
+        12.0: 18.0,
+        16.0: 24.0,
+        20.0: 30.0,
+    },
+}
+
+
+def nut_width_mm(thread_size: str) -> float | None:
+    """Across-flats width of a standard nut for a thread size (``#10-24``, ``5/16"-18``,
+    ``M8 x 1.25``): the table's nearest nominal within 4%, else 1.6x the nominal."""
+    d = parse_length_mm(thread_size)
+    if not d:
+        return None
+    best = min(NUT_WIDTH_MM, key=lambda k: abs(k - d) / k)
+    if abs(best - d) / best <= 0.04:
+        return NUT_WIDTH_MM[best]
+    return 1.6 * d
+
+
+def is_nut(part: Part) -> bool:
+    text = " ".join([part.name, *part.category_path]).lower()
+    return bool(re.search(r"\bnuts?\b", text)) and "insert" not in part.name.lower().split()[:1]
 
 
 _TPI = re.compile(r"(?:^|[\s\-x×])(\d{1,2}(?:\.\d)?)\s*(?:tpi|threads?\s*per\s*inch)?\s*$", re.I)
@@ -462,6 +516,18 @@ def size_consistency(meas: Measurement | None, part: Part) -> tuple[float, list[
                 f"measured {measured:.0f} mm vs {key} {attrs[key]} ({mm:.1f} mm): {verdict}"
             )
             break
+    # a nut's silhouette is its width across flats (the short axis face-on): a standard
+    # width per thread size, one size step being 1.15-1.25x, so one size off scores -1
+    if is_nut(part) and not has_length:
+        ts = next((attrs[k] for k in _THREAD_KEYS if attrs.get(k)), None)
+        width = nut_width_mm(ts) if ts else None
+        if width:
+            sc = _ratio_score(meas.short_mm / width, 0.85, 1.15, 1.3)
+            votes.append(sc)
+            verdict = "consistent" if sc > 0.5 else ("off" if sc < -0.5 else "close")
+            reasons.append(
+                f"measured {meas.short_mm:.0f} mm across vs a {ts} nut ({width:.1f} mm): {verdict}"
+            )
     # pipe size is nominal: a "3/8" fitting is 0.675" across its male threads. What a
     # photo shows is the silhouette, so the short axis is compared with the pipe OD: a
     # male thread is the OD itself (a hex body up to 1.5x), a female fitting's body wraps

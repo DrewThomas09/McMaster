@@ -403,3 +403,37 @@ def test_largest_component_uses_the_labeller_fast():
     blob[10:20, 10:20] = True
     blob[30:33, 30:33] = True
     assert _largest_component(blob) == 100
+
+
+def test_nut_width_and_size_rule():
+    from mcmaster_vision.pipeline.measure import (
+        Measurement,
+        is_nut,
+        nut_width_mm,
+        size_consistency,
+    )
+    from mcmaster_vision.schemas import Part
+
+    assert abs(nut_width_mm('5/16"-18') - 12.7) < 0.01  # 1/2" across flats
+    assert abs(nut_width_mm("#6-32") - 7.94) < 0.01  # 5/16"
+    assert abs(nut_width_mm("M8 x 1.25") - 13.0) < 0.01
+    assert nut_width_mm("nothing") is None
+    big = Part(
+        part_number="N1",
+        name="Copper Square Nut",
+        category_path=["Fastening & Joining", "Nuts"],
+        attributes={"thread_size": '5/16"-18'},
+    )
+    small = Part(
+        part_number="N2",
+        name="Copper Square Nut",
+        category_path=["Fastening & Joining", "Nuts"],
+        attributes={"thread_size": "#6-32"},
+    )
+    assert is_nut(big) and not is_nut(
+        Part(part_number="S", name="Steel Screw", category_path=["Screws"])
+    )
+    meas = Measurement(long_mm=14.6, short_mm=12.7, mm_per_px=0.1)  # a 1/2" nut across flats
+    sb, rb = size_consistency(meas, big)
+    ss, rs = size_consistency(meas, small)
+    assert sb > 0.5 and ss < -0.5 and "nut" in rb[0] and "off" in rs[0]

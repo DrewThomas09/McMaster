@@ -191,7 +191,7 @@ def run_market(
                             "order": k + 1,
                             "kind": "identify",
                             "seen": seen,
-                            "coin": coin,
+                            "coin": bool(d1.get("coin")),  # staged and measured, not asked
                             "plain": d0["rank"],
                             "personal": d1["rank"],
                         }

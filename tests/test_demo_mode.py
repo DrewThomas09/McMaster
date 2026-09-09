@@ -118,3 +118,21 @@ def test_coin_segment_and_part_long_mm_edge_cases(store):
         )
         == 50.8
     )
+
+
+def test_part_long_mm_covers_nuts_and_fittings(store):
+    from PIL import Image
+
+    from mcmaster_vision.api.demo import part_long_mm
+
+    parts = list(store.iter_parts(with_images_only=True))
+    kinds = {"nut": None, "elbow": None, "nipple": None}
+    for p in parts:
+        for k in kinds:
+            if kinds[k] is None and k in p.name.lower():
+                kinds[k] = p
+    for k, p in kinds.items():
+        if p is None:
+            continue
+        mm = part_long_mm(p, Image.open(p.image_paths[0]))
+        assert mm and 3 < mm < 200, (k, p.name, p.attributes, mm)
