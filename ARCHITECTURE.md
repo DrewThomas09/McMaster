@@ -312,6 +312,20 @@ shipped 48-epoch TinyCNN (2026-09-09, 1,215 searches and 790 photos):
 | photo top-1 | 81.0% | 83.9% | 83% -> 90% (n=393) | 79% -> 78% (n=397) | 78% -> 80% | 81% -> 82% | 83% -> 87% |
 | photo MRR | 0.896 | 0.912 | | | | | |
 
+The same at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147 searches and
+4,141 photos):
+
+| | plain | personalised | bought before | never bought | order 1-3 | order 4-8 | order 9+ |
+|---|---|---|---|---|---|---|---|
+| search top-1 | 47.6% | 62.9% | 49% -> 78% (n=3255) | 46% -> 46% (n=2892) | 47% -> 55% | 48% -> 65% | 47% -> 65% |
+| search MRR | 0.658 | 0.766 | | | | | |
+| photo top-1 | 79.9% | 82.6% | 81% -> 88% (n=2219) | 78% -> 77% (n=1922) | 78% -> 80% | 81% -> 83% | 81% -> 84% |
+| photo MRR | 0.889 | 0.905 | | | | | |
+
+Segment purity 0.55 at k = 8; a recommendation in the next order 74.6% against an
+order-again baseline of 76.1%, 2.3% of orders taking a never-bought part (this run
+predates the material-aware browse of the new-thing slot).
+
 Read the split, not the headline: nearly all of the search lift is the shop's
 own re-orders being put first among the variants of a name, which is what a
 customer expects and the text rank alone cannot do; on a part the shop has
