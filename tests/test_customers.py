@@ -3,6 +3,7 @@ personalised ranking it drives through the API."""
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -336,3 +337,23 @@ def test_segments_follow_the_top_level_mix_not_the_staple(store):
     # the prior still carries the segment's own category mix
     prior = book.category_prior("ind0-shop0")
     assert max(prior, key=prior.get).startswith(tops[0])
+
+
+def test_popularity_breaks_ties_for_strangers(identifier, store, tmp_path):
+    from mcmaster_vision.pipeline.customers import popularity_boosts
+
+    counts = Counter({"A": 9, "B": 1})
+    b = popularity_boosts(counts, ["A", "B", "C"])
+    assert b["A"] == 0.3 and 0 < b["B"] < 0.3 and "C" not in b
+    client = _client(identifier, tmp_path)
+    orders, a, b_, cats = _orders(store)
+    for o in orders:
+        client.app.state.carts.save_order(o)
+    # a stranger searching the name shared by a[0]'s variants sees the most-bought first
+    words = " ".join(w for w in a[0].name.split() if w[0].isupper())[:40]
+    q = a[0].name.split()[-1]
+    rows = client.get(f"/search?q={q}&limit=30").json()
+    pns = [p["part_number"] for p in rows]
+    if a[0].part_number in pns:
+        same_tier = [p for p in rows if p["name"].endswith(q)]
+        assert same_tier and same_tier[0]["part_number"] == a[0].part_number, (words, pns[:5])

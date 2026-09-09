@@ -39,6 +39,9 @@
   directions (a turned nut still measures across flats). Every catalog part in three
   poses, no customer prior: top-1 81.3% -> 91.5% with a coin; in the marketplace, photos
   only, 80.2% -> 85.6% plain and 76% -> 84% on parts the shop had never bought.
+- Search: what the whole marketplace buys breaks ties among the variants of a name for
+  everyone (`popularity_boosts`, at most 0.3 inside a bm25 tier); a known shop's own history
+  still comes first.
 - Training: `init_checkpoint` in the train config starts a run from a saved checkpoint's
   backbone and projection head (a run cut short by a restart, or a fine-tuning tail);
   `warm_start` keeps its meaning of loading only the backbone for a new head.

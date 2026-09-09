@@ -448,6 +448,25 @@ class CustomerBook:
         }
 
 
+def popularity_boosts(
+    part_counts: Counter, part_numbers: list[str], *, weight: float = 0.3
+) -> dict[str, float]:
+    """A small boost from how often the whole marketplace bought each part, at most
+    ``weight`` for the most-bought: enough to order the variants of a name, a fraction
+    of a customer's own history (0.5 and up for a part they bought)."""
+    if not part_counts:
+        return {}
+    top = max(part_counts.values())
+    if top <= 0:
+        return {}
+    out = {}
+    for pn in part_numbers:
+        c = part_counts.get(pn, 0)
+        if c:
+            out[pn] = weight * math.log1p(c) / math.log1p(top)
+    return out
+
+
 def rerank_within_tiers(
     scored: list[tuple[Any, float]],
     boosts: dict[str, float],

@@ -675,20 +675,30 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             # when re-ranking, exactly the first RERANK_ROWS hits are re-ordered whatever
             # the page (so pages never overlap or skip) and the rest keep the text order;
             # the customer's usual part may sit a page down
+            # what the whole marketplace buys breaks ties among the variants of a name for
+            # everyone; a known customer's own history comes first, popularity second
+            popular = customer_book().part_counts
+            rerank = bool(prior) or bool(popular)
             scored = ident.store.search_text_scored(
-                q, max(limit + offset, RERANK_ROWS) if prior else limit + offset
+                q, max(limit + offset, RERANK_ROWS) if rerank else limit + offset
             )
             if prefix:
                 scored = [(p, sc) for p, sc in scored if p.category_path[: len(prefix)] == prefix]
             hits = [p for p, _ in scored]
-            if prior and hits:
-                from mcmaster_vision.pipeline.customers import rerank_within_tiers
+            if rerank and hits:
+                from mcmaster_vision.pipeline.customers import (
+                    popularity_boosts,
+                    rerank_within_tiers,
+                )
 
                 # the customer's history decides among hits that match the words equally
                 # well (the size, material and finish variants of one name); it never
                 # lifts a weaker text match over a stronger one, and part-number matches
                 # stay first
-                boosts = prior([p.part_number for p in hits[:RERANK_ROWS]])
+                head = [p.part_number for p in hits[:RERANK_ROWS]]
+                boosts = prior(head) if prior else {}
+                for pn, b in popularity_boosts(popular, head).items():
+                    boosts[pn] = boosts.get(pn, 0.0) + b
                 hits = rerank_within_tiers(scored[:RERANK_ROWS], boosts) + hits[RERANK_ROWS:]
             app.state.events.log(
                 "search",
