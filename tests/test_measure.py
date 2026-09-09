@@ -437,3 +437,38 @@ def test_nut_width_and_size_rule():
     sb, rb = size_consistency(meas, big)
     ss, rs = size_consistency(meas, small)
     assert sb > 0.5 and ss < -0.5 and "nut" in rb[0] and "off" in rs[0]
+
+
+def _bench_with_coin(bench, coin, part, coin_r=110, size=512, seed=0):
+    """A synthetic phone photo: a noisy bench, a big coin, a small dark part beside it."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    rng = np.random.default_rng(seed)
+    arr = np.clip(np.array(bench, dtype=np.float32) + rng.normal(0, 6, (size, size, 3)), 0, 255)
+    img = Image.fromarray(arr.astype(np.uint8))
+    d = ImageDraw.Draw(img)
+    cx, cy = 320, 300
+    d.ellipse([cx - coin_r, cy - coin_r, cx + coin_r, cy + coin_r], fill=coin)
+    d.rectangle([250, 120, 262, 175], fill=part)  # a screw-sized part above the coin
+    d.ellipse([240, 108, 272, 124], fill=part)
+    return img, (cx - coin_r, cy, cx + coin_r, cy)
+
+
+def test_erase_reference_keeps_the_part_when_a_big_coin_sits_on_a_dark_bench():
+    import numpy as np
+
+    from mcmaster_vision.pipeline.measure import erase_reference
+
+    # the bench is close in colour to the coin: the colour region must not become the
+    # whole photo, and the part must survive the erase
+    img, seg = _bench_with_coin(bench=(120, 100, 70), coin=(150, 140, 90), part=(30, 30, 35))
+    out = np.asarray(erase_reference(img, seg), dtype=np.float32)
+    part = out[125:170, 252:260].mean()
+    coin_centre = out[290:310, 310:330].mean(axis=(0, 1))
+    assert part < 80, part  # still dark
+    assert np.abs(coin_centre - np.array([120, 100, 70])).max() < 25  # coin painted bench
+    # the same on a white bench (the usual case) still works
+    img, seg = _bench_with_coin(bench=(245, 245, 240), coin=(200, 190, 120), part=(40, 40, 45))
+    out = np.asarray(erase_reference(img, seg), dtype=np.float32)
+    assert out[125:170, 252:260].mean() < 80 and out[290:310, 310:330].mean() > 200

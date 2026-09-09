@@ -226,6 +226,26 @@ def _largest_component(mask: np.ndarray) -> int:
     return max(sizes.values(), default=0)
 
 
+def _grow(seed: np.ndarray, alike: np.ndarray, limit: np.ndarray | None) -> np.ndarray:
+    """Flood ``seed`` through ``alike`` pixels (4-connected), inside ``limit`` if given."""
+    grown = seed & alike
+    if limit is not None:
+        grown &= limit
+    for _ in range(max(grown.shape)):
+        d = grown.copy()
+        d[1:, :] |= grown[:-1, :]
+        d[:-1, :] |= grown[1:, :]
+        d[:, 1:] |= grown[:, :-1]
+        d[:, :-1] |= grown[:, 1:]
+        d &= alike
+        if limit is not None:
+            d &= limit
+        if (d == grown).all():
+            break
+        grown = d
+    return grown
+
+
 def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> Image.Image:
     """The photo with the reference object (the coin, card or ruler the user drew the
     segment across) painted over in the surrounding bench colour, so the embedding sees
@@ -259,26 +279,23 @@ def erase_reference(image: Image.Image, reference: Segment, work: int = 160) -> 
         return image
     dist = np.sqrt(((arr - ref_rgb) ** 2).sum(axis=-1))
     alike = dist <= 48.0
-    grown = probe & alike
-    limit = None
-    if half <= 0.15 * max(hh, ww):  # a coin: never beyond 1.5 radii of its centre
-        d2 = (xx - (x1 + x2) / 2) ** 2 + (yy - (y1 + y2) / 2) ** 2
-        limit = d2 <= (1.5 * half) ** 2
-    for _ in range(max(hh, ww)):
-        d = grown.copy()
-        d[1:, :] |= grown[:-1, :]
-        d[:-1, :] |= grown[1:, :]
-        d[:, 1:] |= grown[:, :-1]
-        d[:, :-1] |= grown[:, 1:]
-        d &= alike
-        if limit is not None:
-            d &= limit
-        if (d == grown).all():
-            break
-        grown = d
-    if limit is not None:  # a coin: the disc it spans, plus whatever of its colour it grew to
-        comp = ((xx - (x1 + x2) / 2) ** 2 + (yy - (y1 + y2) / 2) ** 2 <= (1.12 * half) ** 2) | grown
+    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+    d2 = (xx - cx) ** 2 + (yy - cy) ** 2
+    # coin or ruler is a question of shape, not of size (a coin fills half a close-up):
+    # grown inside 1.5 radii of the segment's centre, a coin's colour fills the disc the
+    # segment spans; a card edge or a ruler leaves most of that disc as bench
+    limit = d2 <= (1.5 * half) ** 2
+    grown = _grow(probe & alike, alike, limit)
+    inner = d2 <= (0.9 * half) ** 2
+    fill = float((grown & inner).sum()) / max(1.0, float(inner.sum()))
+    if fill >= 0.5:  # a coin: the disc it spans, plus whatever of its colour it grew to
+        comp = (d2 <= (1.12 * half) ** 2) | grown
     else:  # a card or ruler: its own colour region, plus a thin band along the segment
+        grown = _grow(probe & alike, alike, None)
+        if grown.sum() > 0.35 * hh * ww:
+            # the reference is the colour of the bench: its region is the whole photo,
+            # so only the band the user drew is safe to erase
+            grown = probe
         comp = grown | _segment_mask(mask.shape, seg, s, pad=max(2, int(0.03 * max(hh, ww))))
     touched = comp & mask
     for _ in range(3):  # a little beyond the edge, for the anti-aliased rim and shadow
