@@ -324,14 +324,22 @@ and cabinetry, overlap in what they buy, which is honest, since the boost works
 off the shared category mix either way.
 
 Recommendations are scored against the dumbest baseline, the shop's six
-most-bought parts (an order-again list). On the same 60 shops a recommendation was
-in the next order 78% of the time against the baseline's 76%, and only 0.3% of
-orders contained a recommended part the shop had never bought. Read that as it
-is: the list earns its place by getting re-orders right (parts due again, then
-staples, then one-off buys by recency; a first version that offered only
-staples scored 65%), while the complements and segment favourites, the part of
-the list that could show a shop something new, are not yet bought from the
-strip. That is the next thing to work on, and the number to watch.
+most-bought parts (an order-again list). On the same 60 shops, six slots:
+
+| recommendation list | in the next order | of which a part never bought before |
+|---|---|---|
+| order-again baseline (six most-bought parts) | 76.3% | 0% by construction |
+| staples only (bought twice or more) | 65.1% | 0.3% |
+| due, staples, one-off buys by recency | 78.0% | 0.3% |
+| the same with one slot kept for something new | 76.3% | 3.5% |
+
+A shop's own history fills six slots after three orders, so without a reserved
+slot the discovery half of the list (complements, segment favourites, unbought
+parts in the shop's usual aisle and material) never showed. Keeping one slot
+costs 1.7 points of re-order hits and buys a tenfold rise in new parts bought
+from the strip. The synthetic shops pick their non-staple parts at random
+within their category mix, which is close to the ceiling for one guess; the
+number to watch on real customers is that last column.
 
 An earlier run of 1000 shops and 14,947 orders (2026-09-09) used a search
 re-rank that could lift any hit in a 50-row window by up to 0.3 of the position
