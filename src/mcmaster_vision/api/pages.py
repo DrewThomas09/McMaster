@@ -276,8 +276,17 @@ def _customers_html(request: Request) -> str:
     if not summ["orders"]:
         return ""
     from mcmaster_vision.pipeline.customers import segment_precision
+    from mcmaster_vision.pipeline.events import recommendation_take
 
     prec = segment_precision(book, request.app.state.events)
+    take = recommendation_take(request.app.state.events.rows())
+    take_line = (
+        f'<p class="crumbs">For-you strip: bought from in {take["take_rate"]:.0%} of the '
+        f"{take['orders_after_strip']} orders that followed it, a part never bought before in "
+        f"{take['new_part_take_rate']:.0%} (the number to watch).</p>"
+        if take["orders_after_strip"]
+        else ""
+    )
     rows = "".join(
         f"<tr><td>{s['segment']}</td><td>{e(s['label'])}</td><td>{s['customers']}</td><td>{s['orders']}</td>"
         f"<td>{(str(round(100 * prec[s['segment']]['precision'])) + '%') if prec.get(s['segment']) else '—'}</td></tr>"
@@ -290,6 +299,7 @@ def _customers_html(request: Request) -> str:
   <div class="card stat"><b>{summ["orders"]}</b><span>orders</span></div>
   <div class="card stat"><b>{len(summ["segments"])}</b><span>segments (industry proxy)</span></div>
 </div>
+{take_line}
 <div class="card" style="padding:8px 12px"><table class="spec"><tr><th>segment</th><th>what they buy</th><th>customers</th><th>orders</th><th>photo top-1 when bought</th></tr>{rows or '<tr><td class="msg" colspan="5">Not enough orders to segment yet.</td></tr>'}</table>
 <p class="crumbs">Segments and each customer's own history re-rank search results and photo candidates as a tie-breaker; <code>mcv simulate-market</code> measures the lift. <a href="/segments">/segments</a></p></div>"""
 

@@ -325,3 +325,21 @@ def test_segment_issue_names_the_worst_served_shops(tmp_path):
     }
     found = issues(a)
     assert any("Pipe > Fittings" in i["what"] for i in found)
+
+
+def test_recommendation_take_rate_counts_new_parts(tmp_path):
+    from mcmaster_vision.pipeline.events import recommendation_take
+
+    log = EventLog(tmp_path / "e.jsonl")
+    log.log("checkout", client_id="s1", items=[{"part_number": "A"}])
+    log.log("recommend_shown", client_id="s1", parts=["A", "B"])
+    log.log("checkout", client_id="s1", items=[{"part_number": "A"}])  # took a re-order
+    log.log("recommend_shown", client_id="s1", parts=["A", "B"])
+    log.log("checkout", client_id="s1", items=[{"part_number": "B"}])  # took something new
+    log.log("recommend_shown", client_id="s2", parts=["C"])
+    log.log("checkout", client_id="s2", items=[{"part_number": "D"}])  # ignored the strip
+    log.log("checkout", client_id="s3", items=[{"part_number": "C"}])  # never shown one
+    take = recommendation_take(log.rows())
+    assert take == {"orders_after_strip": 3, "take_rate": 0.667, "new_part_take_rate": 0.333}
+    a = analytics(log)
+    assert a["recommendations"] == take

@@ -26,6 +26,10 @@
   confidence each line came with, and one-tap checkout with an order confirmation. Every
   purchased item that came from a photo is filed as a `checkout` confirmation (weight 3,
   tap 2, cart 1: `FEEDBACK_WEIGHTS`), which the usage prior and training honour.
+- Recommendation take rate: `/analytics` and the dashboard's customers panel report, of the
+  orders that followed a For-you strip, how many took a part from it and how many took a
+  part the customer had never bought (`recommendation_take`), with an issue when the strip
+  is ignored.
 - Backend tracking: `data/logs/events.jsonl` records identify / cart / checkout / feedback /
   error events; `GET /analytics` and the dashboard's "Learning loop" panel turn them into the
   funnel, predicted-vs-bought confusion pairs, tier precision when bought, confidence when

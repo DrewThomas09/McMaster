@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import threading
-from collections import Counter, deque
+from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -122,6 +122,36 @@ class EventLog:
         return found if isinstance(found, dict) else None
 
 
+def recommendation_take(rows: list[dict]) -> dict:
+    """Of the orders placed after a For-you strip was shown, how many took a part from
+    it, and how many took a part the customer had never bought before: the number that
+    says whether the strip shows customers anything, or only saves them a search."""
+    shown: dict[str, set[str]] = {}
+    before: dict[str, set[str]] = defaultdict(set)
+    n = taken = new = 0
+    for r in rows:  # oldest first
+        cid = r.get("client_id")
+        if not cid:
+            continue
+        kind = r.get("kind")
+        if kind == "recommend_shown":
+            shown[cid] = set(r.get("parts") or [])
+        elif kind == "checkout":
+            items = {it.get("part_number") for it in r.get("items", [])}
+            strip = shown.pop(cid, None)
+            if strip is not None:
+                n += 1
+                got = items & strip
+                taken += bool(got)
+                new += bool(got - before[cid])
+            before[cid] |= items
+    return {
+        "orders_after_strip": n,
+        "take_rate": round(taken / n, 3) if n else None,
+        "new_part_take_rate": round(new / n, 3) if n else None,
+    }
+
+
 def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
     """The journey in numbers, from the event window."""
     ident = events.rows("identify")
@@ -196,6 +226,7 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
         "bought_top1_rate": round(correct_bought / (correct_bought + wrong_bought), 3)
         if (correct_bought + wrong_bought)
         else None,
+        "recommendations": recommendation_take(events.rows()),
         "bought_rank_hist": dict(Counter(int(r) for r in ranks)),
         "tier_precision_bought": {
             t: {"bought": n, "top1_right": k, "precision": round(k / n, 3)}
@@ -381,6 +412,17 @@ def issues(a: dict) -> list[dict]:
                     "most (`mcv learn`), and their categories deserve a look in the catalog",
                 }
             )
+    rec = a.get("recommendations") or {}
+    if rec.get("orders_after_strip", 0) >= 30 and (rec.get("take_rate") or 0) < 0.2:
+        out.append(
+            {
+                "severity": "low",
+                "what": f"the For-you strip was bought from in only {rec['take_rate']:.0%} of the "
+                f"{rec['orders_after_strip']} orders that followed it",
+                "do": "the strip should lead with what this shop re-orders; check that orders "
+                "carry the client id the phone sends and that the customer model rebuilds",
+            }
+        )
     conf = a.get("confidence", {})
     if conf.get("when_wrong") is not None and conf.get("when_right") is not None:
         if conf["when_wrong"] > conf["when_right"] - 0.05:
