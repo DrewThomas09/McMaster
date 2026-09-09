@@ -126,6 +126,7 @@ def run_market(
     tta: str = "none",
     echo=None,
     after_round=None,
+    coin_rate: float = 0.0,
 ) -> dict[str, Any]:
     """Drive the shops through their orders against a TestClient of the API.
 
@@ -181,7 +182,8 @@ def run_market(
                     photo_seed = (
                         zlib.crc32(f"{k}|{shop.client_id}|{part.part_number}".encode()) & 0xFFFF
                     ) + 1
-                    base = f"/demo/try/{part.part_number}?seed={photo_seed}&tta={tta}"
+                    coin = rng.random() < coin_rate  # a quarter in the frame: size is known
+                    base = f"/demo/try/{part.part_number}?seed={photo_seed}&tta={tta}&coin={coin}"
                     d0 = client.post(f"{base}&log=false").json()  # the comparison arm
                     d1 = client.post(f"{base}&client_id={shop.client_id}").json()
                     shop.ranks.append(
@@ -189,6 +191,7 @@ def run_market(
                             "order": k + 1,
                             "kind": "identify",
                             "seen": seen,
+                            "coin": coin,
                             "plain": d0["rank"],
                             "personal": d1["rank"],
                         }
@@ -248,13 +251,26 @@ def market_report(shops: list[Shop], book, run: dict[str, Any]) -> dict[str, Any
         out[kind]["by_order"] = by_bucket
         # a part the shop bought before is the easy case (the model has seen the
         # purchase); the honest number is the lift on parts it has never bought
-        for name, flag in (("seen_before", True), ("new_part", False)):
-            b = [r for r in sub if r.get("seen") is flag]
+        splits = [("seen_before", "seen", True), ("new_part", "seen", False)]
+        if kind == "identify":
+            splits += [("with_coin", "coin", True), ("no_coin", "coin", False)]
+        for name, key, flag in splits:
+            b = [r for r in sub if r.get(key) is flag]
             out[kind][name] = {
                 "n": len(b),
                 "plain_top1": _summ(b, "plain")["top1"],
                 "personal_top1": _summ(b, "personal")["top1"],
             }
+        if kind == "identify":
+            # the case the prior gets wrong (a new size of a part bought before) is the
+            # case a coin in the frame settles: the never-bought split, with and without
+            for name, flag in (("new_part_with_coin", True), ("new_part_no_coin", False)):
+                b = [r for r in sub if r.get("seen") is False and r.get("coin") is flag]
+                out[kind][name] = {
+                    "n": len(b),
+                    "plain_top1": _summ(b, "plain")["top1"],
+                    "personal_top1": _summ(b, "personal")["top1"],
+                }
     # segments vs the true industries: weighted purity
     truth = {s.client_id: s.industry for s in shops}
     seg_members: dict[int, Counter] = defaultdict(Counter)
@@ -293,6 +309,7 @@ def simulate_market(
     scratch=None,
     live: bool = False,
     echo=None,
+    coin_rate: float = 0.0,
 ) -> dict[str, Any]:
     import tempfile
 
@@ -332,6 +349,7 @@ def simulate_market(
             tta=tta,
             echo=say,
             after_round=lambda: app.state.customer_book(force=True),
+            coin_rate=coin_rate,
         )
         book = app.state.customer_book(force=True)
     rep = market_report(crowd, book, run)
@@ -344,9 +362,9 @@ def simulate_market(
             )
             for b, v in k["by_order"].items():
                 say(f"    {b}: {v['plain_top1']:.0%} -> {v['personal_top1']:.0%} (n={v['n']})")
-            for name in ("seen_before", "new_part"):
-                v = k[name]
-                if v["n"]:
+            for name in ("seen_before", "new_part", "with_coin", "no_coin"):
+                v = k.get(name)
+                if v and v["n"]:
                     say(
                         f"    {name.replace('_', ' ')}: {v['plain_top1']:.0%} -> "
                         f"{v['personal_top1']:.0%} (n={v['n']})"

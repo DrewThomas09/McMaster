@@ -767,6 +767,9 @@ def simulate_market_cmd(
         0.6, help="Share of items found by text search (rest by photo)"
     ),
     tta: str = typer.Option("none"),
+    coin_rate: float = typer.Option(
+        0.0, help="Share of photos taken next to a quarter (size known)"
+    ),
     as_json: bool = typer.Option(False, "--json"),
     live: bool = typer.Option(False, "--live", help="Write into the real data directory"),
 ) -> None:
@@ -786,6 +789,7 @@ def simulate_market_cmd(
         tta=tta,
         live=live,
         echo=None if as_json else typer.echo,
+        coin_rate=coin_rate,
     )
     if as_json:
         typer.echo(json.dumps(rep, indent=2, default=str))

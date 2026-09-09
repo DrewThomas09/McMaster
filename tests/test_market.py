@@ -36,7 +36,9 @@ def test_simulate_market_reports_lift_and_segments(tmp_path, demo_dir, index):
     )
     s.ensure_dirs()
     index.save(s.index_path)
-    rep = simulate_market(s, shops=8, orders=(3, 5), seed=1, tta="none", scratch=tmp_path / "m")
+    rep = simulate_market(
+        s, shops=8, orders=(3, 5), seed=1, tta="none", scratch=tmp_path / "m", coin_rate=0.5
+    )
     assert rep["shops"] == 8 and rep["checkouts"] >= 20
     for kind in ("search", "identify"):
         k = rep[kind]
@@ -45,6 +47,12 @@ def test_simulate_market_reports_lift_and_segments(tmp_path, demo_dir, index):
         # the honest split: parts the shop bought before vs parts it never bought
         assert k["seen_before"]["n"] + k["new_part"]["n"] == k["plain"]["n"]
         assert k["seen_before"]["n"] > 0 and k["new_part"]["n"] > 0
+    photo = rep["identify"]
+    assert photo["with_coin"]["n"] + photo["no_coin"]["n"] == photo["plain"]["n"]
+    assert photo["with_coin"]["n"] > 0 and photo["no_coin"]["n"] > 0
+    assert (
+        photo["new_part_with_coin"]["n"] + photo["new_part_no_coin"]["n"] == photo["new_part"]["n"]
+    )
     assert rep["segments"]["industries"] >= 1 and rep["segments"]["k"] >= 1
     assert 0 <= rep["recommend_hit_rate"] <= 1
     assert 0 <= rep["baseline_hit_rate"] <= 1  # the order-again list the model must beat
