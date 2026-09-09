@@ -93,22 +93,28 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     app.state.get_identifier = lambda: get_identifier()
     app.state.check_admin = lambda request: check_admin(request)
 
-    customers_cache: dict = {"orders": None, "book": None}
+    customers_cache: dict = {"orders": None, "book": None, "built": 0.0}
     customers_lock = threading.Lock()
 
     def customer_book():
-        """The customer model from every order on disk, rebuilt when the orders change."""
+        """The customer model from every order on disk, rebuilt when the orders change
+        (at most every ``customers_refresh_s`` seconds: a checkout a second must not mean
+        a k-means a second)."""
         from mcmaster_vision.pipeline.customers import CustomerBook
 
-        orders = app.state.carts.all_orders()
         with customers_lock:
+            fresh = (
+                customers_cache["book"] is not None
+                and time.time() - customers_cache["built"] < settings.customers_refresh_s
+            )
+            orders = customers_cache["orders"] if fresh else app.state.carts.all_orders()
             if customers_cache["orders"] is orders and customers_cache["book"] is not None:
                 return customers_cache["book"]
             ident = get_identifier()
             pns = {it.part_number for o in orders for it in o.items}
             parts = ident.store.get_many(pns) if pns else {}
             book = CustomerBook(orders, parts)
-            customers_cache.update(orders=orders, book=book)
+            customers_cache.update(orders=orders, book=book, built=time.time())
             return book
 
     app.state.customer_book = customer_book
@@ -126,9 +132,11 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         w = customer_boost_weight(prof.orders)
 
         def fn(part_numbers: list[str]) -> dict[str, float]:
-            return {pn: w * b for pn, b in book.boosts(client_id, part_numbers).items()}
+            return book.boosts(client_id, part_numbers, weight=w)
 
         return fn
+
+    app.state.customer_prior_for = customer_prior_for
 
     async def record(result: IdentificationResult, photo: bytes | None) -> None:
         """Append to the request log and keep the photo, off the event loop."""
@@ -647,7 +655,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 pos = {p.part_number: i for i, p in enumerate(rest)}
                 rest.sort(
                     key=lambda p: (
-                        -(1.0 / (pos[p.part_number] + 3) + 0.12 * boosts.get(p.part_number, 0.0))
+                        -(1.0 / (pos[p.part_number] + 3) + 0.3 * boosts.get(p.part_number, 0.0))
                     )
                 )
                 hits = pinned + rest

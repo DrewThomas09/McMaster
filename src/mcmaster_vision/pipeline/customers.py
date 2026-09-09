@@ -201,10 +201,13 @@ class CustomerBook:
             )
         return out
 
-    def boosts(self, client_id: str | None, part_numbers: list[str]) -> dict[str, float]:
-        """Per-part boost in [-1, 1]: log-odds of the customer's category prior against
-        the global mix, plus a nudge for a family, material or size they buy, and for a
-        part they bought before. Zero for an unknown customer."""
+    def boosts(
+        self, client_id: str | None, part_numbers: list[str], weight: float = 1.0
+    ) -> dict[str, float]:
+        """Per-part boost in [-1, 1]. Soft evidence (the customer's category prior against
+        the global mix, materials and sizes they tend to buy) is scaled by ``weight``, which
+        grows with their history; strong evidence (this very part, or its family, bought
+        before) counts in full from the first order. Zero for an unknown customer."""
         prof = self.profiles.get(client_id or "")
         if prof is None or not prof.categories:
             return dict.fromkeys(part_numbers, 0.0)
@@ -220,20 +223,21 @@ class CustomerBook:
             cat = category_key(part)
             g = self.global_categories.get(cat, 0) / total
             p = prior.get(cat, g)
-            b = math.log((p + 1e-3) / (g + 1e-3)) if g or p else 0.0
-            b = max(-1.5, min(1.5, b)) / 1.5  # -> [-1, 1]
-            if part.family_id and prof.families.get(part.family_id):
-                b += 0.3 * min(1.0, prof.families[part.family_id] / 3)
+            soft = math.log((p + 1e-3) / (g + 1e-3)) if g or p else 0.0
+            soft = max(-1.5, min(1.5, soft)) / 1.5  # -> [-1, 1]
             attrs = {k.lower(): str(v) for k, v in part.attributes.items()}
             for key in SIZE_KEYS:
                 if attrs.get(key) and prof.sizes.get(f"{key}={attrs[key]}"):
-                    b += 0.15 * min(1.0, prof.sizes[f"{key}={attrs[key]}"] / n_items * 4)
+                    soft += 0.15 * min(1.0, prof.sizes[f"{key}={attrs[key]}"] / n_items * 4)
             for key in MATERIAL_KEYS:
                 if attrs.get(key) and prof.materials.get(attrs[key]):
-                    b += 0.1 * min(1.0, prof.materials[attrs[key]] / n_items * 4)
+                    soft += 0.1 * min(1.0, prof.materials[attrs[key]] / n_items * 4)
+            strong = 0.0
+            if part.family_id and prof.families.get(part.family_id):
+                strong += 0.3 * min(1.0, prof.families[part.family_id] / 3)
             if prof.parts.get(pn):
-                b += 0.3
-            out[pn] = max(-1.0, min(1.0, b))
+                strong += 0.5 + 0.1 * min(3, prof.parts[pn])
+            out[pn] = max(-1.0, min(1.0, weight * soft + strong))
         return out
 
     # ------------------------------------------------------------ complements

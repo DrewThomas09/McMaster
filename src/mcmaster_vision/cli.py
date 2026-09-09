@@ -756,6 +756,41 @@ def report(
         typer.echo("no issues found in this window")
 
 
+@app.command("simulate-market")
+def simulate_market_cmd(
+    config: Path | None = _config_opt,
+    shops: int = typer.Option(200, help="Synthetic shops (customers)"),
+    min_orders: int = typer.Option(10),
+    max_orders: int = typer.Option(20),
+    seed: int = typer.Option(0),
+    search_rate: float = typer.Option(
+        0.6, help="Share of items found by text search (rest by photo)"
+    ),
+    tta: str = typer.Option("none"),
+    as_json: bool = typer.Option(False, "--json"),
+    live: bool = typer.Option(False, "--live", help="Write into the real data directory"),
+) -> None:
+    """A demo marketplace: shops from several industries search, photograph, buy and come
+    back; every lookup is asked with and without the shop's id, so the report says what
+    personalised ranking gains, whether the segments recover the industries, and how often
+    a recommendation was bought."""
+    from mcmaster_vision.data.market import simulate_market
+
+    s = _settings(config)
+    rep = simulate_market(
+        s,
+        shops=shops,
+        orders=(min_orders, max_orders),
+        seed=seed,
+        search_rate=search_rate,
+        tta=tta,
+        live=live,
+        echo=None if as_json else typer.echo,
+    )
+    if as_json:
+        typer.echo(json.dumps(rep, indent=2, default=str))
+
+
 @app.command()
 def simulate(
     config: Path | None = _config_opt,

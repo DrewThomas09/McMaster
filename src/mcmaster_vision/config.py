@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     warm_up: bool = True  # load catalog/index/backbone at API startup
     auto_reload: bool = True  # pick up a rebuilt index on disk without a restart
     forwarded_allow_ips: str = "127.0.0.1"  # proxies whose X-Forwarded-For is trusted ("*")
+    customers_refresh_s: float = 15.0  # how often the customer model is rebuilt from orders
     learn_retrain_after: int = 50  # new confirmations that trigger a full retrain in `mcv learn`
     demo_mode: bool = False  # /demo/* endpoints (sample parts, printable sheet)
     cors_origins: str = (
