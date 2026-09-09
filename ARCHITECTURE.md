@@ -332,6 +332,25 @@ quarter; segments recovered the six industries with purity 0.90):
 A recommendation was in the next order 74.9% of the time against the order-again
 baseline's 76.5%, 3.3% of orders taking a never-bought part.
 
+The same marketplace on a catalog four times the size (800 parts, so four times
+the same-name variants a search or a photo must choose among), 300 shops and
+4,488 orders, on the epoch-83 model shipped that evening (2026-09-09, 6,359
+searches, 4,085 photos, 30% with a coin; purity 0.91):
+
+| 800-part catalog | plain | personalised | bought before | never bought |
+|---|---|---|---|---|
+| search top-1 | 23.1% | 44.4% | 23% -> 72% (n=2682) | 23% -> 24% (n=3677) |
+| search MRR | 0.407 | 0.591 | | |
+| photo top-1 | 64.4% | 69.0% | 67% -> 79% (n=1782) | 62% -> 61% (n=2303) |
+| photo top-1, with a coin | 72.7% | 76.6% | | 71% -> 71% (n=524) |
+| photo top-1, no coin | 61.8% | 66.7% | | 60% -> 59% (n=1779) |
+
+The bigger the catalog, the more a shop's history is worth: a text search that
+lands the right part first 23% of the time on its own lands it 72% of the time
+for a part the shop has bought before, and the coin is worth 11 points on a
+photo. The 200-part numbers above are the demo; this row is closer to a real
+catalog.
+
 An earlier run at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147
 searches and 4,141 photos, before the eraser fixes and the segment vector
 change):
