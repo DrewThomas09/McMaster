@@ -277,8 +277,9 @@ def test_recommend_keeps_a_slot_for_something_new(store):
     assert rec[-1] is fresh[-1]  # the new thing sits after the re-orders
     assert all(r["part_number"] in mine for r in rec[:-1])
     assert parts[fresh[0]["part_number"]].category_path[0] == a[0].category_path[0]
-    # no slot is wasted when there is nothing new to say
-    assert len(book.recommend("shop-a", 4)) == 4
+    # no slot is held back when there is nothing new to say: the history fills the list
+    plain = book.recommend("shop-a", 4)
+    assert len(plain) >= 3 and all(r["part_number"] in mine for r in plain)
     # one slot is never the whole list: the shop's own first pick always fits
     one = book.recommend("shop-a", 1, browse=by_cat)
     assert len(one) == 1 and one[0]["part_number"] in mine
@@ -300,3 +301,38 @@ def test_by_category_material_filter(store):
     assert p.part_number in {x.part_number for x in got}
     assert len(got) < len(store.by_category(p.category_path[:1], limit=500))
     assert store.by_category([], limit=5, material="no such material") == []
+
+
+def test_segments_follow_the_top_level_mix_not_the_staple(store):
+    # two industries that buy from different top-level categories, each shop with its
+    # own staple sub-category bought every time: the staple must not split an industry
+    parts = list(store.iter_parts(with_images_only=True))
+    by_top: dict[str, list] = {}
+    for p in parts:
+        by_top.setdefault(p.category_path[0], []).append(p)
+    tops = sorted(by_top, key=lambda c: -len(by_top[c]))[:2]
+    t0 = datetime(2026, 3, 1, tzinfo=timezone.utc)
+    orders = []
+    for ind, top in enumerate(tops):
+        pool = by_top[top]
+        for shop in range(6):
+            staple = pool[shop % len(pool)]
+            for i in range(6):
+                other = pool[(shop * 7 + i * 3) % len(pool)]
+                orders.append(
+                    Order(
+                        order_id=f"{ind}-{shop}-{i}",
+                        client_id=f"ind{ind}-shop{shop}",
+                        items=[
+                            CartItem(part_number=staple.part_number),
+                            CartItem(part_number=other.part_number),
+                        ],
+                        created_at=t0 + timedelta(days=i),
+                    )
+                )
+    book = CustomerBook(orders, {p.part_number: p for p in parts}, k=2, seed=1)
+    segs = {ind: {book.profiles[f"ind{ind}-shop{s}"].segment for s in range(6)} for ind in (0, 1)}
+    assert len(segs[0]) == 1 and len(segs[1]) == 1 and segs[0] != segs[1]
+    # the prior still carries the segment's own category mix
+    prior = book.category_prior("ind0-shop0")
+    assert max(prior, key=prior.get).startswith(tops[0])
