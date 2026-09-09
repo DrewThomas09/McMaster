@@ -332,8 +332,24 @@ customer expects and the text rank alone cannot do; on a part the shop has
 never bought the category and material prior is worth one point on search and
 costs one on photos (the fusion term pulls toward what the shop usually buys,
 and a new part is by definition not that). The lift grows with a shop's history
-and settles after about four orders. Segments recovered the six industries with
-purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
+and settles after about four orders.
+
+The photo term's weight (`w_customer`) was swept on the same 60 shops, photos
+only (2,005 lookups, 1,068 of parts bought before, 937 never bought; 2026-09-09):
+
+| w_customer | photo top-1 | MRR | bought before | never bought |
+|---|---|---|---|---|
+| 0 (off) | 80.8% | 0.895 | 83.2% | 78.0% |
+| 0.03 | 82.7% | 0.905 | 87.3% | 77.5% |
+| **0.06 (shipped)** | 83.5% | 0.910 | 89.5% | 76.7% |
+| 0.10 | 83.9% | 0.912 | 90.9% | 76.0% |
+
+Every step buys re-orders and sells new parts: the prior pulls a photo of a new
+size toward the size the shop bought before, which is the one ambiguity a photo
+cannot settle and the coin measurement can. 0.06 stays: most of the gain for a
+third of the loss, and the loss is on the case the size step catches.
+
+Segments recovered the six industries with purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
 and cabinetry, overlap in what they buy, which is honest, since the boost works
 off the shared category mix either way.
 
