@@ -348,12 +348,23 @@ Every step buys re-orders and sells new parts: the prior pulls a photo of a new
 part toward the look-alike the shop bought before. 0.06 stays: most of the gain
 for a third of the loss. The pairs the prior confuses are size siblings (O-rings
 one OD apart, elbows 1/2" against 1", nuts #6 against 5/16"), which a coin in the
-frame should settle. A first all-coin run (`--coin-rate 1.0`, photos only) did
-not show it: never-bought parts went 76.4% -> 75.5%, but only 797 of its 1,979
-photos had actually been staged with a coin, because the demo could not derive
-a size for a nut or a pipe fitting and the size rules had no vote for a thread
-size. Both are being fixed; the number will be re-measured with coverage
-reported.
+frame should settle, and on those pairs it does (a 1/2" elbow photographed next
+to a quarter rules the 1" out, a 5/16" nut rules #6 out). Measured on the same
+60 shops and photos with `--coin-rate 1.0` (1,586 of 1,979 photos staged with a
+coin, after the demo learned to stage nuts and fittings and the size rules
+gained a nut vote):
+
+| photos only, 1,979 lookups | plain | personalised | bought before | never bought |
+|---|---|---|---|---|
+| no coin | 80.2% | 83.0% | 84% -> 91% | 76% -> 74% |
+| every photo next to a quarter | 78.2% | 79.9% | 79% -> 83% | 78% -> 77% |
+
+The coin helps the never-bought case by 1.6 points and halves the prior's loss
+there, but costs 2 points overall and 5 on re-orders: the size votes are right
+where they fire, so the loss is in the composite itself (erasing the coin, a
+looser silhouette) and in size votes that endorse a wrong look-alike. Why it
+costs is being worked out per part; until it is, the coin stays a user choice,
+not a default.
 
 Segments recovered the six industries with purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
 and cabinetry, overlap in what they buy, which is honest, since the boost works
