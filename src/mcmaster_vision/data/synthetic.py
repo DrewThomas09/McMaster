@@ -749,6 +749,9 @@ def _pipe_nipple(d, c, r, color, p, top_view):
         d.ellipse([c - w * 0.7, c - w * 0.7, c + w * 0.7, c + w * 0.7], fill=_dark(color, 0.3))
         return
     L = min(int(r * p["length_frac"] * 0.55), 2 * c - 12)
+    if p.get("aspect"):  # the catalog's length over pipe OD (a 3/8" x 2-1/2" nipple is 3.7:1)
+        L = min(2 * c - 12, max(L, int(6 * p["aspect"])))
+        w = max(6, int(L / p["aspect"]))
     box = [c - L // 2, c - w // 2, c + L // 2, c + w // 2]
     _shade_rect(d, box, color, "y")
     tl = max(w // 2, int(L * 0.18))
@@ -1068,7 +1071,14 @@ class SyntheticCatalog:
             a["thread_type"] = self.rng.choice(("NPT", "NPT", "NPTF", "BSPT"))
             a["gender"] = "male" if kind == "pipe_nipple" else "female"
         if kind == "pipe_nipple":
-            a["length"] = self.rng.choice(['1-1/8"', '1-1/2"', '2"', '2-1/2"', '3"', '4"', '6"'])
+            # a nipple is at least two thread engagements long: 1.4x the pipe OD or more
+            from mcmaster_vision.pipeline.measure import parse_length_mm
+            from mcmaster_vision.pipeline.pipe import pipe_od_mm
+
+            lengths = ['1-1/8"', '1-1/2"', '2"', '2-1/2"', '3"', '4"', '6"']
+            od = pipe_od_mm(a["pipe_size"]) or 0.0
+            fits = [ln for ln in lengths if (parse_length_mm(ln) or 0.0) >= 1.4 * od]
+            a["length"] = self.rng.choice(fits or lengths[-1:])
         if kind == "pipe_bushing":
             sizes = _PIPE_SIZES[: _PIPE_SIZES.index(a["pipe_size"])] or _PIPE_SIZES[:1]
             a["reduced_to"] = self.rng.choice(sizes)
@@ -1092,6 +1102,16 @@ class SyntheticCatalog:
             p = self._params()
             pn = self._part_number(i)
             attrs = self._attributes(kind, material, p)
+            if kind == "pipe_nipple":
+                # drawn to the catalog's proportions: length over pipe OD, so a photo of
+                # the render next to a coin measures like the real part
+                from mcmaster_vision.pipeline.measure import parse_length_mm
+                from mcmaster_vision.pipeline.pipe import pipe_od_mm
+
+                length_mm = parse_length_mm(attrs["length"])
+                od_mm = pipe_od_mm(attrs["pipe_size"])
+                if length_mm and od_mm:
+                    p["aspect"] = length_mm / od_mm
             images: list[str] = []
             for v in range(self.images_per_part):
                 img = self._render(kind, color, p, v)

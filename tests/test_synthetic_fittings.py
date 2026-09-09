@@ -33,3 +33,26 @@ def test_fittings_render_distinct_views_with_catalog_attributes(tmp_path):
         assert len(views) == 3 and all(v.min() < 200 for v in views)  # something is drawn
         # the three views differ (a top view or a rotation), never three copies
         assert np.abs(views[0] - views[1]).mean() > 1 and np.abs(views[0] - views[2]).mean() > 1
+
+
+def test_nipple_render_has_the_catalog_proportions(tmp_path):
+    from PIL import Image
+
+    from mcmaster_vision.data.synthetic import SyntheticCatalog
+    from mcmaster_vision.pipeline.measure import object_extent_px, parse_length_mm
+    from mcmaster_vision.pipeline.pipe import pipe_od_mm
+
+    cat = SyntheticCatalog(n_parts=60, images_per_part=1, seed=11, kinds=["pipe_nipple"])
+    checked = 0
+    for part in cat.generate(tmp_path):
+        ext = object_extent_px(Image.open(part.image_paths[0]))
+        if ext is None:
+            continue
+        long_px, short_px = ext
+        want = parse_length_mm(part.attributes["length"]) / pipe_od_mm(part.attributes["pipe_size"])
+        assert want >= 1.4  # no nipple shorter than two thread engagements
+        if long_px / short_px < 1.25:
+            continue  # an end-on view shows the bore, not the length
+        assert abs(long_px / short_px - want) / want < 0.2, (part.attributes, long_px, short_px)
+        checked += 1
+    assert checked >= 10
