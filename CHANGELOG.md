@@ -12,8 +12,8 @@
   each and measures the lift with and without the shop id on the same query, split by
   whether the shop had bought the part before, with an order-again baseline for the
   recommendations (60 shops, 870 orders on the shipped model: search top-1 53% -> 70%,
-  84% on re-orders; photo top-1 81% -> 84%; a recommendation in the next order 65% against an
-  order-again baseline of 76%, before once-bought parts joined the list).
+  84% on re-orders; photo top-1 81% -> 84%; a recommendation in the next order 78% against an
+  order-again baseline of 76%, almost all of it re-orders).
 
 - Shipped model: `assets/tinycnn_synthetic.pt` retrained on the fixed renderer (same recipe,
   8,000 parts), first for 24 epochs and then 48. Held-out 800-part catalog, 400 photo-style

@@ -324,10 +324,14 @@ and cabinetry, overlap in what they buy, which is honest, since the boost works
 off the shared category mix either way.
 
 Recommendations are scored against the dumbest baseline, the shop's six
-most-bought parts (an order-again list). With only staples (parts bought twice or
-more) recommended, a recommendation was in the next order 65% of the time against
-the baseline's 76%, so the list now also carries the shop's recent one-off buys;
-the re-run with that change is pending and this number will be replaced.
+most-bought parts (an order-again list). On the same 60 shops a recommendation was
+in the next order 78% of the time against the baseline's 76%, and only 0.3% of
+orders contained a recommended part the shop had never bought. Read that as it
+is: the list earns its place by getting re-orders right (parts due again, then
+staples, then one-off buys by recency; a first version that offered only
+staples scored 65%), while the complements and segment favourites, the part of
+the list that could show a shop something new, are not yet bought from the
+strip. That is the next thing to work on, and the number to watch.
 
 An earlier run of 1000 shops and 14,947 orders (2026-09-09) used a search
 re-rank that could lift any hit in a 50-row window by up to 0.3 of the position
