@@ -269,7 +269,7 @@ def test_recommend_keeps_a_slot_for_something_new(store):
     orders, a, b, cats = _orders(store)
     parts = {p.part_number: p for p in store.iter_parts()}
     book = CustomerBook(orders, parts, k=2)
-    by_cat = lambda cat: [p for p in parts.values() if " > ".join(p.category_path[:2]) == cat]  # noqa: E731
+    by_cat = lambda path, mat: store.by_category(path, limit=40, material=mat)  # noqa: E731
     rec = book.recommend("shop-a", 4, browse=by_cat)
     mine = {it.part_number for o in orders if o.client_id == "shop-a" for it in o.items}
     fresh = [r for r in rec if r["part_number"] not in mine]
@@ -279,3 +279,24 @@ def test_recommend_keeps_a_slot_for_something_new(store):
     assert parts[fresh[0]["part_number"]].category_path[0] == a[0].category_path[0]
     # no slot is wasted when there is nothing new to say
     assert len(book.recommend("shop-a", 4)) == 4
+    # one slot is never the whole list: the shop's own first pick always fits
+    one = book.recommend("shop-a", 1, browse=by_cat)
+    assert len(one) == 1 and one[0]["part_number"] in mine
+    # the new part is in one of the shop's two materials (asked of the catalog, not
+    # filtered after a cut) and the reason names the aisle and the material
+    mats = {m for m, _ in book.profiles["shop-a"].materials.most_common(2)}
+    for r in rec:
+        if r["why"].startswith("new in"):
+            m = parts[r["part_number"]].attributes.get("material")
+            assert m in mats and r["why"].endswith(f", {m}") and "Washers" in r["why"]
+
+
+def test_by_category_material_filter(store):
+    parts = list(store.iter_parts())
+    p = next(p for p in parts if p.attributes.get("material"))
+    mat = p.attributes["material"]
+    got = store.by_category(p.category_path[:1], limit=500, material=mat)
+    assert got and all(x.attributes.get("material") == mat for x in got)
+    assert p.part_number in {x.part_number for x in got}
+    assert len(got) < len(store.by_category(p.category_path[:1], limit=500))
+    assert store.by_category([], limit=5, material="no such material") == []

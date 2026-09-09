@@ -741,7 +741,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         recs = book.recommend(
             client_id,
             n,
-            browse=lambda cat: ident.store.by_category(cat.split(" > "), limit=60),
+            browse=lambda path, mat: ident.store.by_category(path, limit=40, material=mat),
             new_slots=max(1, n // 6),
         )
         for r in recs:

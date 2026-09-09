@@ -49,6 +49,7 @@ class Profile:
     parts: Counter = field(default_factory=Counter)
     recent: list[str] = field(default_factory=list)  # part numbers of the last order
     bought_at: dict[str, list[datetime]] = field(default_factory=dict)  # part -> when
+    category_paths: dict[str, list[str]] = field(default_factory=dict)  # key -> path
     segment: int | None = None
 
     def as_dict(self, top: int = 5) -> dict[str, Any]:
@@ -120,6 +121,7 @@ class CustomerBook:
                     continue
                 cat = category_key(part)
                 prof.categories[cat] += 1
+                prof.category_paths.setdefault(cat, list(part.category_path[:2]))
                 self.global_categories[cat] += 1
                 if part.family_id:
                     prof.families[part.family_id] += 1
@@ -321,7 +323,7 @@ class CustomerBook:
         client_id: str | None,
         n: int = 6,
         *,
-        browse: Callable[[str], list[Part]] | None = None,
+        browse: Callable[[list[str], str | None], list[Part]] | None = None,
         new_slots: int = 1,
     ) -> list[dict[str, Any]]:
         """What to show this customer before they search: parts they re-order, then
@@ -329,8 +331,9 @@ class CustomerBook:
 
         A list of a shop's own history fills itself after a few orders, so ``new_slots``
         places at the end are kept for things the shop has never bought (complements,
-        segment favourites, and, given ``browse(category) -> parts``, unbought parts in
-        its usual category and material): one thing new next to the re-orders.
+        segment favourites, and, given ``browse(category_path, material) -> parts``,
+        unbought parts in its usual category and material): one thing new next to the
+        re-orders.
         """
         prof = self.profiles.get(client_id or "")
         out: list[dict[str, Any]] = []
@@ -380,21 +383,32 @@ class CustomerBook:
                 if prof is None or not prof.parts.get(pn):
                     add(pn, "popular with shops like yours", 0.2 + 0.2 * min(1.0, c / 50))
         if prof is not None and browse is not None and prof.categories:
-            # something new in the shop's usual aisle, in the material it prefers
-            mats = {m for m, _ in prof.materials.most_common(2)}
-            for cat, _ in prof.categories.most_common(2):
-                for part in browse(cat):
-                    if prof.parts.get(part.part_number):
-                        continue
-                    mat = str(part.attributes.get("material") or "")
-                    if mats and mat not in mats:
-                        continue
-                    add(
-                        part.part_number,
-                        f"new in {cat.split(' > ')[-1]}" + (f", {mat}" if mat else ""),
-                        0.45,
-                        known=True,
-                    )
+            # something new in the shop's usual aisle, in the material it prefers; the
+            # material is asked of the catalog so a big aisle is not cut before the
+            # shop's material comes up; a small decay spreads the slots over the aisles
+            mats = [m for m, _ in prof.materials.most_common(2)] or [None]
+            for j, (cat, _) in enumerate(prof.categories.most_common(2)):
+                path = prof.category_paths.get(cat)
+                if not path:
+                    continue
+                found = 0
+                for mat in mats:
+                    for part in browse(path, mat):
+                        if prof.parts.get(part.part_number):
+                            continue
+                        attrs = {k.lower(): str(v) for k, v in part.attributes.items()}
+                        shown = next((attrs[k] for k in MATERIAL_KEYS if attrs.get(k)), "")
+                        add(
+                            part.part_number,
+                            f"new in {path[-1]}" + (f", {shown}" if shown else ""),
+                            0.45 - 0.05 * j - 0.005 * found,
+                            known=True,
+                        )
+                        found += 1
+                        if found >= 2 * n:
+                            break
+                    if found >= 2 * n:
+                        break
         if not out:
             for pn, c in self.part_counts.most_common(n):
                 add(pn, "popular", 0.2 * min(1.0, c / 50))
@@ -403,6 +417,8 @@ class CustomerBook:
             return out[:n]
         own = [r for r in out if prof.parts.get(r["part_number"])]
         new = [r for r in out if not prof.parts.get(r["part_number"])]
+        if own:
+            new_slots = min(new_slots, n - 1)  # the shop's own first pick always fits
         keep = max(0, n - new_slots) if new else n
         head = own[:keep]
         return (head + new[: n - len(head)] + own[keep:])[:n]

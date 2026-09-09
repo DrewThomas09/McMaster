@@ -268,11 +268,27 @@ class CatalogStore:
         parts = self.get_many(ordered[:limit])
         return [(parts[pn], scores[pn]) for pn in ordered[:limit] if pn in parts]
 
-    def by_category(self, prefix: list[str], limit: int = 60, offset: int = 0) -> list[Part]:
-        """Parts whose category path starts with ``prefix`` (JSON list prefix match)."""
+    def by_category(
+        self,
+        prefix: list[str],
+        limit: int = 60,
+        offset: int = 0,
+        material: str | None = None,
+    ) -> list[Part]:
+        """Parts whose category path starts with ``prefix`` (JSON list prefix match),
+        optionally only those whose ``material`` attribute is ``material``."""
+        mat_sql = ""
+        args: list = []
+        if material:
+            mat_sql = (
+                " AND COALESCE(json_extract(attributes, '$.material'), "
+                "json_extract(attributes, '$.Material')) = ?"
+            )
+            args.append(material)
         if not prefix:
             rows = self._conn.execute(
-                "SELECT * FROM parts ORDER BY part_number LIMIT ? OFFSET ?", (limit, offset)
+                f"SELECT * FROM parts WHERE 1{mat_sql} ORDER BY part_number LIMIT ? OFFSET ?",
+                (*args, limit, offset),
             ).fetchall()
             return [self._row_to_part(r) for r in rows]
         head = json.dumps(prefix)[:-1]  # '["A", "B"' matches '["A", "B"]' and '["A", "B", ...'
@@ -280,9 +296,9 @@ class CatalogStore:
         # category name as wildcards and fold ASCII case, disagreeing with the taxonomy counts)
         deeper = head + ", "
         rows = self._conn.execute(
-            "SELECT * FROM parts WHERE category_path = ? OR substr(category_path, 1, ?) = ? "
-            "ORDER BY part_number LIMIT ? OFFSET ?",
-            (head + "]", len(deeper), deeper, limit, offset),
+            "SELECT * FROM parts WHERE (category_path = ? OR substr(category_path, 1, ?) = ?)"
+            f"{mat_sql} ORDER BY part_number LIMIT ? OFFSET ?",
+            (head + "]", len(deeper), deeper, *args, limit, offset),
         ).fetchall()
         return [self._row_to_part(r) for r in rows]
 
