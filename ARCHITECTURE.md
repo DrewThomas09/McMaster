@@ -58,7 +58,8 @@ one is loaded. A fine-tuned checkpoint adds a `ProjectionHead` (512-d).
 | tinycnn (42 epochs on 800 parts) | 2 | 0.29 | 0.74 | 0.86 | 1.00 | 0.48 | 92 |
 | tinycnn (24 epochs on 8,000 parts, previous shipped checkpoint) | 2 | 0.33 | 0.72 | 0.88 | **1.00** | 0.50 | 92 |
 | tinycnn retrained on the fixed renderer, 24 epochs (2026-09-07; seed 4242, 400 queries) | 2 | 0.47 | 0.86 | 0.97 | **1.00** | 0.63 | 92 |
-| **tinycnn 48 epochs (shipped `assets/tinycnn_synthetic.pt`, 2026-09-08; seed 4242, 400 queries)** | 2 | **0.55** | **0.93** | **0.99** | **1.00** | **0.71** | 92 |
+| tinycnn 48 epochs (shipped 2026-09-08 to 2026-09-09; seed 4242, 400 queries) | 2 | 0.55 | 0.93 | 0.99 | 1.00 | 0.71 | 92 |
+| **tinycnn 83 of a 96-epoch schedule at half the learning rate (shipped `assets/tinycnn_synthetic.pt`, 2026-09-09; same held-out catalog and queries, re-rendered nipples)** | 2 | **0.62** | **0.96** | **1.00** | **1.00** | **0.76** | 92 |
 | ensemble tinycnn(48ep)+hash (1:0.3) on the 800-part demo, 200 queries (2026-09-08) | 2 | 0.56 | 0.95 | 1.00 | 1.00 | 0.72 | 200 |
 | tinycnn(48ep) alone, same demo and queries | 2 | 0.56 | 0.96 | 0.99 | 1.00 | 0.72 | 92 |
 | tinycnn (42 epochs) + query expansion k=3 | 2 | 0.28 | 0.72 | **0.87** | 1.00 | 0.47 | 92 |
@@ -88,7 +89,9 @@ is worth +1.4 points Recall@1 and +2 points family Recall@1 on a 300-part
 catalog (0.237 vs 0.223, 0.293 vs 0.273). The synthetic renderer now gives every
 kind a distinct second view and keeps long parts on the canvas, which moved the
 shipped TinyCNN's held-out Recall@1 from 0.28 to 0.30 on the same seed, retraining
-on the fixed renderer took it to 0.47, and a 48-epoch schedule to 0.55 (family
+on the fixed renderer took it to 0.47, a 48-epoch schedule to 0.55, and 83 epochs of
+a 96-epoch schedule at half the learning rate to 0.62 (family Recall@1 0.83, MRR 0.76;
+the 48-epoch model's family
 Recall@1 0.74, MRR 0.71; see the model card).
 
 ## Training (`training/train.py`)

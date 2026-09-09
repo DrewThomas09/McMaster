@@ -17,9 +17,11 @@
   one slot kept for something new, against an order-again baseline of 77%).
 
 - Shipped model: `assets/tinycnn_synthetic.pt` retrained on the fixed renderer (same recipe,
-  8,000 parts), first for 24 epochs and then 48. Held-out 800-part catalog, 400 photo-style
-  queries: Recall@1 0.30 -> 0.47 -> 0.55, Recall@5 0.70 -> 0.86 -> 0.93, family Recall@1
-  0.49 -> 0.65 -> 0.74, MRR 0.48 -> 0.63 -> 0.71.
+  8,000 parts), first for 24 epochs, then 48, then 83 epochs of a 96-epoch schedule at half
+  the backbone learning rate (the run was cut short by a container restart; the epoch-83
+  checkpoint beat the best-validation one head to head). Held-out 800-part catalog, 400
+  photo-style queries: Recall@1 0.30 -> 0.47 -> 0.55 -> 0.62, Recall@5 0.70 -> 0.86 ->
+  0.93 -> 0.96, family Recall@1 0.49 -> 0.65 -> 0.74 -> 0.83, MRR 0.48 -> 0.63 -> 0.71 -> 0.76.
 
 - Purchase loop: `POST /cart`, `DELETE /cart/{pn}`, `POST /checkout`, `GET /orders`; the phone
   UI gets Add-to-cart on the verdict and candidates, a cart drawer with quantities and the

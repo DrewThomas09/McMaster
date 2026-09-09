@@ -86,7 +86,7 @@ remain the weakest: the size question, the coin, the bore and the thread pitch a
 levers there, not the model alone.
 
 
-## 48-epoch retrain (2026-09-08, shipped)
+## 48-epoch retrain (2026-09-08, superseded)
 
 Same recipe and data as the previous section, with the cosine schedule stretched to 48
 epochs (`epochs: 48`); best epoch 42 (validation Recall@1 0.266 on the 8k-part split),
@@ -96,7 +96,7 @@ about 10 h on 4 CPU cores alongside other load. Head to head on the fresh held-o
 | checkpoint | R@1 | R@5 | R@10 | family R@1 | MRR |
 |---|---|---|---|---|---|
 | 24-epoch (previous shipped) | 0.468 | 0.863 | 0.968 | 0.645 | 0.628 |
-| **48-epoch (shipped)** | **0.550** | **0.932** | **0.990** | **0.743** | **0.707** |
+| **48-epoch (shipped until 2026-09-09)** | **0.550** | **0.932** | **0.990** | **0.743** | **0.707** |
 
 The longer schedule keeps improving on the fixed renderer; the 24-epoch numbers of the
 earlier sections are superseded.
@@ -108,3 +108,28 @@ augmentation 2; Recall@1 / Recall@5 / queries): Pipe, Tubing, Hose & Fittings 0.
 0.56, Recall@5 0.96, family Recall@1 0.77, MRR 0.72. Fittings remain the weakest category
 (up from 0.38), which is what the size question, the coin, the bore and the thread pitch
 are for.
+
+
+## 96-epoch schedule at half the learning rate, stopped at epoch 83 (2026-09-09, shipped)
+
+Same recipe and data, with the cosine schedule stretched to 96 epochs and the backbone
+learning rate halved (`epochs: 96`, `lr: 5.0e-4`, head 1.0e-3). The run was killed by a
+container restart after epoch 83 (about 30 h on 4 shared CPU cores); the checkpoint
+shipped is the last one written (epoch 83), not the best-validation one (epoch 56,
+validation Recall@1 0.286), because on the fresh held-out 800-part catalog (seed 4242,
+400 photo-style queries, `scripts/compare_checkpoints.py`, all three measured the same
+day on the same catalog) the later checkpoint is clearly better:
+
+| checkpoint | R@1 | R@5 | R@10 | family R@1 | MRR |
+|---|---|---|---|---|---|
+| 48-epoch (previous shipped) | 0.530 | 0.915 | 0.990 | 0.723 | 0.694 |
+| epoch 56 of 96 (best validation) | 0.540 | 0.945 | 0.995 | 0.750 | 0.709 |
+| **epoch 83 of 96 (shipped)** | **0.623** | **0.958** | **0.995** | **0.830** | **0.764** |
+
+The 48-epoch row reads 0.530 here against 0.550 in the previous section: the synthetic
+renderer changed on 2026-09-09 (pipe nipples drawn to the catalog's proportions), so
+the held-out catalog is not byte-identical to the one measured the day before. The
+validation split's Recall@1 (0.25-0.29) is a poor guide to the held-out number: the
+split is 8k parts of the training catalog with many near-twins, the held-out catalog
+is 800 unseen parts. Thirteen epochs of the schedule remain unrun; the cosine tail
+would have taken the learning rate to zero and may have added a little more.
