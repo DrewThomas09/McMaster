@@ -93,6 +93,43 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     app.state.get_identifier = lambda: get_identifier()
     app.state.check_admin = lambda request: check_admin(request)
 
+    customers_cache: dict = {"orders": None, "book": None}
+    customers_lock = threading.Lock()
+
+    def customer_book():
+        """The customer model from every order on disk, rebuilt when the orders change."""
+        from mcmaster_vision.pipeline.customers import CustomerBook
+
+        orders = app.state.carts.all_orders()
+        with customers_lock:
+            if customers_cache["orders"] is orders and customers_cache["book"] is not None:
+                return customers_cache["book"]
+            ident = get_identifier()
+            pns = {it.part_number for o in orders for it in o.items}
+            parts = ident.store.get_many(pns) if pns else {}
+            book = CustomerBook(orders, parts)
+            customers_cache.update(orders=orders, book=book)
+            return book
+
+    app.state.customer_book = customer_book
+
+    def customer_prior_for(client_id: str | None):
+        """A per-candidate boost function for this customer, or None for a stranger."""
+        from mcmaster_vision.pipeline.customers import customer_boost_weight
+
+        if not client_id:
+            return None
+        book = customer_book()
+        prof = book.profiles.get(client_id)
+        if prof is None or prof.orders == 0:
+            return None
+        w = customer_boost_weight(prof.orders)
+
+        def fn(part_numbers: list[str]) -> dict[str, float]:
+            return {pn: w * b for pn, b in book.boosts(client_id, part_numbers).items()}
+
+        return fn
+
     async def record(result: IdentificationResult, photo: bytes | None) -> None:
         """Append to the request log and keep the photo, off the event loop."""
 
@@ -313,6 +350,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             description="x1,y1,x2,y2 (uploaded pixels) of the line drawn across the reference "
             "object, so the coin / card is not measured instead of the part",
         ),
+        client_id: str | None = Query(
+            None,
+            max_length=64,
+            pattern=r"^[A-Za-z0-9_-]+$",
+            description="The phone's client id: what this customer buys nudges the ranking",
+        ),
         ident: Identifier = Depends(get_identifier),
     ) -> IdentificationResult:
         reference = tuple(float(v) for v in ref.split(",")) if ref else None
@@ -351,6 +394,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                     mm_per_px=mm_per_px,
                     reference=reference,
                     suggest_reference=log,  # not for live-preview frames
+                    customer_prior=customer_prior_for(client_id) if log else None,
                 )
         except (OSError, ValueError) as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
@@ -581,17 +625,97 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         category: str = Query("", description="Category path prefix joined with ' > '"),
         limit: int = Query(20, ge=1, le=100),
         offset: int = Query(0, ge=0),
+        client_id: str | None = Query(
+            None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$", description="Personalise the order"
+        ),
         ident: Identifier = Depends(get_identifier),
     ):
         prefix = [c.strip() for c in category.split(">") if c.strip()]
         if q.strip():
-            hits = ident.store.search_text(q, limit + offset)
+            prior = customer_prior_for(client_id)
+            # a wider net when re-ranking: the customer's usual part may sit a page down
+            hits = ident.store.search_text(q, limit + offset + (20 if prior else 0))
             if prefix:
                 hits = [p for p in hits if p.category_path[: len(prefix)] == prefix]
+            if prior and hits:
+                boosts = prior([p.part_number for p in hits])
+                qn = q.strip().upper()
+                # exact / prefix part-number matches stay first; the rest re-sorts by text
+                # rank softened with the customer's boost (a tie-breaker, not a takeover)
+                pinned = [p for p in hits if p.part_number.startswith(qn)]
+                rest = [p for p in hits if not p.part_number.startswith(qn)]
+                pos = {p.part_number: i for i, p in enumerate(rest)}
+                rest.sort(
+                    key=lambda p: (
+                        -(1.0 / (pos[p.part_number] + 3) + 0.12 * boosts.get(p.part_number, 0.0))
+                    )
+                )
+                hits = pinned + rest
+            app.state.events.log(
+                "search",
+                client_id=client_id,
+                q=q.strip()[:80],
+                results=len(hits),
+                top=[p.part_number for p in hits[:5]],
+                personalised=bool(prior),
+            )
             return hits[offset : offset + limit]
         if prefix or offset:
             return ident.store.by_category(prefix, limit=limit, offset=offset)
         raise HTTPException(400, "give q or category")
+
+    @app.get("/me")
+    def me(
+        client_id: str = Query(..., max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
+    ) -> dict:
+        """What the orders say about this customer: history, segment, the categories and
+        sizes they buy. Nothing but the phone's own id is ever stored."""
+        from mcmaster_vision.pipeline.customers import customer_boost_weight
+
+        book = customer_book()
+        prof = book.profiles.get(client_id)
+        seg = None
+        if prof is not None and prof.segment is not None:
+            seg = next((x for x in book.segments if x["segment"] == prof.segment), None)
+        return {
+            "client_id": client_id,
+            "known": prof is not None,
+            "profile": prof.as_dict() if prof else None,
+            "segment": seg,
+            "personalisation_weight": customer_boost_weight(prof.orders) if prof else 0.0,
+        }
+
+    @app.get("/recommend")
+    def recommend(
+        client_id: str = Query(..., max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
+        n: int = Query(6, ge=1, le=24),
+        ident: Identifier = Depends(get_identifier),
+    ) -> list[dict]:
+        """Parts to show this customer before they search: re-orders, complements of the
+        last order, favourites of shops like theirs."""
+        book = customer_book()
+        out = []
+        for r in book.recommend(client_id, n):
+            part = ident.store.get(r["part_number"])
+            if part is None:
+                continue
+            out.append(
+                {
+                    **r,
+                    "name": part.name,
+                    "category": " > ".join(part.category_path[:2]),
+                    "thumb": f"/parts/{quote(part.part_number, safe='')}/thumb?size=160",
+                }
+            )
+        app.state.events.log(
+            "recommend_shown", client_id=client_id, parts=[r["part_number"] for r in out]
+        )
+        return out
+
+    @app.get("/segments")
+    def segments() -> dict:
+        """The customer segments the orders form (an industry proxy) and their sizes."""
+        return customer_book().summary()
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):

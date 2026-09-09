@@ -169,6 +169,30 @@ class Carts:
         with self._lock, open(self.orders_path, "a", encoding="utf-8") as fh:
             fh.write(order.model_dump_json() + "\n")
 
+    def all_orders(self) -> list[Order]:
+        """Every order on disk (for the customer model); cached until the file changes."""
+        if not self.orders_path.exists():
+            return []
+        try:
+            st = self.orders_path.stat()
+        except OSError:
+            return []
+        sig = (st.st_mtime_ns, st.st_size)
+        cached = getattr(self, "_all_cache", None)
+        if cached and cached[0] == sig:
+            return cached[1]
+        out: list[Order] = []
+        with self._lock, open(self.orders_path, encoding="utf-8") as fh:
+            for ln in fh:
+                if not ln.strip():
+                    continue
+                try:
+                    out.append(Order.model_validate_json(ln))
+                except ValueError:
+                    continue
+        self._all_cache = (sig, out)
+        return out
+
     def orders(self, limit: int = 50, client_id: str | None = None) -> list[Order]:
         if not self.orders_path.exists():
             return []

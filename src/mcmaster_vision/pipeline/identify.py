@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -176,6 +177,7 @@ class Identifier:
         mm_per_px: float | None = None,
         reference: tuple[float, float, float, float] | None = None,
         suggest_reference: bool = False,
+        customer_prior: dict[str, float] | Callable[[list[str]], dict[str, float]] | None = None,
     ) -> IdentificationResult:
         """Identify one photo, or several photos of the *same* part (different angles):
         every photo's TTA variants are searched and each catalog part keeps its best score.
@@ -263,10 +265,17 @@ class Identifier:
         )
         t = self._timer(timings, "retrieve", t)
 
-        # 4. fuse (first pass)
+        # 4. fuse (first pass); a callable prior is asked only about the candidates
         pop = self._popularity()
+        if callable(customer_prior):
+            customer_prior = customer_prior([h.part_number for h in hits])
         scored = self.fusion.rerank(
-            hits, parts, ocr_part_numbers=ocr_pns, popularity=pop, size=size
+            hits,
+            parts,
+            ocr_part_numbers=ocr_pns,
+            popularity=pop,
+            size=size,
+            customer_prior=customer_prior,
         )
 
         # 5. optional vision-LLM rerank on the short list
@@ -283,6 +292,7 @@ class Identifier:
                 llm_ranking=ranking,
                 popularity=pop,
                 size=size,
+                customer_prior=customer_prior,
             )
             t = self._timer(timings, "llm_rerank", t)
 

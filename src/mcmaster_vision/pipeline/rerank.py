@@ -47,6 +47,7 @@ class FusionReranker:
         w_size: float = 0.2,
         w_exact: float = 0.35,
         exact_similarity: float = 0.99,
+        w_customer: float = 0.06,
     ):
         self.w_sim, self.w_cat, self.w_hits, self.w_attr, self.w_ocr = (
             w_sim,
@@ -68,6 +69,9 @@ class FusionReranker:
         # hits and usage prior can add together
         self.w_exact = w_exact
         self.exact_similarity = exact_similarity
+        # what this customer buys (their category mix, families, sizes): a tie-breaker
+        # of the same order as the usage prior, never a substitute for the photo
+        self.w_customer = w_customer
 
     def rerank(
         self,
@@ -79,6 +83,7 @@ class FusionReranker:
         llm_ranking: dict[str, float] | None = None,
         popularity: dict[str, int] | None = None,
         size: Measurement | None = None,
+        customer_prior: dict[str, float] | None = None,
     ) -> list[Scored]:
         ocr = set(ocr_part_numbers or [])
         out: list[Scored] = []
@@ -118,6 +123,11 @@ class FusionReranker:
                 score += self.w_pop * math.log1p(min(n_conf / 2, 50))
                 # weighted evidence: a purchase counts 3, a tap 2 (FEEDBACK_WEIGHTS)
                 reasons.append(f"confirmed or bought before (evidence {n_conf})")
+            cust = (customer_prior or {}).get(part.part_number, 0.0)
+            if cust and self.w_customer:
+                score += self.w_customer * cust
+                if cust >= 0.4:
+                    reasons.append("what this shop usually buys")
             out.append(Scored(part, h.similarity, float(score), reasons))
         out.sort(key=lambda s: -s.score)
         return out
