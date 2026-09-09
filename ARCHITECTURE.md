@@ -312,8 +312,25 @@ shipped 48-epoch TinyCNN (2026-09-09, 1,215 searches and 790 photos):
 | photo top-1 | 81.0% | 83.9% | 83% -> 90% (n=393) | 79% -> 78% (n=397) | 78% -> 80% | 81% -> 82% | 83% -> 87% |
 | photo MRR | 0.896 | 0.912 | | | | | |
 
-The same at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147 searches and
-4,141 photos):
+At 1000 shops and 14,947 orders (10-20 each) on the final code of the day
+(2026-09-09, 20,579 searches and 13,562 photos, 30% of the photos next to a
+quarter; segments recovered the six industries with purity 0.90):
+
+| | plain | personalised | bought before | never bought | order 1-3 | order 4-8 | order 9+ |
+|---|---|---|---|---|---|---|---|
+| search top-1 | 48.7% | 65.7% | 50% -> 82% (n=10900) | 47% -> 48% (n=9679) | 49% -> 57% | 49% -> 68% | 49% -> 68% |
+| search MRR | 0.666 | 0.784 | | | | | |
+| photo top-1 | 81.5% | 84.7% | 82% -> 89% (n=7238) | 81% -> 79% (n=6324) | 82% -> 83% | 81% -> 85% | 82% -> 85% |
+| photo top-1, with a coin | 84.9% | 86.4% | | 84% -> 83% (n=1521) | | | |
+| photo top-1, no coin | 80.4% | 84.2% | | 80% -> 78% (n=4803) | | | |
+| photo MRR | 0.898 | 0.916 | | | | | |
+
+A recommendation was in the next order 74.9% of the time against the order-again
+baseline's 76.5%, 3.3% of orders taking a never-bought part.
+
+An earlier run at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147
+searches and 4,141 photos, before the eraser fixes and the segment vector
+change):
 
 | | plain | personalised | bought before | never bought | order 1-3 | order 4-8 | order 9+ |
 |---|---|---|---|---|---|---|---|
@@ -418,11 +435,12 @@ from the strip. The synthetic shops pick their non-staple parts at random
 within their category mix, which is close to the ceiling for one guess; the
 number to watch on real customers is that last column.
 
-An earlier run of 1000 shops and 14,947 orders (2026-09-09) used a search
+The first 1000-shop run of the day (same shops and orders) used a search
 re-rank that could lift any hit in a 50-row window by up to 0.3 of the position
-score; it showed search top-1 48.6% -> 59.2% and photo top-1 79.8% -> 83.6%,
-but the review found the weight could overturn a text match, and those numbers
-are superseded by the tiered re-rank above.
+score; it showed search top-1 48.6% -> 59.2% and photo top-1 79.8% -> 83.6%.
+The review found the weight could overturn a text match; the tiered re-rank
+above gains more (65.7%) while never lifting a weaker text match over a
+stronger one.
 
 ## Durability (nothing learned at run time is lost)
 

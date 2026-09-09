@@ -11,10 +11,10 @@
   stronger one. `mcv simulate-market` runs shops from six industries through 10-20 orders
   each and measures the lift with and without the shop id on the same query, split by
   whether the shop had bought the part before, with an order-again baseline for the
-  recommendations (60 shops, 870 orders on the shipped model: search top-1 53% -> 70%,
-  84% on re-orders; photo top-1 81% -> 84%; a recommendation in the next order 76% with one slot kept
-  for something new, level with an order-again baseline, 3.5% of orders taking a part
-  the shop had never bought).
+  recommendations (1000 shops, 14,947 orders on the shipped model: search top-1 49% -> 66%,
+  82% on re-orders; photo top-1 82% -> 85%, 85% -> 86% with a coin in the frame; segments
+  recover the six industries with purity 0.90; a recommendation in the next order 75% with
+  one slot kept for something new, against an order-again baseline of 77%).
 
 - Shipped model: `assets/tinycnn_synthetic.pt` retrained on the fixed renderer (same recipe,
   8,000 parts), first for 24 epochs and then 48. Held-out 800-part catalog, 400 photo-style
