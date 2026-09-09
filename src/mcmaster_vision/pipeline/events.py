@@ -374,7 +374,8 @@ def issues(a: dict) -> list[dict]:
             out.append(
                 {
                     "severity": "medium",
-                    "what": f"shops that buy {seg} got the top answer only {v['precision']:.0%} "
+                    "what": f"shops that buy {v.get('label', seg)} got the top answer only "
+                    f"{v['precision']:.0%} "
                     f"of the time ({v['bought']} purchases)",
                     "do": "the segment the ranking serves worst: their purchase photos teach the "
                     "most (`mcv learn`), and their categories deserve a look in the catalog",

@@ -339,14 +339,24 @@ class CustomerBook:
                 if c >= 2:
                     add(pn, f"you ordered this {c} times", 1.0 + c / 10)
             # a part bought once is still the likeliest thing to be bought again: the
-            # most recent first, below the staples and above the guesses
-            for i, pn in enumerate(prof.recent):
-                if prof.parts.get(pn) == 1:
-                    add(pn, "you ordered this recently", 0.8 - 0.01 * i)
+            # most recent first, below the staples and above every guess. The scores
+            # are tiers: due (2.0) > staples (1.0-1.3) > recent (0.8) > complements
+            # (0.5-0.75) > segment favourites (0.2-0.4) > popular (0-0.2), and no
+            # count, however large, crosses into the tier above
+            once = sorted(
+                (pn for pn, c in prof.parts.items() if c == 1),
+                key=lambda pn: prof.bought_at.get(pn, [prof.last_at])[-1],
+                reverse=True,
+            )
+            for i, pn in enumerate(once[: 2 * n]):
+                why = (
+                    "you ordered this recently" if pn in prof.recent else "you ordered this before"
+                )
+                add(pn, why, 0.8 - 0.01 * i)
             for pn in prof.recent:
                 for other, lift in self.complements(pn, 4):
                     if not prof.parts.get(other):
-                        add(other, f"often bought with {pn}", 0.5 + min(lift, 5) / 10)
+                        add(other, f"often bought with {pn}", 0.5 + min(lift, 5) / 20)
         if prof is not None and prof.segment is not None:
             members = [p for p in self.profiles.values() if p.segment == prof.segment]
             fav: Counter = Counter()
@@ -354,10 +364,10 @@ class CustomerBook:
                 fav.update(p.parts)
             for pn, c in fav.most_common(2 * n):
                 if prof is None or not prof.parts.get(pn):
-                    add(pn, "popular with shops like yours", 0.2 + c / 50)
+                    add(pn, "popular with shops like yours", 0.2 + 0.2 * min(1.0, c / 50))
         if not out:
             for pn, c in self.part_counts.most_common(n):
-                add(pn, "popular", c / 50)
+                add(pn, "popular", 0.2 * min(1.0, c / 50))
         out.sort(key=lambda r: -r["score"])  # stable: equal scores keep their reason order
         return out[:n]
 
@@ -421,9 +431,9 @@ def customer_boost_weight(n_orders: int) -> float:
     return min(1.0, n_orders / 5.0)
 
 
-def segment_precision(book: CustomerBook, events) -> dict[str, dict[str, Any]]:
-    """Bought-top-1 precision per customer segment from the event log: which kind of shop
-    the ranking serves worst."""
+def segment_precision(book: CustomerBook, events) -> dict[int, dict[str, Any]]:
+    """Bought-top-1 precision per customer segment (keyed by segment id, worst first) from
+    the event log: which kind of shop the ranking serves worst."""
     ident_rows = {r.get("request_id"): r for r in events.rows("identify")}
     seg_of = {cid: p.segment for cid, p in book.profiles.items() if p.segment is not None}
     labels = {s["segment"]: s["label"] for s in book.segments}
@@ -440,7 +450,12 @@ def segment_precision(book: CustomerBook, events) -> dict[str, dict[str, Any]]:
             t[0] += 1
             t[1] += int(src.get("best") == it.get("part_number"))
     return {
-        labels.get(seg, str(seg)): {"bought": n, "top1_right": k, "precision": round(k / n, 3)}
+        seg: {
+            "label": labels.get(seg, str(seg)),
+            "bought": n,
+            "top1_right": k,
+            "precision": round(k / n, 3),
+        }
         for seg, (n, k) in sorted(tally.items(), key=lambda kv: kv[1][1] / kv[1][0])
         if n
     }

@@ -40,6 +40,9 @@ STATIC = Path(__file__).parent / "static"
 THUMB_SIZES = (96, 200, 400)
 
 
+RERANK_ROWS = 50  # text hits a customer's history may re-order, whatever the page
+
+
 def create_app(settings: Settings | None = None, identifier: Identifier | None = None) -> FastAPI:
     settings = settings or Settings()
     app = FastAPI(title="McMaster-Vision", version=__version__, description=__doc__)
@@ -498,12 +501,14 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         return learning_state(settings, app.state.feedback)
 
     def _segment_precision() -> dict:
+        """Keyed by the segment's label for the report (the id is inside)."""
         from mcmaster_vision.pipeline.customers import segment_precision
 
         try:
-            return segment_precision(customer_book(), app.state.events)
+            rows = segment_precision(customer_book(), app.state.events)
         except HTTPException:
             return {}
+        return {f"{v['label']} (#{seg})": {**v, "segment": seg} for seg, v in rows.items()}
 
     @app.post("/admin/learn")
     async def learn(request: Request) -> dict:
@@ -653,6 +658,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     @app.get("/search", response_model=list[Part])
     def search(
+        request: Request,
         q: str = Query("", description="Keyword / part number; empty lists a category"),
         category: str = Query("", description="Category path prefix joined with ' > '"),
         limit: int = Query(20, ge=1, le=100),
@@ -662,13 +668,15 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         ),
         ident: Identifier = Depends(get_identifier),
     ):
+        check_rate(request)
         prefix = [c.strip() for c in category.split(">") if c.strip()]
         if q.strip():
             prior = customer_prior_for(client_id)
-            # a fixed wider window when re-ranking (the same for every page, so pages do
-            # not overlap): the customer's usual part may sit a page down
+            # when re-ranking, exactly the first RERANK_ROWS hits are re-ordered whatever
+            # the page (so pages never overlap or skip) and the rest keep the text order;
+            # the customer's usual part may sit a page down
             scored = ident.store.search_text_scored(
-                q, max(limit + offset, 50) if prior else limit + offset
+                q, max(limit + offset, RERANK_ROWS) if prior else limit + offset
             )
             if prefix:
                 scored = [(p, sc) for p, sc in scored if p.category_path[: len(prefix)] == prefix]
@@ -680,8 +688,8 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 # well (the size, material and finish variants of one name); it never
                 # lifts a weaker text match over a stronger one, and part-number matches
                 # stay first
-                boosts = prior([p.part_number for p in hits])
-                hits = rerank_within_tiers(scored, boosts)
+                boosts = prior([p.part_number for p in hits[:RERANK_ROWS]])
+                hits = rerank_within_tiers(scored[:RERANK_ROWS], boosts) + hits[RERANK_ROWS:]
             app.state.events.log(
                 "search",
                 client_id=client_id,

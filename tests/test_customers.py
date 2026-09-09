@@ -215,3 +215,51 @@ def test_search_text_scored_matches_search_text(store):
     pn = parts[0].part_number
     pinned = store.search_text_scored(pn[:6], 5)
     assert pinned and pinned[0][1] == store.PINNED_SCORE
+
+
+def test_recommend_tiers_never_let_popularity_outrank_the_shop_history(store):
+    orders, a, b, cats = _orders(store)
+    # a crowd of shops in shop-b's category all buy one part shop-b never did: popular
+    # with shops like it, but not personal
+    mine = {it.part_number for o in orders if o.client_id == "shop-b" for it in o.items}
+    extra = next(p for p in b if p.part_number not in mine)
+    crowd = [
+        Order(
+            order_id=f"X{i}",
+            client_id=f"crowd-{i}",
+            items=[CartItem(part_number=b[0].part_number), CartItem(part_number=extra.part_number)],
+            created_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        )
+        for i in range(120)
+    ]
+    book = CustomerBook(orders + crowd, {p.part_number: p for p in store.iter_parts()}, k=2)
+    rec = book.recommend("shop-b", 10)
+    why = [r["why"] for r in rec]
+    assert rec[0]["part_number"] == b[0].part_number  # its own staple, bought three times
+    guess = next(r for r in rec if r["part_number"] == extra.part_number)
+    # a complement of its staple or a segment favourite: a guess, never above 0.75
+    assert ("often bought with" in guess["why"] or "shops like yours" in guess["why"]) and guess[
+        "score"
+    ] <= 0.75
+    first_guess = why.index(guess["why"])
+    own = ("ordered", "usually every")
+    assert first_guess >= 4 and all(any(k in w for k in own) for w in why[:first_guess])
+
+
+def test_personalised_search_pages_never_overlap_or_skip(identifier, store, tmp_path):
+    client = _client(identifier, tmp_path)
+    orders, a, b, cats = _orders(store)
+    for o in orders:
+        client.app.state.carts.save_order(o)
+    word = "steel"
+    pages = []
+    for off in range(0, 120, 7):
+        rows = client.get(f"/search?q={word}&limit=7&offset={off}&client_id=shop-a").json()
+        pages.extend(p["part_number"] for p in rows)
+        if len(rows) < 7:
+            break
+    full = [
+        p["part_number"] for p in client.get(f"/search?q={word}&limit=100&client_id=shop-a").json()
+    ]
+    assert len(pages) == len(set(pages))  # no duplicates across pages
+    assert pages == full[: len(pages)]  # and the same order as one long page

@@ -277,9 +277,7 @@ def _customers_html(request: Request) -> str:
         return ""
     from mcmaster_vision.pipeline.customers import segment_precision
 
-    labels = {x["segment"]: x["label"] for x in summ["segments"]}
-    by_label = segment_precision(book, request.app.state.events)
-    prec = {seg: v for seg, v in ((sg, by_label.get(lab)) for sg, lab in labels.items()) if v}
+    prec = segment_precision(book, request.app.state.events)
     rows = "".join(
         f"<tr><td>{s['segment']}</td><td>{e(s['label'])}</td><td>{s['customers']}</td><td>{s['orders']}</td>"
         f"<td>{(str(round(100 * prec[s['segment']]['precision'])) + '%') if prec.get(s['segment']) else '—'}</td></tr>"
