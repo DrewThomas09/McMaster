@@ -92,9 +92,11 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   them, `mcv learn` refits the tiers on real outcomes (`models/calibration_samples.jsonl`).
 * **Personalisation.** The customer model is rebuilt from `orders.jsonl` at most every
   `MCV_CUSTOMERS_REFRESH_S` (15 s) seconds per worker; it needs nothing but the phone's
-  self-generated client id, and the boost it adds is a capped tie-breaker on search and
-  photo candidates. `/segments` shows the segments (no client ids), `/me?client_id=`
-  a phone's own profile. Clear a customer by deleting their lines from `orders.jsonl`.
+  self-generated client id. On search the history only re-orders hits that match the
+  words equally well (the size, material and finish variants of one name), never a
+  weaker text match over a stronger one; on photos it is a small fusion term. `/segments`
+  shows segments of five customers or more (no client ids), `/me?client_id=` a phone's
+  own profile. Clear a customer by deleting their lines from `orders.jsonl`.
 * **Carts and orders.** Carts are one small file per phone under `data/logs/carts/`
   (every worker sees them, pruned after 14 days); orders append to `data/logs/orders.jsonl`.
   `GET /orders?client_id=...` shows a phone its own orders; the full list needs the API

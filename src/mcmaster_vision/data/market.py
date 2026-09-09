@@ -134,7 +134,7 @@ def run_market(
     rebuild) and the numbers do not depend on how fast the machine runs."""
     rng = random.Random(seed + 1)
     say = echo or (lambda *_: None)
-    rec_hits = rec_shown = base_hits = 0
+    rec_hits = rec_shown = base_hits = rec_new_hits = 0
     checkouts = 0
     bought_before: dict[str, Counter] = defaultdict(Counter)  # per shop, parts already bought
     max_orders = max(s.n_orders for s in shops)
@@ -153,8 +153,10 @@ def run_market(
                 base_hits += any(pn in want for pn in baseline)
                 try:
                     recs = client.get(f"/recommend?client_id={shop.client_id}&n=6").json()
-                    if any(r["part_number"] in want for r in recs):
-                        rec_hits += 1
+                    got = [r["part_number"] for r in recs if r["part_number"] in want]
+                    rec_hits += bool(got)
+                    # the value over an order-again list: a part the shop never bought
+                    rec_new_hits += any(pn not in bought_before[shop.client_id] for pn in got)
                 except Exception:  # noqa: BLE001
                     pass
             for part in basket:
@@ -213,6 +215,7 @@ def run_market(
         "recommend_shown": rec_shown,
         "recommend_hits": rec_hits,
         "baseline_hits": base_hits,
+        "recommend_new_hits": rec_new_hits,
     }
 
 
@@ -273,6 +276,9 @@ def market_report(shops: list[Shop], book, run: dict[str, Any]) -> dict[str, Any
     shown = run.get("recommend_shown") or 0
     out["recommend_hit_rate"] = round(run["recommend_hits"] / shown, 3) if shown else None
     out["baseline_hit_rate"] = round(run.get("baseline_hits", 0) / shown, 3) if shown else None
+    out["recommend_new_hit_rate"] = (
+        round(run.get("recommend_new_hits", 0) / shown, 3) if shown else None
+    )
     return out
 
 
@@ -349,6 +355,7 @@ def simulate_market(
     say(f"  segments: {sg['k']} found for {sg['industries']} industries, purity {sg['purity']}")
     say(
         f"  recommendations: hit rate {rep['recommend_hit_rate']} over {rep['recommend_shown']} orders "
-        f"(order-again baseline {rep['baseline_hit_rate']})"
+        f"(order-again baseline {rep['baseline_hit_rate']}; a part never bought before "
+        f"{rep['recommend_new_hit_rate']})"
     )
     return rep

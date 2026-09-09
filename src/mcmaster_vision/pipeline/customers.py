@@ -338,6 +338,11 @@ class CustomerBook:
             for pn, c in prof.parts.most_common():
                 if c >= 2:
                     add(pn, f"you ordered this {c} times", 1.0 + c / 10)
+            # a part bought once is still the likeliest thing to be bought again: the
+            # most recent first, below the staples and above the guesses
+            for i, pn in enumerate(prof.recent):
+                if prof.parts.get(pn) == 1:
+                    add(pn, "you ordered this recently", 0.8 - 0.01 * i)
             for pn in prof.recent:
                 for other, lift in self.complements(pn, 4):
                     if not prof.parts.get(other):
@@ -353,6 +358,7 @@ class CustomerBook:
         if not out:
             for pn, c in self.part_counts.most_common(n):
                 add(pn, "popular", c / 50)
+        out.sort(key=lambda r: -r["score"])  # stable: equal scores keep their reason order
         return out[:n]
 
     def summary(self) -> dict[str, Any]:

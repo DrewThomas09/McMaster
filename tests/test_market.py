@@ -48,6 +48,7 @@ def test_simulate_market_reports_lift_and_segments(tmp_path, demo_dir, index):
     assert rep["segments"]["industries"] >= 1 and rep["segments"]["k"] >= 1
     assert 0 <= rep["recommend_hit_rate"] <= 1
     assert 0 <= rep["baseline_hit_rate"] <= 1  # the order-again list the model must beat
+    assert 0 <= rep["recommend_new_hit_rate"] <= rep["recommend_hit_rate"]
     # the comparison arm of every photo lookup is not logged: one identify row per photo
     n_photo = rep["identify"]["plain"]["n"]
     events = (tmp_path / "m" / "logs" / "events.jsonl").read_text().splitlines()
