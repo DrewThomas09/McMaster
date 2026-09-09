@@ -185,6 +185,7 @@ async def try_part(
     tta: str = Query("full", pattern="^(full|fast|none)$"),
     coin: bool = Query(False, description="Photograph the part next to a quarter and use it"),
     client_id: str | None = Query(None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
+    log: bool = Query(True, description="false: a comparison call, not logged or kept"),
     ident: Identifier = Depends(_ident),
 ) -> dict:
     """Identify a photo-style render of a catalog part; returns the result and whether it was right."""
@@ -209,7 +210,11 @@ async def try_part(
     else:
         img = aug(src, out_size=512)
     measured_with_coin = ref is not None
-    prior = request.app.state.customer_prior_for(client_id) if client_id else None
+    prior = (
+        await run_in_threadpool(request.app.state.customer_prior_for, client_id)
+        if client_id
+        else None
+    )
     async with request.app.state.gate:
         if ref is not None:
             d = ref[2] - ref[0]
@@ -228,9 +233,10 @@ async def try_part(
             )
     # a sample is a real identification: log it and keep the render so a "This is it"
     # on it files feedback like any photo
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=90)
-    await request.app.state.record(res, buf.getvalue())
+    if log:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        await request.app.state.record(res, buf.getvalue())
     ranked = [c.part_number for c in res.candidates]
     return {
         "truth": part.part_number,

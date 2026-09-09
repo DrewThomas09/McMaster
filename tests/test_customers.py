@@ -24,7 +24,7 @@ def _orders(store):
     t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
     orders = []
     # shop-a buys from the first category (three orders), shop-b from the second, a
-    # one-off buyer takes one part of each; a and b each repeat one part
+    # one-off buyer takes a's pair and one of b's; a and b each repeat one part
     for i in range(3):
         orders.append(
             Order(
@@ -52,7 +52,11 @@ def _orders(store):
         Order(
             order_id="C0",
             client_id="once",
-            items=[CartItem(part_number=a[0].part_number), CartItem(part_number=b[0].part_number)],
+            items=[
+                CartItem(part_number=a[0].part_number),
+                CartItem(part_number=a[1].part_number),
+                CartItem(part_number=b[0].part_number),
+            ],
             created_at=t0,
         )
     )
@@ -76,7 +80,8 @@ def test_profiles_segments_priors_and_complements(store):
     assert rec and rec[0]["part_number"] == a[0].part_number
     assert "3 times" in rec[0]["why"] or "usually every" in rec[0]["why"]  # a staple, due again
     comp = dict(book.complements(a[0].part_number))
-    assert a[1].part_number in comp  # bought together twice
+    assert a[1].part_number in comp  # bought together by two different shops
+    assert b[0].part_number not in comp  # one shop's one-off is not a complement
     assert customer_boost_weight(0) == 0 and customer_boost_weight(5) == 1.0
     summary = book.summary()
     assert summary["customers"] == 3 and summary["orders"] == 7 and len(summary["segments"]) == 2
@@ -103,6 +108,9 @@ def test_api_personalises_search_and_identify(identifier, store, tmp_path):
     assert client.get("/me?client_id=nobody").json()["known"] is False
     seg = client.get("/segments").json()
     assert seg["customers"] == 3 and seg["segments"]
+    # three shops cannot fill a public segment: the view folds them into one line
+    assert len(seg["segments"]) == 1 and "small segments" in seg["segments"][0]["label"]
+    assert seg["segments"][0]["customers"] == 3
     rec = client.get("/recommend?client_id=shop-a&n=4").json()
     assert (
         rec and rec[0]["part_number"] == a[0].part_number and rec[0]["thumb"].startswith("/parts/")
@@ -174,3 +182,36 @@ def test_family_answer_marks_the_usual_size(identifier, store, tmp_path):
     assert "segment_precision_bought" in seg
     page = client.get("/dashboard").text
     assert "Customers and segments" in page and "photo top-1 when bought" in page
+
+
+def test_rerank_within_tiers_keeps_text_order_across_tiers():
+    from types import SimpleNamespace as P
+
+    from mcmaster_vision.pipeline.customers import rerank_within_tiers
+
+    a, b, c, d, e = (P(part_number=x) for x in "ABCDE")
+    # A..C match the words equally well (bm25 within 10%); D, then E, match them less well
+    scored = [(a, -10.0), (b, -9.8), (c, -9.5), (d, -8.0), (e, -6.0)]
+    out = rerank_within_tiers(scored, {"C": 0.8, "E": 1.0, "A": -0.5})
+    assert [p.part_number for p in out] == ["C", "A", "B", "D", "E"]
+    # a history below the threshold does not move anything; ties keep the text order
+    assert [p.part_number for p in rerank_within_tiers(scored, {"B": 0.02})] == list("ABCDE")
+    # part-number matches stay first in their own order, whatever the boosts say
+    pinned = [(e, -1e9), (d, -1e9)] + scored[:2]
+    assert [p.part_number for p in rerank_within_tiers(pinned, {"D": 1.0, "B": 1.0})] == list(
+        "EDBA"
+    )
+    # the LIKE fallback scores every hit 0: one tier, the history orders it
+    flat = [(a, 0.0), (b, 0.0), (c, 0.0)]
+    assert [p.part_number for p in rerank_within_tiers(flat, {"C": 0.3})] == list("CAB")
+
+
+def test_search_text_scored_matches_search_text(store):
+    parts = store.search_text("Threaded Pipe Nipple", 8)
+    scored = store.search_text_scored("Threaded Pipe Nipple", 8)
+    assert [p.part_number for p, _ in scored] == [p.part_number for p in parts]
+    assert all(sc < 0 for _, sc in scored)  # bm25: stronger is more negative
+    assert scored[0][1] <= scored[-1][1]
+    pn = parts[0].part_number
+    pinned = store.search_text_scored(pn[:6], 5)
+    assert pinned and pinned[0][1] == store.PINNED_SCORE

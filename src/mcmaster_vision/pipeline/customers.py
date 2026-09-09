@@ -82,6 +82,7 @@ class CustomerBook:
         self.profiles: dict[str, Profile] = {}
         self.global_categories: Counter = Counter()
         self.pair_counts: Counter = Counter()
+        self.pair_customers: dict[tuple[str, str], set[str]] = {}
         self.part_counts: Counter = Counter()
         self.n_orders = 0
         self._ingest(orders)
@@ -128,9 +129,11 @@ class CustomerBook:
                 for key in SIZE_KEYS:
                     if attrs.get(key):
                         prof.sizes[f"{key}={attrs[key]}"] += 1
-            for i, a in enumerate(sorted(set(pns))):
-                for b in sorted(set(pns))[i + 1 :]:
+            uniq = sorted(set(pns))
+            for i, a in enumerate(uniq):
+                for b in uniq[i + 1 :]:
                     self.pair_counts[(a, b)] += 1
+                    self.pair_customers.setdefault((a, b), set()).add(o.client_id)
 
     def _vector(self, counts: Counter) -> np.ndarray:
         v = np.array([counts.get(c, 0) for c in self.categories], dtype=np.float64)
@@ -270,6 +273,8 @@ class CustomerBook:
         if prof is None:
             return []
         now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
         out = []
         for pn, times in prof.bought_at.items():
             if len(times) < 3:
@@ -278,7 +283,8 @@ class CustomerBook:
             gaps = sorted((b - a).total_seconds() for a, b in zip(ts, ts[1:], strict=False))
             median = gaps[len(gaps) // 2]
             since = (now - ts[-1]).total_seconds()
-            if median > 0 and since >= median:
+            # a rhythm needs real days between orders; orders minutes apart are one visit
+            if median >= 3600 and since >= median:
                 out.append(
                     {
                         "part_number": pn,
@@ -292,14 +298,16 @@ class CustomerBook:
 
     # ------------------------------------------------------------ complements
     def complements(self, part_number: str, n: int = 5) -> list[tuple[str, float]]:
-        """Parts bought in the same order as ``part_number``, by lift (co-purchases over
-        what chance would give), at least twice."""
+        """Parts bought in the same order as ``part_number`` by at least two different
+        customers, by lift (co-purchases over what chance would give)."""
         base = self.part_counts.get(part_number, 0)
         if not base or self.n_orders < 2:
             return []
         out = []
         for (a, b), c in self.pair_counts.items():
             if part_number not in (a, b) or c < 2:
+                continue
+            if len(self.pair_customers.get((a, b), ())) < 2:
                 continue
             other = b if a == part_number else a
             expected = base * self.part_counts.get(other, 0) / self.n_orders
@@ -356,6 +364,97 @@ class CustomerBook:
         }
 
 
+def rerank_within_tiers(
+    scored: list[tuple[Any, float]],
+    boosts: dict[str, float],
+    *,
+    tolerance: float = 0.1,
+    min_boost: float = 0.05,
+    pinned_below: float = -1e8,
+) -> list[Any]:
+    """Re-order text hits by a customer's boosts without overturning the text match.
+
+    Hits arrive best first with their text score (bm25: more negative is stronger). A
+    *tier* is a run of hits whose score is within ``tolerance`` of the tier's leader:
+    size, material and finish variants of one name land in a tier together, a hit that
+    matches the words less well starts a new one. Only hits inside a tier trade places,
+    by boost (a history below ``min_boost`` does not count; a negative one never sinks
+    a hit); part-number matches (scores below ``pinned_below``) keep their order.
+    """
+    out: list[Any] = []
+    tier: list[Any] = []
+    leader: float | None = None
+
+    def flush() -> None:
+        if not tier:
+            return
+        keyed = [
+            (-(b if (b := boosts.get(p.part_number, 0.0)) >= min_boost else 0.0), i, p)
+            for i, p in enumerate(tier)
+        ]
+        keyed.sort(key=lambda t: t[:2])
+        out.extend(p for _, _, p in keyed)
+        tier.clear()
+
+    for part, score in scored:
+        if score <= pinned_below:
+            flush()
+            out.append(part)
+            leader = None
+            continue
+        if leader is None or score > leader * (1.0 - tolerance):
+            flush()
+            leader = score
+        tier.append(part)
+    flush()
+    return out
+
+
 def customer_boost_weight(n_orders: int) -> float:
     """How much of the boost to apply: nothing for a first order, full after five."""
     return min(1.0, n_orders / 5.0)
+
+
+def segment_precision(book: CustomerBook, events) -> dict[str, dict[str, Any]]:
+    """Bought-top-1 precision per customer segment from the event log: which kind of shop
+    the ranking serves worst."""
+    ident_rows = {r.get("request_id"): r for r in events.rows("identify")}
+    seg_of = {cid: p.segment for cid, p in book.profiles.items() if p.segment is not None}
+    labels = {s["segment"]: s["label"] for s in book.segments}
+    tally: dict[int, list[int]] = {}
+    for c in events.rows("checkout"):
+        seg = seg_of.get(c.get("client_id"))
+        if seg is None:
+            continue
+        for it in c.get("items", []):
+            src = ident_rows.get(it.get("request_id"))
+            if not src:
+                continue
+            t = tally.setdefault(seg, [0, 0])
+            t[0] += 1
+            t[1] += int(src.get("best") == it.get("part_number"))
+    return {
+        labels.get(seg, str(seg)): {"bought": n, "top1_right": k, "precision": round(k / n, 3)}
+        for seg, (n, k) in sorted(tally.items(), key=lambda kv: kv[1][1] / kv[1][0])
+        if n
+    }
+
+
+def public_segments(book: CustomerBook, min_customers: int = 5) -> dict[str, Any]:
+    """The summary for a public endpoint: segments too small to hide a single shop's
+    category mix are folded into one line."""
+    summ = book.summary()
+    big = [s for s in summ["segments"] if s["customers"] >= min_customers]
+    small = [s for s in summ["segments"] if s["customers"] < min_customers]
+    if small:
+        big.append(
+            {
+                "segment": None,
+                "customers": sum(s["customers"] for s in small),
+                "orders": sum(s["orders"] for s in small),
+                "label": f"{len(small)} small segments",
+                "top_categories": [],
+            }
+        )
+    summ["segments"] = big
+    return summ

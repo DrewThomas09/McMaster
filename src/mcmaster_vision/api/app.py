@@ -96,15 +96,16 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     customers_cache: dict = {"orders": None, "book": None, "built": 0.0}
     customers_lock = threading.Lock()
 
-    def customer_book():
+    def customer_book(force: bool = False):
         """The customer model from every order on disk, rebuilt when the orders change
         (at most every ``customers_refresh_s`` seconds: a checkout a second must not mean
-        a k-means a second)."""
+        a k-means a second; ``force`` reads the orders now)."""
         from mcmaster_vision.pipeline.customers import CustomerBook
 
         with customers_lock:
             fresh = (
-                customers_cache["book"] is not None
+                not force
+                and customers_cache["book"] is not None
                 and time.time() - customers_cache["built"] < settings.customers_refresh_s
             )
             orders = customers_cache["orders"] if fresh else app.state.carts.all_orders()
@@ -132,7 +133,10 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         w = customer_boost_weight(prof.orders)
 
         def fn(part_numbers: list[str]) -> dict[str, float]:
-            return book.boosts(client_id, part_numbers, weight=w)
+            # never a penalty on a photo: an unfamiliar category is not evidence against
+            return {
+                pn: max(0.0, b) for pn, b in book.boosts(client_id, part_numbers, weight=w).items()
+            }
 
         return fn
 
@@ -390,6 +394,9 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             if not data:
                 raise HTTPException(400, "empty upload")
             blobs.append(data)
+        prior = (
+            await run_in_threadpool(customer_prior_for, client_id) if (client_id and log) else None
+        )
         try:
             async with app.state.gate:
                 result = await run_in_threadpool(
@@ -402,13 +409,13 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                     mm_per_px=mm_per_px,
                     reference=reference,
                     suggest_reference=log,  # not for live-preview frames
-                    customer_prior=customer_prior_for(client_id) if log else None,
+                    customer_prior=prior,
                 )
         except (OSError, ValueError) as e:
             raise HTTPException(400, f"could not decode image: {e}") from e
         if client_id and result.family and result.family.distinguishing_attributes:
             # the size or material this shop usually buys, when it is one of the choices
-            usual = customer_book().usual_values(client_id)
+            usual = await run_in_threadpool(lambda: customer_book().usual_values(client_id))
             result.family.usual = {
                 k: usual[k]
                 for k, vals in result.family.distinguishing_attributes.items()
@@ -485,38 +492,18 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         a["learning"] = _learning_state()
         return a
 
-    def _segment_precision() -> dict:
-        """Bought-top-1 precision per customer segment: which kind of shop the ranking
-        serves worst."""
-        try:
-            book = customer_book()
-        except HTTPException:
-            return {}
-        ident_rows = {r.get("request_id"): r for r in app.state.events.rows("identify")}
-        seg_of = {cid: p.segment for cid, p in book.profiles.items() if p.segment is not None}
-        labels = {s["segment"]: s["label"] for s in book.segments}
-        tally: dict[int, list[int]] = {}
-        for c in app.state.events.rows("checkout"):
-            seg = seg_of.get(c.get("client_id"))
-            if seg is None:
-                continue
-            for it in c.get("items", []):
-                src = ident_rows.get(it.get("request_id"))
-                if not src:
-                    continue
-                t = tally.setdefault(seg, [0, 0])
-                t[0] += 1
-                t[1] += int(src.get("best") == it.get("part_number"))
-        return {
-            labels.get(seg, str(seg)): {"bought": n, "top1_right": k, "precision": round(k / n, 3)}
-            for seg, (n, k) in sorted(tally.items(), key=lambda kv: kv[1][1] / kv[1][0])
-            if n
-        }
-
     def _learning_state() -> dict:
         from mcmaster_vision.pipeline.learn import learning_state
 
         return learning_state(settings, app.state.feedback)
+
+    def _segment_precision() -> dict:
+        from mcmaster_vision.pipeline.customers import segment_precision
+
+        try:
+            return segment_precision(customer_book(), app.state.events)
+        except HTTPException:
+            return {}
 
     @app.post("/admin/learn")
     async def learn(request: Request) -> dict:
@@ -678,24 +665,23 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         prefix = [c.strip() for c in category.split(">") if c.strip()]
         if q.strip():
             prior = customer_prior_for(client_id)
-            # a wider net when re-ranking: the customer's usual part may sit a page down
-            hits = ident.store.search_text(q, limit + offset + (20 if prior else 0))
+            # a fixed wider window when re-ranking (the same for every page, so pages do
+            # not overlap): the customer's usual part may sit a page down
+            scored = ident.store.search_text_scored(
+                q, max(limit + offset, 50) if prior else limit + offset
+            )
             if prefix:
-                hits = [p for p in hits if p.category_path[: len(prefix)] == prefix]
+                scored = [(p, sc) for p, sc in scored if p.category_path[: len(prefix)] == prefix]
+            hits = [p for p, _ in scored]
             if prior and hits:
+                from mcmaster_vision.pipeline.customers import rerank_within_tiers
+
+                # the customer's history decides among hits that match the words equally
+                # well (the size, material and finish variants of one name); it never
+                # lifts a weaker text match over a stronger one, and part-number matches
+                # stay first
                 boosts = prior([p.part_number for p in hits])
-                qn = q.strip().upper()
-                # exact / prefix part-number matches stay first; the rest re-sorts by text
-                # rank softened with the customer's boost (a tie-breaker, not a takeover)
-                pinned = [p for p in hits if p.part_number.startswith(qn)]
-                rest = [p for p in hits if not p.part_number.startswith(qn)]
-                pos = {p.part_number: i for i, p in enumerate(rest)}
-                rest.sort(
-                    key=lambda p: (
-                        -(1.0 / (pos[p.part_number] + 3) + 0.3 * boosts.get(p.part_number, 0.0))
-                    )
-                )
-                hits = pinned + rest
+                hits = rerank_within_tiers(scored, boosts)
             app.state.events.log(
                 "search",
                 client_id=client_id,
@@ -711,12 +697,14 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     @app.get("/me")
     def me(
+        request: Request,
         client_id: str = Query(..., max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
     ) -> dict:
         """What the orders say about this customer: history, segment, the categories and
         sizes they buy. Nothing but the phone's own id is ever stored."""
         from mcmaster_vision.pipeline.customers import customer_boost_weight
 
+        check_rate(request)
         book = customer_book()
         prof = book.profiles.get(client_id)
         seg = None
@@ -732,12 +720,14 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     @app.get("/recommend")
     def recommend(
+        request: Request,
         client_id: str = Query(..., max_length=64, pattern=r"^[A-Za-z0-9_-]+$"),
         n: int = Query(6, ge=1, le=24),
         ident: Identifier = Depends(get_identifier),
     ) -> list[dict]:
         """Parts to show this customer before they search: re-orders, complements of the
         last order, favourites of shops like theirs."""
+        check_rate(request)
         book = customer_book()
         out = []
         for r in book.recommend(client_id, n):
@@ -759,8 +749,11 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     @app.get("/segments")
     def segments() -> dict:
-        """The customer segments the orders form (an industry proxy) and their sizes."""
-        return customer_book().summary()
+        """The customer segments the orders form (an industry proxy) and their sizes;
+        segments too small to hide one shop's mix are folded together."""
+        from mcmaster_vision.pipeline.customers import public_segments
+
+        return public_segments(customer_book())
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):

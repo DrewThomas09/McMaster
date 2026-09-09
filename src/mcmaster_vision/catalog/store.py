@@ -216,27 +216,37 @@ class CatalogStore:
         ).fetchall()
         return [self._row_to_part(r) for r in rows]
 
+    PINNED_SCORE = -1e9  # a part-number match: ahead of any keyword match
+
     def search_text(self, query: str, limit: int = 20) -> list[Part]:
         """Keyword / part-number search (FTS5 when available, LIKE otherwise).
 
         Exact and prefix part-number matches always come first.
         """
+        return [p for p, _ in self.search_text_scored(query, limit)]
+
+    def search_text_scored(self, query: str, limit: int = 20) -> list[tuple[Part, float]]:
+        """``search_text`` with each hit's text score: the FTS5 bm25 rank (more negative
+        is a stronger match), ``PINNED_SCORE`` for part-number matches, 0 for the LIKE
+        fallback, where every hit is as good as any other."""
         query = query.strip()
         if not query:
             return []
         ordered: list[str] = []
+        scores: dict[str, float] = {}
         for row in self._conn.execute(
             "SELECT part_number FROM parts WHERE part_number LIKE ? ESCAPE '\\' "
             "ORDER BY part_number LIMIT ?",
             (f"{_like_escape(query.upper())}%", limit),
         ):
             ordered.append(row["part_number"])
+            scores[row["part_number"]] = self.PINNED_SCORE
         if len(ordered) < limit:
             safe = " ".join(f'"{tok}"' for tok in query.replace('"', " ").split())
             if self._fts and safe:
                 try:
                     rows = self._conn.execute(
-                        "SELECT part_number FROM parts_fts WHERE parts_fts MATCH ? "
+                        "SELECT part_number, rank AS score FROM parts_fts WHERE parts_fts MATCH ? "
                         "ORDER BY rank LIMIT ?",
                         (safe, limit),
                     ).fetchall()
@@ -247,14 +257,16 @@ class CatalogStore:
             else:
                 like = f"%{query}%"
                 rows = self._conn.execute(
-                    "SELECT part_number FROM parts WHERE name LIKE ? OR description LIKE ? LIMIT ?",
+                    "SELECT part_number, 0.0 AS score FROM parts "
+                    "WHERE name LIKE ? OR description LIKE ? LIMIT ?",
                     (like, like, limit),
                 ).fetchall()
             for r in rows:
-                if r["part_number"] not in ordered:
+                if r["part_number"] not in scores:
                     ordered.append(r["part_number"])
+                    scores[r["part_number"]] = float(r["score"] or 0.0)
         parts = self.get_many(ordered[:limit])
-        return [parts[pn] for pn in ordered[:limit] if pn in parts]
+        return [(parts[pn], scores[pn]) for pn in ordered[:limit] if pn in parts]
 
     def by_category(self, prefix: list[str], limit: int = 60, offset: int = 0) -> list[Part]:
         """Parts whose category path starts with ``prefix`` (JSON list prefix match)."""

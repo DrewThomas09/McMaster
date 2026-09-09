@@ -42,8 +42,16 @@ def test_simulate_market_reports_lift_and_segments(tmp_path, demo_dir, index):
         k = rep[kind]
         assert k["plain"]["n"] > 0 and 0 <= k["personal"]["top1"] <= 1
         assert k["by_order"]
+        # the honest split: parts the shop bought before vs parts it never bought
+        assert k["seen_before"]["n"] + k["new_part"]["n"] == k["plain"]["n"]
+        assert k["seen_before"]["n"] > 0 and k["new_part"]["n"] > 0
     assert rep["segments"]["industries"] >= 1 and rep["segments"]["k"] >= 1
     assert 0 <= rep["recommend_hit_rate"] <= 1
+    assert 0 <= rep["baseline_hit_rate"] <= 1  # the order-again list the model must beat
+    # the comparison arm of every photo lookup is not logged: one identify row per photo
+    n_photo = rep["identify"]["plain"]["n"]
+    events = (tmp_path / "m" / "logs" / "events.jsonl").read_text().splitlines()
+    assert sum('"kind": "identify"' in ln for ln in events) == n_photo
     # nothing landed in the live data directory
     assert not (tmp_path / "logs" / "orders.jsonl").exists()
     assert (tmp_path / "m" / "logs" / "orders.jsonl").exists()

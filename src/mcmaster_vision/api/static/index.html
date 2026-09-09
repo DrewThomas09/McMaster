@@ -619,7 +619,12 @@ $('mclear').addEventListener('click', async () => { const had = !!scale; scale =
 // ---- cart + checkout (the purchase teaches the model) ------------------------
 function clientId() {
   let id = null; try { id = localStorage.getItem('mcv.client'); } catch (_) {}
-  if (!id) { id = 'c-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); try { localStorage.setItem('mcv.client', id); } catch (_) {} }
+  if (!id) {
+    // an unguessable id: another visitor must not be able to read this shop's cart or orders
+    let tail = null; try { tail = crypto.randomUUID(); } catch (_) {}
+    if (!tail) { const b = new Uint8Array(16); try { crypto.getRandomValues(b); } catch (_) { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); } tail = Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); }
+    id = 'c-' + tail; try { localStorage.setItem('mcv.client', id); } catch (_) {}
+  }
   return id;
 }
 let cart = [];

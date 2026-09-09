@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import random
 import re
+import zlib
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -124,12 +125,18 @@ def run_market(
     search_rate: float = 0.6,
     tta: str = "none",
     echo=None,
+    after_round=None,
 ) -> dict[str, Any]:
-    """Drive the shops through their orders against a TestClient of the API."""
+    """Drive the shops through their orders against a TestClient of the API.
+
+    ``after_round`` runs once every shop has placed its k-th order: the customer model
+    is rebuilt there, so what a round buys is known from the next round on (a nightly
+    rebuild) and the numbers do not depend on how fast the machine runs."""
     rng = random.Random(seed + 1)
     say = echo or (lambda *_: None)
-    rec_hits = rec_shown = 0
+    rec_hits = rec_shown = base_hits = 0
     checkouts = 0
+    bought_before: dict[str, Counter] = defaultdict(Counter)  # per shop, parts already bought
     max_orders = max(s.n_orders for s in shops)
     for k in range(max_orders):  # interleave shops so the model learns across all of them
         active = [s for s in shops if k < s.n_orders]
@@ -137,15 +144,21 @@ def run_market(
             break
         for shop in active:
             basket = next_basket(shop, parts, rng, rng.randint(1, 4))
+            want = {p.part_number for p in basket}
             if k >= 2:
+                # the recommendations against the dumbest baseline: the shop's own
+                # most-bought parts (what an "order again" list would show)
+                baseline = [pn for pn, _ in bought_before[shop.client_id].most_common(6)]
+                rec_shown += 1
+                base_hits += any(pn in want for pn in baseline)
                 try:
                     recs = client.get(f"/recommend?client_id={shop.client_id}&n=6").json()
-                    rec_shown += 1
-                    if any(r["part_number"] in {p.part_number for p in basket} for r in recs):
+                    if any(r["part_number"] in want for r in recs):
                         rec_hits += 1
                 except Exception:  # noqa: BLE001
                     pass
             for part in basket:
+                seen = part.part_number in bought_before[shop.client_id]
                 if rng.random() < search_rate:
                     q = _tokens(part)
                     plain = client.get(f"/search?q={q}&limit=30").json()
@@ -154,22 +167,26 @@ def run_market(
                         {
                             "order": k + 1,
                             "kind": "search",
+                            "seen": seen,
                             "plain": _rank([p["part_number"] for p in plain], part.part_number),
                             "personal": _rank([p["part_number"] for p in pers], part.part_number),
                         }
                     )
                     req = None
                 else:
-                    d0 = client.post(
-                        f"/demo/try/{part.part_number}?seed={k * 7 + 1}&tta={tta}"
-                    ).json()
-                    d1 = client.post(
-                        f"/demo/try/{part.part_number}?seed={k * 7 + 1}&tta={tta}&client_id={shop.client_id}"
-                    ).json()
+                    # every shop photographs its own part: a different pose per shop and
+                    # order, so the plain and personal arms still see the same photo
+                    photo_seed = (
+                        zlib.crc32(f"{k}|{shop.client_id}|{part.part_number}".encode()) & 0xFFFF
+                    ) + 1
+                    base = f"/demo/try/{part.part_number}?seed={photo_seed}&tta={tta}"
+                    d0 = client.post(f"{base}&log=false").json()  # the comparison arm
+                    d1 = client.post(f"{base}&client_id={shop.client_id}").json()
                     shop.ranks.append(
                         {
                             "order": k + 1,
                             "kind": "identify",
+                            "seen": seen,
                             "plain": d0["rank"],
                             "personal": d1["rank"],
                         }
@@ -185,9 +202,18 @@ def run_market(
                     },
                 )
             r = client.post("/checkout", json={"client_id": shop.client_id})
-            checkouts += r.status_code == 200
+            if r.status_code == 200:
+                checkouts += 1
+                bought_before[shop.client_id].update(want)
+        if after_round is not None:
+            after_round()
         say(f"  round {k + 1}/{max_orders}: {len(active)} shops ordered")
-    return {"checkouts": checkouts, "recommend_shown": rec_shown, "recommend_hits": rec_hits}
+    return {
+        "checkouts": checkouts,
+        "recommend_shown": rec_shown,
+        "recommend_hits": rec_hits,
+        "baseline_hits": base_hits,
+    }
 
 
 def _summ(rows: list[dict], key: str) -> dict[str, Any]:
@@ -217,6 +243,15 @@ def market_report(shops: list[Shop], book, run: dict[str, Any]) -> dict[str, Any
                     "n": len(b),
                 }
         out[kind]["by_order"] = by_bucket
+        # a part the shop bought before is the easy case (the model has seen the
+        # purchase); the honest number is the lift on parts it has never bought
+        for name, flag in (("seen_before", True), ("new_part", False)):
+            b = [r for r in sub if r.get("seen") is flag]
+            out[kind][name] = {
+                "n": len(b),
+                "plain_top1": _summ(b, "plain")["top1"],
+                "personal_top1": _summ(b, "personal")["top1"],
+            }
     # segments vs the true industries: weighted purity
     truth = {s.client_id: s.industry for s in shops}
     seg_members: dict[int, Counter] = defaultdict(Counter)
@@ -235,11 +270,9 @@ def market_report(shops: list[Shop], book, run: dict[str, Any]) -> dict[str, Any
         "industries": len(set(truth.values())),
         "table": {int(k): dict(v.most_common(3)) for k, v in seg_members.items()},
     }
-    out["recommend_hit_rate"] = (
-        round(run["recommend_hits"] / run["recommend_shown"], 3)
-        if run.get("recommend_shown")
-        else None
-    )
+    shown = run.get("recommend_shown") or 0
+    out["recommend_hit_rate"] = round(run["recommend_hits"] / shown, 3) if shown else None
+    out["baseline_hit_rate"] = round(run.get("baseline_hits", 0) / shown, 3) if shown else None
     return out
 
 
@@ -269,7 +302,12 @@ def simulate_market(
         settings = scratch_settings(settings, scratch)
         say(f"scratch copy of the deployment in {scratch}")
     s = settings.model_copy(
-        update={"demo_mode": True, "rate_limit_per_minute": 1_000_000, "customers_refresh_s": 5.0}
+        update={
+            "demo_mode": True,
+            "rate_limit_per_minute": 1_000_000,
+            # the customer model is rebuilt once per order round (below), never by the clock
+            "customers_refresh_s": 1e9,
+        }
     )
     with CatalogStore(s.catalog_db) as store:
         parts = list(store.iter_parts(with_images_only=True))
@@ -280,9 +318,16 @@ def simulate_market(
             f"{len(crowd)} shops in {len(set(x.industry for x in crowd))} industries, {sum(x.n_orders for x in crowd)} orders ..."
         )
         run = run_market(
-            client, parts, crowd, seed=seed, search_rate=search_rate, tta=tta, echo=say
+            client,
+            parts,
+            crowd,
+            seed=seed,
+            search_rate=search_rate,
+            tta=tta,
+            echo=say,
+            after_round=lambda: app.state.customer_book(force=True),
         )
-        book = app.state.customer_book()
+        book = app.state.customer_book(force=True)
     rep = market_report(crowd, book, run)
     for kind in ("search", "identify"):
         k = rep[kind]
@@ -293,9 +338,17 @@ def simulate_market(
             )
             for b, v in k["by_order"].items():
                 say(f"    {b}: {v['plain_top1']:.0%} -> {v['personal_top1']:.0%} (n={v['n']})")
+            for name in ("seen_before", "new_part"):
+                v = k[name]
+                if v["n"]:
+                    say(
+                        f"    {name.replace('_', ' ')}: {v['plain_top1']:.0%} -> "
+                        f"{v['personal_top1']:.0%} (n={v['n']})"
+                    )
     sg = rep["segments"]
     say(f"  segments: {sg['k']} found for {sg['industries']} industries, purity {sg['purity']}")
     say(
-        f"  recommendations: hit rate {rep['recommend_hit_rate']} over {rep['recommend_shown']} orders"
+        f"  recommendations: hit rate {rep['recommend_hit_rate']} over {rep['recommend_shown']} orders "
+        f"(order-again baseline {rep['baseline_hit_rate']})"
     )
     return rep

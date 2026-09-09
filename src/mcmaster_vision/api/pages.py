@@ -275,22 +275,14 @@ def _customers_html(request: Request) -> str:
     summ = book.summary()
     if not summ["orders"]:
         return ""
-    ident_rows = {r.get("request_id"): r for r in request.app.state.events.rows("identify")}
-    seg_of = {cid: p.segment for cid, p in book.profiles.items() if p.segment is not None}
-    prec: dict[int, list[int]] = {}
-    for c in request.app.state.events.rows("checkout"):
-        seg = seg_of.get(c.get("client_id"))
-        if seg is None:
-            continue
-        for it in c.get("items", []):
-            src = ident_rows.get(it.get("request_id"))
-            if src:
-                t = prec.setdefault(seg, [0, 0])
-                t[0] += 1
-                t[1] += int(src.get("best") == it.get("part_number"))
+    from mcmaster_vision.pipeline.customers import segment_precision
+
+    labels = {x["segment"]: x["label"] for x in summ["segments"]}
+    by_label = segment_precision(book, request.app.state.events)
+    prec = {seg: v for seg, v in ((sg, by_label.get(lab)) for sg, lab in labels.items()) if v}
     rows = "".join(
         f"<tr><td>{s['segment']}</td><td>{e(s['label'])}</td><td>{s['customers']}</td><td>{s['orders']}</td>"
-        f"<td>{(str(round(100 * prec[s['segment']][1] / prec[s['segment']][0])) + '%') if prec.get(s['segment']) else '—'}</td></tr>"
+        f"<td>{(str(round(100 * prec[s['segment']]['precision'])) + '%') if prec.get(s['segment']) else '—'}</td></tr>"
         for s in summ["segments"]
     )
     return f"""<h2 class="page">Customers and segments</h2>
