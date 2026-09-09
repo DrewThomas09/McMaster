@@ -26,6 +26,13 @@
   confidence each line came with, and one-tap checkout with an order confirmation. Every
   purchased item that came from a photo is filed as a `checkout` confirmation (weight 3,
   tap 2, cart 1: `FEEDBACK_WEIGHTS`), which the usage prior and training honour.
+- Coin measurement: a close-up coin can fill half the frame, and on a bench near the
+  coin's colour the eraser took the ruler path and painted the part over (one demo pose in
+  three lost 18 points with a coin). Coin or ruler is now decided by the shape of the
+  colour region, a coin on a bench of its own colour erases only its disc, and foreground
+  beyond the rim is kept. Size rules gained a nut vote (width across flats per thread
+  size, ASME B18.2.2 / ISO 4032) and the demo stages a coin for nuts and pipe fittings.
+  Every catalog part in three poses, no customer prior: top-1 81.3% -> 89.2% with a coin.
 - Recommendation take rate: `/analytics` and the dashboard's customers panel report, of the
   orders that followed a For-you strip, how many took a part from it and how many took a
   part the customer had never bought (`recommendation_take`), with an issue when the strip

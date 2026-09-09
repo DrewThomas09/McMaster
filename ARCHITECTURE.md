@@ -359,12 +359,16 @@ gained a nut vote):
 | no coin | 80.2% | 83.0% | 84% -> 91% | 76% -> 74% |
 | every photo next to a quarter | 78.2% | 79.9% | 79% -> 83% | 78% -> 77% |
 
-The coin helps the never-bought case by 1.6 points and halves the prior's loss
-there, but costs 2 points overall and 5 on re-orders: the size votes are right
-where they fire, so the loss is in the composite itself (erasing the coin, a
-looser silhouette) and in size votes that endorse a wrong look-alike. Why it
-costs is being worked out per part; until it is, the coin stays a user choice,
-not a default.
+That run said the coin cost 2 points overall, and a sweep of every part in three
+poses found why: one pose in three puts the part on a dark bench close to the
+coin's colour, and with the coin filling 43% of the close-up the eraser took its
+ruler path, grew the coin's colour across the whole bench and painted the part
+over (that pose: 81% -> 63% with a coin, the other two 83% -> 90% and 80% ->
+96%). Coin or ruler is now decided by shape, and a coin on a bench of its own
+colour erases only its disc. The same sweep after the fix, no customer prior:
+top-1 81.3% without a coin, 89.2% with one, every pose gaining. The marketplace
+comparison is being re-run on the fixed eraser and the table above will be
+replaced.
 
 Segments recovered the six industries with purity 0.58 at k = 8: plumbing and fluid systems, and machine shop, maintenance
 and cabinetry, overlap in what they buy, which is honest, since the boost works
