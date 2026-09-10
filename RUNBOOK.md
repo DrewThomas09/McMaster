@@ -114,6 +114,13 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   its index and calibration to sibling directories (`index-<backbone>`, `models-<backbone>`)
   and prints the environment to switch to. "Different" means the full model version,
   checkpoint included: a retrain from the shipped checkpoint is a switch too.
+* **Long trainings**: `mcv train` writes `last.pt` after every epoch and `best.pt` on a
+  new best validation score, but keeps no optimizer state, so a run that dies cannot pick
+  up mid-schedule; `init_checkpoint: <path to last.pt>` in the recipe starts a fresh (short,
+  low learning rate) schedule from its weights. Run multi-hour trainings where the process
+  outlives the shell (`setsid nohup ... &`), and on a hosted session keep the session alive:
+  a container reclaimed for inactivity kills the run (that is how the 96-epoch schedule
+  behind the shipped checkpoint stopped at epoch 83).
 * **Hard cases**: `MCV_RERANK_LLM_ENABLED=true` sends the top candidates and the
   photo to Claude for a structured verdict (needs `ANTHROPIC_API_KEY`); `MCV_OCR_ENABLED=true`
   reads part numbers printed on bags and parts.
