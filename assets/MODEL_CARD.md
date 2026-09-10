@@ -132,7 +132,11 @@ the held-out catalog is not byte-identical to the one measured the day before. T
 validation split's Recall@1 (0.25-0.29) is a poor guide to the held-out number: the
 split is 8k parts of the training catalog with many near-twins, the held-out catalog
 is 800 unseen parts. Thirteen epochs of the schedule remain unrun; the cosine tail
-would have taken the learning rate to zero and may have added a little more.
+would have taken the learning rate to zero and may have added a little more. A 13-epoch
+annealing tail from these weights (`init_checkpoint`, lr 3e-5 to 0) was started twice on
+2026-09-10 and killed both times when the hosted container was reclaimed for inactivity
+before its first epoch; it needs a machine the session does not own, and is left as the
+next training step.
 
 By top-level category on the 800-part demo evaluation (200 photo-style queries, gallery
 augmentation 2; Recall@1 / Recall@5 / queries): Sealing 0.40 / 1.00 / 5; Hand Tools 0.50 /
