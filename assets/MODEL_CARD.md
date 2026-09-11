@@ -133,10 +133,13 @@ validation split's Recall@1 (0.25-0.29) is a poor guide to the held-out number: 
 split is 8k parts of the training catalog with many near-twins, the held-out catalog
 is 800 unseen parts. Thirteen epochs of the schedule remain unrun; the cosine tail
 would have taken the learning rate to zero and may have added a little more. A 13-epoch
-annealing tail from these weights (`init_checkpoint`, lr 3e-5 to 0) was started twice on
-2026-09-10 and killed both times when the hosted container was reclaimed for inactivity
-before its first epoch; it needs a machine the session does not own, and is left as the
-next training step.
+annealing tail from these weights (`init_checkpoint`, lr 3e-5 to 0) was started three
+times on 2026-09-10/11 and killed each time when the hosted container was reclaimed for
+inactivity; the third attempt finished one epoch before dying, and that checkpoint measured
+R@1 0.635, R@5 0.968, family R@1 0.823, MRR 0.774 against the shipped 0.623 / 0.958 /
+0.830 / 0.764 on the same held-out catalog: a point on Recall@1 and MRR, a point down on
+families, within the noise of 400 queries, so it was not shipped. The full 13-epoch tail
+needs a machine the session does not own, and is left as the next training step.
 
 By top-level category on the 800-part demo evaluation (200 photo-style queries, gallery
 augmentation 2; Recall@1 / Recall@5 / queries): Sealing 0.40 / 1.00 / 5; Hand Tools 0.50 /
