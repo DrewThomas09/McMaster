@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS parts (
     url           TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_parts_family ON parts(family_id);
+CREATE INDEX IF NOT EXISTS idx_parts_category ON parts(category_path);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
@@ -292,13 +293,16 @@ class CatalogStore:
             ).fetchall()
             return [self._row_to_part(r) for r in rows]
         head = json.dumps(prefix)[:-1]  # '["A", "B"' matches '["A", "B"]' and '["A", "B", ...'
-        # substr() is an exact, case-sensitive prefix test (LIKE would treat % and _ in a
-        # category name as wildcards and fold ASCII case, disagreeing with the taxonomy counts)
+        # an exact, case-sensitive prefix test as a range the category index can serve
+        # (LIKE would treat % and _ in a category name as wildcards and fold ASCII case,
+        # disagreeing with the taxonomy counts): every path that starts with '["A", "B", '
+        # sorts between that string and the same string with the next byte appended
         deeper = head + ", "
         rows = self._conn.execute(
-            "SELECT * FROM parts WHERE (category_path = ? OR substr(category_path, 1, ?) = ?)"
+            "SELECT * FROM parts WHERE (category_path = ? OR "
+            "(category_path >= ? AND category_path < ?))"
             f"{mat_sql} ORDER BY part_number LIMIT ? OFFSET ?",
-            (head + "]", len(deeper), deeper, *args, limit, offset),
+            (head + "]", deeper, deeper + "\x7f", *args, limit, offset),
         ).fetchall()
         return [self._row_to_part(r) for r in rows]
 

@@ -42,6 +42,9 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Catalog: `by_category` is a range over an index on the category path instead of a
+  `substr()` scan, so browsing an aisle for the For-you strip costs microseconds on a big
+  catalog.
 - Event log: `search` rows live in their own window, so a busy search box no longer pushes
   the identify and checkout rows the analytics join on out of the 20k-row window;
   compaction keeps both windows.
