@@ -91,7 +91,8 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   against the current index; from 30 such samples with at least 5 wrong answers among
   them, `mcv learn` refits the tiers on real outcomes (`models/calibration_samples.jsonl`).
 * **Personalisation.** The customer model is rebuilt from `orders.jsonl` at most every
-  `MCV_CUSTOMERS_REFRESH_S` (15 s) seconds per worker; it needs nothing but the phone's
+  `MCV_CUSTOMERS_REFRESH_S` (15 s) seconds per worker, and straight after a checkout on
+  that worker; it needs nothing but the phone's
   self-generated client id. On search the history only re-orders hits that match the
   words equally well (the size, material and finish variants of one name), never a
   weaker text match over a stronger one; on photos it is a small fusion term. `/segments`
