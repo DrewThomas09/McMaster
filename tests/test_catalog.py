@@ -102,3 +102,16 @@ def test_synthetic_views_differ_and_stay_on_canvas(tmp_path):
         for p in SyntheticCatalog(n_parts=200, images_per_part=1, seed=2).generate(tmp_path / "b")
     }
     assert not (s1 & s2)
+
+
+def test_like_fallback_escapes_wildcards(store):
+    """With FTS off, a query of wildcards must not match every part."""
+    fts = store._fts
+    store._fts = False
+    try:
+        assert store.search_text("%", 10) == []
+        assert store.search_text("_", 10) == []
+        hits = store.search_text("Hex Nut", 10)
+        assert all("Hex Nut" in p.name for p in hits)
+    finally:
+        store._fts = fts

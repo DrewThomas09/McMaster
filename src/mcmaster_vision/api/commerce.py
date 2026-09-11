@@ -61,6 +61,9 @@ class Carts:
     """Carts as one JSON file per client under ``carts/`` (shared by all workers, pruned
     by age) and an append-only orders file."""
 
+    MAX_LINES = 50  # distinct parts in one cart: a real order, not a scraper's dump
+    MAX_CARTS = 20_000  # cart files on disk before the oldest go, whatever their age
+
     def __init__(self, orders_path: str | Path, *, max_age_s: float = 14 * 86400):
         self.orders_path = Path(orders_path)
         self.orders_path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,13 +111,25 @@ class Carts:
             return 0
         self._last_prune = now
         n = 0
-        for f in list(self.dir.glob("*.json")) + list(self.dir.glob("*.lock")):
+        carts = list(self.dir.glob("*.json"))
+        for f in carts + list(self.dir.glob("*.lock")):
             try:
-                if now - f.stat().st_mtime > self.max_age_s:
+                old = now - f.stat().st_mtime > self.max_age_s
+                # a lock whose cart is gone (checked out, emptied) is a stray after a minute
+                stray = f.suffix == ".lock" and not f.with_suffix(".json").exists()
+                if old or (stray and now - f.stat().st_mtime > 60):
                     f.unlink()
                     n += 1
             except OSError:
                 continue
+        if len(carts) > self.MAX_CARTS:  # a flood of throwaway ids: the oldest tenth goes
+            carts.sort(key=lambda f: f.stat().st_mtime if f.exists() else 0)
+            for f in carts[: len(carts) // 10]:
+                try:
+                    f.unlink()
+                    n += 1
+                except OSError:
+                    continue
         return n
 
     def get(self, cid: str) -> list[CartItem]:
@@ -134,6 +149,8 @@ class Carts:
                         it.confidence, it.tier = item.confidence, item.tier
                     break
             else:
+                if len(cart) >= self.MAX_LINES:
+                    raise ValueError(f"a cart holds at most {self.MAX_LINES} different parts")
                 cart.append(item)
             cart = [it for it in cart if it.quantity > 0]
             self._write(cid, cart)
@@ -141,6 +158,8 @@ class Carts:
             return list(cart)
 
     def remove(self, cid: str, part_number: str) -> list[CartItem]:
+        if not self._path(cid).exists():
+            return []  # nothing to remove, and no files for an id that never had a cart
         with self._locked(cid):
             cart = [it for it in self._read(cid) if it.part_number != part_number]
             self._write(cid, cart)
@@ -267,7 +286,10 @@ def add_to_cart(body: AddToCart, request: Request):
         name=part.name,
         price_usd=_price(part),
     )
-    cart = request.app.state.carts.add(cid, item, set_quantity=body.set_quantity)
+    try:
+        cart = request.app.state.carts.add(cid, item, set_quantity=body.set_quantity)
+    except ValueError as e:  # the cart is full
+        raise HTTPException(400, str(e)) from e
     if not body.set_quantity:
         request.app.state.events.log(
             "cart_add",

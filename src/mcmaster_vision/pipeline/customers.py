@@ -152,7 +152,7 @@ class CustomerBook:
                 for key in SIZE_KEYS:
                     if attrs.get(key):
                         prof.sizes[f"{key}={attrs[key]}"] += 1
-            uniq = sorted(set(pns))
+            uniq = sorted(set(pns))[:40]  # pairs are quadratic: a dump of a cart is not an order
             for i, a in enumerate(uniq):
                 for b in uniq[i + 1 :]:
                     self.pair_counts[(a, b)] += 1

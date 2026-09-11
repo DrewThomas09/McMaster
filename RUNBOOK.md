@@ -115,6 +115,15 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   its index and calibration to sibling directories (`index-<backbone>`, `models-<backbone>`)
   and prints the environment to switch to. "Different" means the full model version,
   checkpoint included: a retrain from the shipped checkpoint is a switch too.
+* **Exposure.** Anyone who can reach the port can identify, search, fill a cart and check
+  out under any client id they like: the id is the only key to a cart and its orders, so
+  it is minted with `crypto.randomUUID` on the phone and must never be shared. Set
+  `MCV_API_TOKEN` before binding to a network address (`mcv serve` mints one for the run
+  and prints it if you forget), and put a reverse proxy with a body-size limit and TLS in
+  front for anything beyond a workshop LAN. Rate limits (`MCV_RATE_LIMIT_PER_MINUTE`) are
+  off by default; turn them on for a shared network. Confirmations and purchases are
+  training data: on an open network run `mcv learn` by hand after a look at the dashboard
+  rather than on a timer.
 * **Long trainings**: `mcv train` writes `last.pt` after every epoch and `best.pt` on a
   new best validation score, but keeps no optimizer state, so a run that dies cannot pick
   up mid-schedule; `init_checkpoint: <path to last.pt>` in the recipe starts a fresh (short,

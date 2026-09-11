@@ -165,7 +165,7 @@ def part_page(part_number: str, request: Request) -> str:
 (() => {{
   const PN = {pn_js};
   const cid = () => {{ let id = null; try {{ id = localStorage.getItem('mcv.client'); }} catch (_) {{}}
-    if (!id) {{ id = 'c-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); try {{ localStorage.setItem('mcv.client', id); }} catch (_) {{}} }} return id; }};
+    if (!id) {{ let tail = null; try {{ tail = crypto.randomUUID(); }} catch (_) {{}} if (!tail) {{ tail = Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }} id = 'c-' + tail; try {{ localStorage.setItem('mcv.client', id); }} catch (_) {{}} }} return id; }};
   const b = document.getElementById('addcart');
   b.onclick = async () => {{
     b.disabled = true;

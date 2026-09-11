@@ -360,3 +360,38 @@ def test_search_events_do_not_evict_the_journey(tmp_path):
     assert len(log2.rows("identify")) == 10 and len(log2.rows("checkout")) == 1
     lines = (tmp_path / "e.jsonl").read_text().splitlines()
     assert 11 <= len(lines) <= 50 + 1000
+
+
+def test_cart_caps_and_missing_cart_creates_no_files(identifier, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from mcmaster_vision.api import create_app
+    from mcmaster_vision.config import Settings
+
+    s = Settings(data_dir=tmp_path, queries_dir=tmp_path / "q", demo_mode=True)
+    with TestClient(create_app(s, identifier=identifier)) as client:
+        parts = client.get("/search?q=steel&limit=60").json()
+        pns = [p["part_number"] for p in parts] or ["90000A100"]
+        # a cart holds at most 50 different parts
+        for i in range(52):
+            r = client.post("/cart", json={"client_id": "hoarder", "part_number": f"X{i:03d}"})
+            if i < 50:
+                assert r.status_code in (200, 404), (i, r.text)
+            else:
+                assert r.status_code in (400, 404), (i, r.text)
+        # deleting from a cart that never existed leaves no files behind
+        before = {f.name for f in (tmp_path / "logs" / "carts").glob("*")}
+        client.delete(f"/cart/{pns[0]}?client_id=ghost-0001")
+        after = {f.name for f in (tmp_path / "logs" / "carts").glob("*")}
+        assert not {f for f in after - before if f.startswith("ghost-0001")}
+        # search and part responses do not leak server paths
+        assert parts and "image_paths" not in parts[0]
+        one = client.get(f"/parts/{pns[0]}").json()
+        assert "image_paths" not in one and one["part_number"] == pns[0]
+        # a body larger than the limit is refused from its Content-Length alone
+        r = client.post(
+            "/identify",
+            headers={"content-length": str(200 * 1024 * 1024), "content-type": "image/jpeg"},
+            content=b"x",
+        )
+        assert r.status_code == 413

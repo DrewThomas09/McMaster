@@ -114,6 +114,14 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             if fresh:
                 return customers_cache["book"]
             cached_orders, cached_book = customers_cache["orders"], customers_cache["book"]
+            # a checkout storm may ask for a rebuild every few milliseconds: at most one
+            # every two seconds, the current book serves meanwhile
+            if (
+                not force
+                and cached_book is not None
+                and time.time() - customers_cache.get("rebuilt", 0.0) < 2.0
+            ):
+                return cached_book
         # the read and the k-means happen outside the lock: a rebuild must not stall
         # every search and identify that only wants the current book
         orders = app.state.carts.all_orders()
@@ -126,7 +134,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         parts = ident.store.get_many(pns) if pns else {}
         book = CustomerBook(orders, parts)
         with customers_lock:
-            customers_cache.update(orders=orders, book=book, built=time.time())
+            customers_cache.update(orders=orders, book=book, built=time.time(), rebuilt=time.time())
         return book
 
     app.state.customer_book = customer_book
@@ -230,9 +238,11 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             try:
                 app.state.identifier = _load()
             except FileNotFoundError as e:
-                raise HTTPException(503, f"index not built yet: {e}") from e
+                log.warning("not ready: %s", e)
+                raise HTTPException(503, "index not built yet: run `mcv build-index`") from e
             except (RuntimeError, ValueError) as e:  # index / backbone mismatch, corrupt index
-                raise HTTPException(503, str(e)) from e
+                log.warning("not ready: %s", e)
+                raise HTTPException(503, "index not usable: see the server log") from e
         elif settings.auto_reload:
             _maybe_reload()
         return app.state.identifier
@@ -293,8 +303,20 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     def check_admin(request: Request) -> None:
         token = settings.api_token
-        if token and not secrets.compare_digest(request.headers.get("x-api-token", ""), token):
+        given = request.headers.get("x-api-token", "").encode("utf-8", "replace")
+        if token and not secrets.compare_digest(given, token.encode("utf-8")):
             raise HTTPException(401, "bad or missing X-API-Token")
+
+    @app.middleware("http")
+    async def _refuse_oversized_bodies(request: Request, call_next):
+        """A body larger than the upload limit is refused from its Content-Length, before
+        Starlette spools it to disk."""
+        # eight uploads' worth: a batch of photos passes, a gigabyte body does not
+        cap = settings.max_upload_mb * 1024 * 1024 * 8
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > cap:
+            return JSONResponse({"detail": f"body exceeds {8 * settings.max_upload_mb} MB"}, 413)
+        return await call_next(request)
 
     @app.post("/admin/reload")
     def reload(request: Request) -> dict:
@@ -475,6 +497,14 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             )
         if part_number and ident.store.get(part_number.upper()) is None:
             raise HTTPException(404, "unknown part number")
+        try:  # only a real image is filed as training data
+            import io
+
+            from PIL import Image
+
+            Image.open(io.BytesIO(data)).verify()
+        except Exception as e:  # noqa: BLE001 - PIL raises many types
+            raise HTTPException(400, "the file is not an image") from e
         try:
             fb = await run_in_threadpool(
                 app.state.feedback.record,
@@ -589,7 +619,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             )
         return rows
 
-    @app.get("/parts/{part_number}", response_model=Part)
+    @app.get("/parts/{part_number}", response_model=Part, response_model_exclude={"image_paths"})
     def get_part(part_number: str, ident: Identifier = Depends(get_identifier)) -> Part:
         part = ident.store.get(part_number)
         if part is None:
@@ -655,9 +685,12 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
     @app.get("/categories")
     def categories(
-        depth: int = Query(2, ge=1, le=4), ident: Identifier = Depends(get_identifier)
+        request: Request,
+        depth: int = Query(2, ge=1, le=4),
+        ident: Identifier = Depends(get_identifier),
     ) -> list[dict]:
         """Catalog taxonomy with part counts, to the requested depth."""
+        check_rate(request)
         tax = ident.store.taxonomy()
 
         def walk(prefix: tuple[str, ...]) -> list[dict]:
@@ -672,10 +705,16 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
         return walk(())
 
-    @app.get("/search", response_model=list[Part])
+    @app.get(
+        "/search",
+        response_model=list[Part],
+        response_model_exclude={"__all__": {"image_paths"}},  # server paths stay on the server
+    )
     def search(
         request: Request,
-        q: str = Query("", description="Keyword / part number; empty lists a category"),
+        q: str = Query(
+            "", max_length=200, description="Keyword / part number; empty lists a category"
+        ),
         category: str = Query("", description="Category path prefix joined with ' > '"),
         limit: int = Query(20, ge=1, le=100),
         offset: int = Query(0, ge=0),
@@ -924,6 +963,13 @@ def run(
 
     settings = settings or Settings()
     host = host or settings.api_host
+    if not settings.api_token and host not in ("127.0.0.1", "localhost", "::1"):
+        # reachable from other machines with the admin endpoints open: mint a token for
+        # this run and say so, rather than serve /admin/* and /orders to anyone
+        token = secrets.token_urlsafe(24)
+        settings = settings.model_copy(update={"api_token": token})
+        os.environ["MCV_API_TOKEN"] = token  # the worker processes read their settings from env
+        print(f"admin token for this run (header X-API-Token): {token}")
     port = port or settings.api_port
     busy = port_in_use(host, port)
     if busy:

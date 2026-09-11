@@ -256,10 +256,10 @@ class CatalogStore:
             elif self._fts:
                 rows = []
             else:
-                like = f"%{query}%"
+                like = f"%{_like_escape(query)}%"
                 rows = self._conn.execute(
                     "SELECT part_number, 0.0 AS score FROM parts "
-                    "WHERE name LIKE ? OR description LIKE ? LIMIT ?",
+                    "WHERE name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' LIMIT ?",
                     (like, like, limit),
                 ).fetchall()
             for r in rows:

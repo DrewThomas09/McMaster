@@ -42,6 +42,16 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Security review fixes: `mcv serve` on a non-loopback host without `MCV_API_TOKEN` mints
+  a token for the run and prints it, so `/admin/*` and `/orders` are never open to a
+  network by accident; a cart holds at most 50 different parts, a delete on a cart that
+  never existed writes no files, stray lock files and a flood of throwaway carts are
+  pruned; the customer model rebuilds at most every two seconds under a checkout storm and
+  counts co-purchase pairs over the first 40 lines of an order; bodies over twice the
+  upload limit are refused from their Content-Length before being spooled; `/feedback`
+  files only files that decode as images; search queries are capped at 200 characters and
+  the LIKE fallback escapes wildcards; `/search` and `/parts/{pn}` no longer return server
+  image paths; 503 texts no longer carry file paths; the admin token compares as bytes.
 - `mcv report` prints the customer model (customers, repeat customers, segments, the
   segment served worst) and the For-you strip's take rate next to the funnel.
 - Catalog: `by_category` is a range over an index on the category path instead of a
