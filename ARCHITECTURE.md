@@ -439,9 +439,11 @@ never-bought parts by 8 points and leaves the prior costing one there, and
 re-orders keep their gain. The coin is worth asking for; the prior stays a
 tie-breaker. The hint that asks for it (`find_coin`, the ring drawn on the
 photo) was measured the same way: on 322 staged photos it lands on the coin
-94% of the time and never on another blob, with one false hint in 400 photos
-that had no coin (2026-09-11; it was 68% before the "something else in the
-frame" test stopped demanding a companion 15% the coin's size).
+99.7% of the time and never on another blob, with two false hints in 400
+photos that had no coin, both round brass parts (2026-09-11; it was 68% before
+the "something else in the frame" test stopped demanding a companion 15% the
+coin's size, and 94% before a finer second pass for a small coin beside a long
+part).
 
 Segments recovered the six industries with purity 0.58 at k = 8 with the original second-level vectors (see below for the
 fix): plumbing and fluid systems, and machine shop, maintenance and cabinetry,

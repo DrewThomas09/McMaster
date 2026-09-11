@@ -130,4 +130,14 @@ def find_coin(
         others = [a for a in sizes.values() if a != best_area and a >= floor]
         if not others:
             return None
+    if best is None and work < 400 and max(w, h) > work:
+        # a small coin beside a long part (a six-inch nipple, a drill bit) is a dozen
+        # pixels across at the coarse size and fails the roundness test: look again finer
+        return find_coin(
+            image,
+            work=400,
+            min_frac=min_frac / 2,
+            max_frac=max_frac,
+            min_circularity=min_circularity,
+        )
     return best

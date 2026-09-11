@@ -77,3 +77,16 @@ def test_find_coin_offers_a_big_coin_next_to_a_small_part():
     lone = Image.new("RGB", (512, 512), (245, 245, 240))
     ImageDraw.Draw(lone).ellipse([150, 150, 370, 370], fill=(205, 190, 130))
     assert find_coin(lone) is None  # a lone disc is the part, not a reference
+
+
+def test_find_coin_sees_a_small_coin_beside_a_long_part():
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.reference import find_coin
+
+    img = Image.new("RGB", (1024, 1024), (245, 245, 240))
+    d = ImageDraw.Draw(img)
+    d.rectangle([60, 480, 900, 540], fill=(70, 70, 75))  # a six-inch nipple across the frame
+    d.ellipse([930, 400, 975, 445], fill=(205, 190, 130))  # a quarter 45 px wide (4% of it)
+    c = find_coin(img)
+    assert c is not None and abs(c.diameter_px - 45) < 8 and abs(c.cx - 952) < 8
