@@ -172,7 +172,7 @@ def train(
     ).to(device)
     if cfg.get("init_checkpoint"):
         state = torch.load(cfg["init_checkpoint"], map_location=device, weights_only=False)
-        net.load_state_dict(state["backbone"], strict=True)
+        net.load_state_dict(state.get("backbone", state), strict=True)
         if state.get("projection") is not None:
             head.load_state_dict(state["projection"], strict=True)
         log.info("initialised backbone and head from %s", cfg["init_checkpoint"])

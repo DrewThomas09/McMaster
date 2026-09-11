@@ -337,6 +337,9 @@ def checkout(body: CheckoutBody, request: Request):
             learned += 1
     order.learned = learned
     request.app.state.carts.save_order(order)
+    inv = getattr(request.app.state, "customers_invalidate", None)
+    if inv is not None:
+        inv()
     request.app.state.events.log(
         "checkout",
         client_id=cid,

@@ -358,3 +358,18 @@ def test_popularity_breaks_ties_for_strangers(identifier, store, tmp_path):
     if a[0].part_number in pns:
         same_tier = [p for p in rows if p["name"].endswith(q)]
         assert same_tier and same_tier[0]["part_number"] == a[0].part_number, (words, pns[:5])
+
+
+def test_naive_timestamps_do_not_break_the_model(store):
+    orders, a, b, cats = _orders(store)
+    orders.append(
+        Order(
+            order_id="N0",
+            client_id="shop-a",
+            items=[CartItem(part_number=a[0].part_number)],
+            created_at=datetime(2026, 1, 9),  # hand-imported, no timezone
+        )
+    )
+    book = CustomerBook(orders, {p.part_number: p for p in store.iter_parts()}, k=2)
+    assert book.profiles["shop-a"].orders == 4
+    assert a[1].part_number in dict(book.complements(a[0].part_number))  # adjacency path

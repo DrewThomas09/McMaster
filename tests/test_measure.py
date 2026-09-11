@@ -522,3 +522,19 @@ def test_short_axis_is_across_flats_for_a_turned_square():
         long_px, short_px = object_extent_px(img)
         assert abs(short_px - 100) < 8, (rot, short_px)
         assert short_px <= long_px <= 100 * 1.42 + 8
+
+
+def test_is_nut_word_list():
+    from mcmaster_vision.pipeline.measure import is_nut
+    from mcmaster_vision.schemas import Part
+
+    def P(name, cat=("Fastening & Joining",)):
+        return Part(part_number="X", name=name, category_path=list(cat))
+
+    assert is_nut(P("Zinc-Plated Steel Hex Nut"))
+    assert is_nut(P("Nylon-Insert Locknut"))
+    assert is_nut(P("Brass Wing Nut"))
+    assert not is_nut(P("Donut Bumper", ("Hardware",)))
+    assert not is_nut(P("Walnut Wood Dowel", ("Hardware",)))
+    assert not is_nut(P("Nut Driver", ("Hand Tools",)))
+    assert not is_nut(P("Steel Flange Nut"))

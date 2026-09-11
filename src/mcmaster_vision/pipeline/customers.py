@@ -31,6 +31,13 @@ SIZE_KEYS = ("thread_size", "pipe_size", "od", "length")
 MATERIAL_KEYS = ("material",)
 
 
+def _sqdist(X: np.ndarray, C: np.ndarray) -> np.ndarray:
+    """Squared distances from every row of X to every row of C, without the N x k x D
+    intermediate (a real taxonomy has thousands of columns)."""
+    d = (X * X).sum(1)[:, None] - 2.0 * X @ C.T + (C * C).sum(1)[None, :]
+    return np.maximum(d, 0.0)
+
+
 def category_key(part: Part, depth: int = 2) -> str:
     return " > ".join(part.category_path[:depth]) if part.category_path else "?"
 
@@ -87,6 +94,7 @@ class CustomerBook:
         self.global_categories: Counter = Counter()
         self.pair_counts: Counter = Counter()
         self.pair_customers: dict[tuple[str, str], set[str]] = {}
+        self.pairs_of: dict[str, set[str]] = {}  # part -> parts bought with it
         self.part_counts: Counter = Counter()
         self.n_orders = 0
         self._ingest(orders)
@@ -94,12 +102,20 @@ class CustomerBook:
         self.top_categories = sorted({c.split(" > ")[0] for c in self.categories})
         self.segments: list[dict[str, Any]] = []
         self.segment_mix: dict[int, dict[str, float]] = {}  # segment -> category shares
+        self.segment_favourites: dict[int, list[tuple[str, int]]] = {}  # segment -> parts
+        self._browse_cache: dict[tuple, list] = {}  # (category path, material) -> parts
         self.centroids: np.ndarray | None = None
         self._segment(k, seed, min_orders_for_segment)
 
     # ----------------------------------------------------------------- build
     def _ingest(self, orders: list[Order]) -> None:
-        for o in sorted(orders, key=lambda x: x.created_at):
+        def _when(o: Order) -> datetime:
+            at = o.created_at
+            if not isinstance(at, datetime):
+                return datetime.min.replace(tzinfo=timezone.utc)
+            return at if at.tzinfo is not None else at.replace(tzinfo=timezone.utc)
+
+        for o in sorted(orders, key=_when):
             prof = self.profiles.setdefault(o.client_id, Profile(o.client_id))
             at = (
                 o.created_at.isoformat()
@@ -141,6 +157,8 @@ class CustomerBook:
                 for b in uniq[i + 1 :]:
                     self.pair_counts[(a, b)] += 1
                     self.pair_customers.setdefault((a, b), set()).add(o.client_id)
+                    self.pairs_of.setdefault(a, set()).add(b)
+                    self.pairs_of.setdefault(b, set()).add(a)
 
     def _vector(self, counts: Counter) -> np.ndarray:
         """What a shop buys, for clustering: shares of the top-level categories (where
@@ -169,13 +187,13 @@ class CustomerBook:
         # k-means++ seeding, then a few Lloyd iterations: small data, no dependency
         cent = [X[rng.integers(len(X))]]
         for _ in range(1, k):
-            d2 = np.min(((X[:, None, :] - np.array(cent)[None]) ** 2).sum(-1), axis=1)
+            d2 = np.min(_sqdist(X, np.array(cent)), axis=1)
             probs = d2 / d2.sum() if d2.sum() > 0 else np.full(len(X), 1 / len(X))
             cent.append(X[rng.choice(len(X), p=probs)])
         C = np.array(cent)
         labels = np.zeros(len(X), dtype=int)
         for _ in range(25):
-            labels = np.argmin(((X[:, None, :] - C[None]) ** 2).sum(-1), axis=1)
+            labels = np.argmin(_sqdist(X, C), axis=1)
             newC = np.array(
                 [X[labels == j].mean(0) if (labels == j).any() else C[j] for j in range(k)]
             )
@@ -194,6 +212,10 @@ class CustomerBook:
                 mix.update(self.profiles[cid].categories)
             total = float(sum(mix.values())) or 1.0
             self.segment_mix[j] = {c: mix.get(c, 0) / total for c in self.categories}
+            fav: Counter = Counter()
+            for cid in members:
+                fav.update(self.profiles[cid].parts)
+            self.segment_favourites[j] = fav.most_common(40)
             top = [c for c, _ in mix.most_common(2)]
             self.segments.append(
                 {
@@ -325,12 +347,11 @@ class CustomerBook:
         if not base or self.n_orders < 2:
             return []
         out = []
-        for (a, b), c in self.pair_counts.items():
-            if part_number not in (a, b) or c < 2:
+        for other in self.pairs_of.get(part_number, ()):
+            key = (part_number, other) if part_number < other else (other, part_number)
+            c = self.pair_counts.get(key, 0)
+            if c < 2 or len(self.pair_customers.get(key, ())) < 2:
                 continue
-            if len(self.pair_customers.get((a, b), ())) < 2:
-                continue
-            other = b if a == part_number else a
             expected = base * self.part_counts.get(other, 0) / self.n_orders
             out.append((other, round(c / expected, 2) if expected else 0.0))
         out.sort(key=lambda x: -x[1])
@@ -387,18 +408,14 @@ class CustomerBook:
                 why = (
                     "you ordered this recently" if pn in prof.recent else "you ordered this before"
                 )
-                add(pn, why, 0.8 - 0.01 * i)
+                add(pn, why, 0.8 - 0.04 * i / max(1, 2 * n))  # stays above every guess
             for pn in prof.recent:
                 for other, lift in self.complements(pn, 4):
                     if not prof.parts.get(other):
                         add(other, f"often bought with {pn}", 0.5 + min(lift, 5) / 20)
         if prof is not None and prof.segment is not None:
-            members = [p for p in self.profiles.values() if p.segment == prof.segment]
-            fav: Counter = Counter()
-            for p in members:
-                fav.update(p.parts)
-            for pn, c in fav.most_common(2 * n):
-                if prof is None or not prof.parts.get(pn):
+            for pn, c in self.segment_favourites.get(prof.segment, [])[: 2 * n]:
+                if not prof.parts.get(pn):
                     add(pn, "popular with shops like yours", 0.2 + 0.2 * min(1.0, c / 50))
         if prof is not None and browse is not None and prof.categories:
             # something new in the shop's usual aisle, in the material it prefers; the
@@ -411,7 +428,10 @@ class CustomerBook:
                     continue
                 found = 0
                 for mat in mats:
-                    for part in browse(path, mat):
+                    key = (tuple(path), mat)
+                    if key not in self._browse_cache:
+                        self._browse_cache[key] = list(browse(path, mat))
+                    for part in self._browse_cache[key]:
                         if prof.parts.get(part.part_number):
                             continue
                         attrs = {k.lower(): str(v) for k, v in part.attributes.items()}
@@ -523,7 +543,7 @@ def customer_boost_weight(n_orders: int) -> float:
 def segment_precision(book: CustomerBook, events) -> dict[int, dict[str, Any]]:
     """Bought-top-1 precision per customer segment (keyed by segment id, worst first) from
     the event log: which kind of shop the ranking serves worst."""
-    ident_rows = {r.get("request_id"): r for r in events.rows("identify")}
+    ident_rows = {r["request_id"]: r for r in events.rows("identify") if r.get("request_id")}
     seg_of = {cid: p.segment for cid, p in book.profiles.items() if p.segment is not None}
     labels = {s["segment"]: s["label"] for s in book.segments}
     tally: dict[int, list[int]] = {}

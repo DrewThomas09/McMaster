@@ -42,6 +42,12 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Review fixes: a hand-imported order with a naive timestamp no longer breaks the customer
+  model (and search survives a model that fails to build); the model is rebuilt outside its
+  lock and invalidated by a checkout, so a phone that just bought a part sees it marked at
+  once; segment favourites and co-purchase neighbours are precomputed and k-means no longer
+  allocates a customers x k x categories tensor; `is_nut` uses a word list (no more donut
+  bumpers); `init_checkpoint` accepts a raw state dict.
 - Search: what the whole marketplace buys breaks ties among the variants of a name for
   everyone (`popularity_boosts`, at most 0.3 inside a bm25 tier); a known shop's own history
   still comes first.

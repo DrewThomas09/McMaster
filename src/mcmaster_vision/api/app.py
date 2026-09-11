@@ -111,17 +111,33 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 and customers_cache["book"] is not None
                 and time.time() - customers_cache["built"] < settings.customers_refresh_s
             )
-            orders = customers_cache["orders"] if fresh else app.state.carts.all_orders()
-            if customers_cache["orders"] is orders and customers_cache["book"] is not None:
+            if fresh:
                 return customers_cache["book"]
-            ident = get_identifier()
-            pns = {it.part_number for o in orders for it in o.items}
-            parts = ident.store.get_many(pns) if pns else {}
-            book = CustomerBook(orders, parts)
+            cached_orders, cached_book = customers_cache["orders"], customers_cache["book"]
+        # the read and the k-means happen outside the lock: a rebuild must not stall
+        # every search and identify that only wants the current book
+        orders = app.state.carts.all_orders()
+        if cached_orders is orders and cached_book is not None:
+            with customers_lock:
+                customers_cache["built"] = time.time()
+            return cached_book
+        ident = get_identifier()
+        pns = {it.part_number for o in orders for it in o.items}
+        parts = ident.store.get_many(pns) if pns else {}
+        book = CustomerBook(orders, parts)
+        with customers_lock:
             customers_cache.update(orders=orders, book=book, built=time.time())
-            return book
+        return book
 
     app.state.customer_book = customer_book
+
+    def customers_invalidate() -> None:
+        """A checkout changes the model: the next lookup rebuilds it (a phone that just
+        bought a part must see it marked, not fifteen seconds later)."""
+        with customers_lock:
+            customers_cache["built"] = 0.0
+
+    app.state.customers_invalidate = customers_invalidate
 
     def customer_prior_for(client_id: str | None):
         """A per-candidate boost function for this customer, or None for a stranger."""
@@ -677,7 +693,11 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             # the customer's usual part may sit a page down
             # what the whole marketplace buys breaks ties among the variants of a name for
             # everyone; a known customer's own history comes first, popularity second
-            popular = customer_book().part_counts
+            try:
+                popular = customer_book().part_counts
+            except Exception:  # noqa: BLE001 - a broken order line must not break search
+                log.exception("customer model unavailable; searching without it")
+                popular = {}
             rerank = bool(prior) or bool(popular)
             scored = ident.store.search_text_scored(
                 q, max(limit + offset, RERANK_ROWS) if rerank else limit + offset

@@ -441,9 +441,11 @@ def test_search_results_show_what_the_shop_bought_and_can_add_to_cart(server, tm
         page.wait_for_selector("#cart.on .citem")
         page.locator("#checkoutbtn").click()
         page.wait_for_selector("#cartorder .order", timeout=30_000)
-        page.locator("#cartclose").click() if page.locator("#cartclose").count() else None
+        page.locator("#cart .panel h2 button").click()  # close the drawer again
+        page.wait_for_function("!document.getElementById('cart').classList.contains('on')")
         page.fill("#q", pn)
         page.locator("#searchform").evaluate("f => f.requestSubmit()")
+        page.wait_for_selector(".cand button[data-buy]", timeout=30_000)  # results are in
         page.wait_for_selector(f".cand .chip.usual[data-bought='{pn}']", timeout=30_000)
         assert "bought 1" in page.locator(f".cand .chip.usual[data-bought='{pn}']").inner_text()
         assert page.locator(".cand button[data-buy]").count() >= 1

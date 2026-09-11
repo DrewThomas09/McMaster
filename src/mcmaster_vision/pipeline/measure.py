@@ -470,14 +470,19 @@ def nut_width_mm(thread_size: str) -> float | None:
     return 1.6 * d
 
 
-_NOT_A_NUT = re.compile(r"driver|wrench|flange|\bt-nut|speed|push|panel|peanut|\bnut plate", re.I)
+_NOT_A_NUT = re.compile(
+    r"driver|wrench|flange|\bt-nut|speed|push|panel|peanut|\bnut plate|coconut|walnut|"
+    r"donut|doughnut|chestnut|hazelnut",
+    re.I,
+)
+_A_NUT = re.compile(r"\b(?:lock|jam|wing|cap|acorn|nyloc|castle|coupling|thumb)?nuts?\b", re.I)
 
 
 def is_nut(part: Part) -> bool:
     """A nut whose silhouette is its width across flats: hex, square, jam, wing, lock
     and nylon-insert nuts; not a nut driver, a flange nut or a T-nut."""
     text = " ".join([part.name, *part.category_path]).lower()
-    return bool(re.search(r"\b\w*nuts?\b", text)) and not _NOT_A_NUT.search(text)
+    return bool(_A_NUT.search(text)) and not _NOT_A_NUT.search(text)
 
 
 _TPI = re.compile(r"(?:^|[\s\-x×])(\d{1,2}(?:\.\d)?)\s*(?:tpi|threads?\s*per\s*inch)?\s*$", re.I)
