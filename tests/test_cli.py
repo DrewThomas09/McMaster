@@ -157,3 +157,32 @@ def test_identify_dir_with_a_coin_sets_the_scale(tmp_path, demo_dir, store):
     assert rows["alone.jpg"]["scale_note"] == "no coin found" and rows["alone.jpg"]["long_mm"] == ""
     bad = CliRunner().invoke(app, ["identify-dir", str(photos), "--coin", "doubloon"], env=env)
     assert bad.exit_code != 0 and "unknown coin" in bad.output
+
+
+def test_report_lists_customers_and_the_strip(identifier, store, tmp_path):
+    """`mcv report` reads the orders and events a deployment wrote and prints the customer
+    model and the For-you strip's take rate next to the funnel."""
+    from fastapi.testclient import TestClient
+
+    from mcmaster_vision.api import create_app
+    from mcmaster_vision.cli import app as cli
+    from mcmaster_vision.config import Settings
+
+    s = Settings(
+        data_dir=tmp_path, catalog_db=store.path, queries_dir=tmp_path / "q", demo_mode=True
+    )
+    parts = list(store.iter_parts(with_images_only=True))[:3]
+    with TestClient(create_app(s, identifier=identifier)) as client:
+        for i in range(3):
+            client.get("/recommend?client_id=shop-x&n=4")
+            client.post(
+                "/cart", json={"client_id": "shop-x", "part_number": parts[i % 3].part_number}
+            )
+            assert client.post("/checkout", json={"client_id": "shop-x"}).status_code == 200
+    cfg = tmp_path / "mcv.yaml"
+    cfg.write_text(
+        f"data_dir: {tmp_path}\ncatalog_db: {s.catalog_db}\nqueries_dir: {tmp_path / 'q'}\n"
+    )
+    r = CliRunner().invoke(cli, ["report", "--config", str(cfg)])
+    assert r.exit_code == 0, r.output
+    assert "For-you strip" in r.output and "customers 1" in r.output

@@ -42,6 +42,8 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- `mcv report` prints the customer model (customers, repeat customers, segments, the
+  segment served worst) and the For-you strip's take rate next to the funnel.
 - Catalog: `by_category` is a range over an index on the category path instead of a
   `substr()` scan, so browsing an aisle for the For-you strip costs microseconds on a big
   catalog.

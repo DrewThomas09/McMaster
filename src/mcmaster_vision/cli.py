@@ -711,6 +711,22 @@ def report(
     if s.catalog_db.exists():
         with CatalogStore(s.catalog_db) as store:
             enrich_confusions(a, store)
+    # the customer model from the orders on disk: segments, and which one is served worst
+    orders_path = s.data_dir / "logs" / "orders.jsonl"
+    if orders_path.exists() and s.catalog_db.exists():
+        from mcmaster_vision.api.commerce import Carts
+        from mcmaster_vision.pipeline.customers import CustomerBook, segment_precision
+
+        orders = Carts(orders_path).all_orders()
+        if orders:
+            with CatalogStore(s.catalog_db) as store:
+                pns = {it.part_number for o in orders for it in o.items}
+                book = CustomerBook(orders, store.get_many(pns))
+            a["customers"] = book.summary()
+            a["segment_precision_bought"] = {
+                f"{v['label']} (#{seg})": {**v, "segment": seg}
+                for seg, v in segment_precision(book, ev).items()
+            }
     a["issues"] = issues(a)
     a["learning"] = learning_state(s, fb)
     if as_json:
@@ -732,6 +748,20 @@ def report(
         typer.echo(f"  tier {t}: right {pc(v['precision'])} when bought ({v['bought']})")
     for c, v in list(a.get("category_precision_bought", {}).items())[:4]:
         typer.echo(f"  {c}: right {pc(v['precision'])} when bought ({v['bought']})")
+    cu = a.get("customers")
+    if cu:
+        typer.echo(
+            f"customers {cu['customers']} ({cu['repeat_customers']} came back), {cu['orders']} "
+            f"orders, {len(cu['segments'])} segments"
+        )
+        for lab, v in list(a.get("segment_precision_bought", {}).items())[:3]:
+            typer.echo(f"  {lab}: top answer bought {pc(v['precision'])} ({v['bought']})")
+    rec = a.get("recommendations") or {}
+    if rec.get("orders_after_strip"):
+        typer.echo(
+            f"For-you strip: bought from in {pc(rec['take_rate'])} of {rec['orders_after_strip']} "
+            f"orders that followed it, a never-bought part in {pc(rec['new_part_take_rate'])}"
+        )
     lat = a["latency_ms"]
     typer.echo(
         f"latency p50 {lat['p50'] if lat['p50'] is not None else '-'} ms, p95 "
