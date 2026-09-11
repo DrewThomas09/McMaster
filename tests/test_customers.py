@@ -105,6 +105,7 @@ def test_api_personalises_search_and_identify(identifier, store, tmp_path):
         client.app.state.carts.save_order(o)
     me = client.get("/me?client_id=shop-a").json()
     assert me["known"] and me["profile"]["orders"] == 3 and me["segment"] is not None
+    assert me["profile"]["bought"][a[0].part_number] == 3  # the phone's "bought 3x" chip
     assert me["personalisation_weight"] == 0.6
     assert client.get("/me?client_id=nobody").json()["known"] is False
     seg = client.get("/segments").json()

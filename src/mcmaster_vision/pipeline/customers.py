@@ -64,6 +64,8 @@ class Profile:
             "materials": self.materials.most_common(top),
             "sizes": self.sizes.most_common(top),
             "repeat_parts": [pn for pn, n in self.parts.most_common(top) if n >= 2],
+            # how often each part was bought (the phone marks search results with it)
+            "bought": dict(self.parts.most_common(60)),
             "segment": self.segment,
         }
 

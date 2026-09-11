@@ -49,6 +49,7 @@
   .imgwrap svg line { stroke:var(--yellow); stroke-width:3; stroke-linecap:round; }
   .imgwrap svg circle { fill:var(--yellow); stroke:var(--green); stroke-width:2; }
   .chips button.usual { border-color:var(--green); background:var(--green); color:#fff; }
+  .pn .chip.usual { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:10px; background:var(--green); color:#fff; font-size:.72em; font-weight:600; vertical-align:middle; white-space:nowrap; }
   #coinsvg { pointer-events:none; cursor:default; }
   #coinsvg circle { fill:none; stroke:var(--yellow); stroke-width:3; stroke-dasharray:8 6; }
   #coinsvg text { fill:var(--yellow); font-size:14px; font-weight:700; paint-order:stroke; stroke:#000; stroke-width:3px; }
@@ -526,11 +527,23 @@ async function search(q) {
   const parts = await r.json();
   if (seq !== sendSeq) return;
   if (!parts.length) { results.innerHTML = '<p>No catalog entries match.</p>'; return; }
+  const bought = await boughtCounts();  // what this shop bought before: says why a result sits first
+  if (seq !== sendSeq) return;
   results.innerHTML = parts.map(p => `<div class="card cand">
       <img class="main" src="/parts/${encodeURIComponent(p.part_number)}/thumb?size=200" loading="lazy" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${encodeURIComponent(p.part_number)}/image', null, ${js(p.part_number)})">
-      <div style="flex:1;min-width:0"><div class="pn">${esc(p.part_number)} <span style="font-weight:400">&mdash; ${esc(p.name)}</span></div>
+      <div style="flex:1;min-width:0"><div class="pn">${esc(p.part_number)} <span style="font-weight:400">&mdash; ${esc(p.name)}</span>${bought[p.part_number] ? `<span class="chip usual" data-bought="${esc(p.part_number)}">&#9733; bought ${bought[p.part_number]}&times;</span>` : ''}</div>
       <div class="meta">${esc(p.category_path.join(' › '))}</div>${specTable(p.attributes)}
-      <div class="meta" style="margin-top:6px"><a class="link" href="https://www.mcmaster.com/${encodeURIComponent(p.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div></div></div>`).join('');
+      <div class="meta" style="margin-top:6px"><a class="link" href="https://www.mcmaster.com/${encodeURIComponent(p.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div>
+      <div class="confirm"><button type="button" class="buy" data-buy="${esc(p.part_number)}" onclick="addToCart(${js(p.part_number)}, this)">&#128722; Add to cart</button></div></div></div>`).join('');
+  updateCartBadge();
+}
+let boughtCache = null;  // {part_number: times}, refreshed after every checkout
+async function boughtCounts() {
+  if (boughtCache) return boughtCache;
+  let out = {};
+  try { const r = await fetch(`/me?client_id=${encodeURIComponent(clientId())}`); if (r.ok) { const me = await r.json(); out = (me.profile && me.profile.bought) || {}; } } catch (_) {}
+  boughtCache = out;
+  return out;
 }
 
 // ---- coin hint: the server saw a round blob; one tap makes it the reference ------
@@ -723,7 +736,7 @@ async function checkout() {
   if (!r || !r.ok) { let why = ''; try { const d = (await r.json()).detail; why = typeof d === 'string' ? d : JSON.stringify(d || ''); } catch (_) {} toast(r ? 'Checkout failed' + (why ? ': ' + why : '') : 'No connection'); return; }
   const o = await r.json(); cartSeq++;
   const learned = o.learned || 0;  // what the server really filed as confirmations
-  cart = []; updateCartBadge();
+  cart = []; boughtCache = null; updateCartBadge();
   $('cartitems').innerHTML = ''; $('checkoutrow').hidden = true;
   const ord = $('cartorder'); ord.hidden = false;
   ord.innerHTML = `<div class="order"><b>Order ${esc(o.order_id)} placed</b> &middot; ${o.items.length} part${o.items.length === 1 ? '' : 's'}${o.total_usd != null ? ' &middot; $' + esc(o.total_usd.toFixed(2)) : ''}

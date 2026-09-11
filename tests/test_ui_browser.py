@@ -419,3 +419,35 @@ def test_confirm_keeps_buy_buttons_and_buy_now_never_doubles(server, tmp_path):
         browser.close()
     orders = httpx.get(f"{server}/orders?client_id={cid}").json()
     assert orders and sum(it["quantity"] for it in orders[0]["items"]) == 1
+
+
+def test_search_results_show_what_the_shop_bought_and_can_add_to_cart(server, tmp_path):
+    """After a checkout, a search for that part shows a "bought" chip on it and every
+    result carries an Add-to-cart button."""
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.goto(server + "/")
+        page.wait_for_selector("#samplestrip img", timeout=30_000)
+        page.locator("#samplestrip img").first.click()
+        page.wait_for_selector(".cand button.buy", timeout=60_000)
+        pn = page.evaluate("lastResult.best.part_number")
+        page.locator(".cand button.buy").first.click()
+        page.wait_for_function("document.getElementById('cartn').textContent === '1'")
+        page.locator("#cartpill").click()
+        page.wait_for_selector("#cart.on .citem")
+        page.locator("#checkoutbtn").click()
+        page.wait_for_selector("#cartorder .order", timeout=30_000)
+        page.locator("#cartclose").click() if page.locator("#cartclose").count() else None
+        page.fill("#q", pn)
+        page.locator("#searchform").evaluate("f => f.requestSubmit()")
+        page.wait_for_selector(f".cand .chip.usual[data-bought='{pn}']", timeout=30_000)
+        assert "bought 1" in page.locator(f".cand .chip.usual[data-bought='{pn}']").inner_text()
+        assert page.locator(".cand button[data-buy]").count() >= 1
+        page.locator(f".cand button[data-buy='{pn}']").click()
+        page.wait_for_function("document.getElementById('cartn').textContent === '1'")
+        page.screenshot(path=str(tmp_path / "search_bought.png"), full_page=True)
+        browser.close()
