@@ -42,6 +42,10 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Coin hint: the finder no longer needs a second blob 15% the size of the coin before it
+  offers one (a 1/4" screw beside a quarter is 3% of it). Measured on the demo catalog, 322
+  staged photos: the hint lands on the coin 94% of the time, up from 68%, never on the wrong
+  blob, with one false hint in 400 photos without a coin.
 - Security review fixes: `mcv serve` on a non-loopback host without `MCV_API_TOKEN` mints
   a token for the run and prints it, so `/admin/*` and `/orders` are never open to a
   network by accident; a cart holds at most 50 different parts, a delete on a cart that

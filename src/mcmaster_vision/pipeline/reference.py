@@ -125,7 +125,9 @@ def find_coin(
     if best is not None:
         # a coin is a *reference next to* a part: with nothing else in the frame the round
         # blob is the part itself (a washer), and offering it as the coin would exclude it
-        others = [a for a in sizes.values() if a != best_area and a >= 0.15 * best_area]
+        # anything else of substance counts: a 1/4" screw beside a quarter is 3% of it
+        floor = max(30.0, 0.01 * best_area)
+        others = [a for a in sizes.values() if a != best_area and a >= floor]
         if not others:
             return None
     return best

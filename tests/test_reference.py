@@ -61,3 +61,19 @@ def test_flat_coin_preferred_over_a_round_screw_head():
     d.ellipse((360, 70, 520, 230), fill=(196, 184, 128))
     c = find_coin(img)
     assert c is not None and abs(c.cx - 440) < 12 and abs(c.diameter_px - 160) < 12
+
+
+def test_find_coin_offers_a_big_coin_next_to_a_small_part():
+    from PIL import Image, ImageDraw
+
+    from mcmaster_vision.pipeline.reference import find_coin
+
+    img = Image.new("RGB", (512, 512), (245, 245, 240))
+    d = ImageDraw.Draw(img)
+    d.ellipse([150, 150, 370, 370], fill=(205, 190, 130))  # a quarter filling 43% of the frame
+    d.rectangle([420, 200, 430, 260], fill=(40, 40, 45))  # a 1/4" screw beside it (3% of it)
+    c = find_coin(img)
+    assert c is not None and abs(c.diameter_px - 220) < 20 and abs(c.cx - 260) < 15
+    lone = Image.new("RGB", (512, 512), (245, 245, 240))
+    ImageDraw.Draw(lone).ellipse([150, 150, 370, 370], fill=(205, 190, 130))
+    assert find_coin(lone) is None  # a lone disc is the part, not a reference
