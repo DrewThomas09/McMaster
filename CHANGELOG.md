@@ -42,6 +42,9 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Event log: `search` rows live in their own window, so a busy search box no longer pushes
+  the identify and checkout rows the analytics join on out of the 20k-row window;
+  compaction keeps both windows.
 - Review fixes: a hand-imported order with a naive timestamp no longer breaks the customer
   model (and search survives a model that fails to build); the model is rebuilt outside its
   lock and invalidated by a checkout, so a phone that just bought a part sees it marked at

@@ -343,3 +343,20 @@ def test_recommendation_take_rate_counts_new_parts(tmp_path):
     assert take == {"orders_after_strip": 3, "take_rate": 0.667, "new_part_take_rate": 0.333}
     a = analytics(log)
     assert a["recommendations"] == take
+
+
+def test_search_events_do_not_evict_the_journey(tmp_path):
+    log = EventLog(tmp_path / "e.jsonl", keep=50)
+    for i in range(10):
+        log.log("identify", request_id=f"r{i}", best="A")
+    for _ in range(300):
+        log.log("search", q="hex nut", results=3)
+    log.log("checkout", client_id="s1", items=[{"part_number": "A", "request_id": "r3"}])
+    assert len(log.rows("identify")) == 10 and len(log.rows("checkout")) == 1
+    assert len(log.rows("search")) == 300 and log.identify_row("r3") is not None
+    assert len(log.rows()) == 311  # everything, in time order
+    # compaction and a fresh boot keep the journey rows too
+    log2 = EventLog(tmp_path / "e.jsonl", keep=50)
+    assert len(log2.rows("identify")) == 10 and len(log2.rows("checkout")) == 1
+    lines = (tmp_path / "e.jsonl").read_text().splitlines()
+    assert 11 <= len(lines) <= 50 + 1000

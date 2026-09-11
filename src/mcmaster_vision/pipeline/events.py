@@ -21,19 +21,27 @@ from typing import Any
 
 import numpy as np
 
+CHATTY_KINDS = frozenset({"search"})  # many per visit; kept apart so they evict nothing
+
 
 class EventLog:
     def __init__(self, path: str | Path, keep: int = 20000):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.keep = keep
-        self._recent: deque[dict] = deque(maxlen=keep)
+        self._recent: deque[dict] = deque(maxlen=keep)  # the customer journey
+        # searches come by the hundred per visit and would push the identify and checkout
+        # rows the analytics join on out of the window: their own, smaller window
+        self._chatty: deque[dict] = deque(maxlen=max(1000, keep // 4))
         self._by_request: dict[str, dict] = {}  # identify rows by request_id (bounded)
         self._lock = threading.Lock()
         self.total = 0
         self._load()
 
     def _remember(self, row: dict) -> None:
+        if row.get("kind") in CHATTY_KINDS:
+            self._chatty.append(row)
+            return
         self._recent.append(row)
         if row.get("kind") == "identify" and row.get("request_id"):
             self._by_request[row["request_id"]] = row
@@ -58,7 +66,7 @@ class EventLog:
         except OSError:
             return
         self.total = len(rows)
-        for r in rows[-self.keep :]:
+        for r in rows:  # the windows cap themselves, each kind in its own
             self._remember(r)
         if len(rows) > 2 * self.keep:
             self._compact()
@@ -77,9 +85,25 @@ class EventLog:
                     lines = [ln for ln in fh if ln.strip()]
                 if len(lines) <= 2 * self.keep:
                     return  # another worker already did it
+                # keep the last ``keep`` journey rows and the last chatty window, in order
+                keep_core, keep_chatty = self.keep, self._chatty.maxlen or self.keep
+                kept: list[str] = []
+                n_core = n_chatty = 0
+                for ln in reversed(lines):
+                    chatty = any(f'"kind": "{k}"' in ln for k in CHATTY_KINDS)
+                    if chatty:
+                        if n_chatty >= keep_chatty:
+                            continue
+                        n_chatty += 1
+                    else:
+                        if n_core >= keep_core:
+                            continue
+                        n_core += 1
+                    kept.append(ln)
+                kept.reverse()
                 tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
                 with open(tmp, "w", encoding="utf-8") as fh:
-                    fh.writelines(lines[-self.keep :])
+                    fh.writelines(kept)
                 tmp.replace(self.path)
         except OSError:
             pass
@@ -95,7 +119,11 @@ class EventLog:
 
     def rows(self, kind: str | None = None) -> list[dict]:
         with self._lock:
+            if kind in CHATTY_KINDS:
+                return list(self._chatty)
             rows = list(self._recent)
+            if kind is None and self._chatty:
+                rows = sorted([*rows, *self._chatty], key=lambda r: r.get("at", ""))
         return [r for r in rows if kind is None or r.get("kind") == kind]
 
     def identify_row(self, request_id: str | None) -> dict | None:
