@@ -202,7 +202,10 @@ photo -> /identify -> "Add to cart" (POST /cart, tied to the request_id)
       -> POST /checkout -> orders.jsonl + one `checkout` confirmation per photographed item
       -> events.jsonl: identify / cart_add / cart_remove / checkout / feedback / error
       -> GET /analytics: funnel, predicted-vs-bought confusions, tier precision when bought,
-         confidence when right vs wrong, latency p95, errors -> plain-language issues
+         confidence when right vs wrong, latency p95, errors -> plain-language issues;
+         `found_by` (cart adds by door: photo / search / for_you / order_again) and the
+         search funnel (typed searches, share narrowed by a facet chip, share with no
+         result, share that led to a cart add)
       -> mcv learn: photos into the index (incremental, seconds); full retrain once
          `learn_retrain_after` new confirmations arrived (purchase-weighted)
       -> mcv simulate [--learn]: synthetic customers walk the journey in-process and the
