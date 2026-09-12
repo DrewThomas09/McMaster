@@ -240,20 +240,21 @@ def build_index(
                 prev.get("gallery_augment", 0),
             )
     n_extra = 0
+    # confirmed photos are embedded apart from the catalog images, one row each and
+    # without gallery augmentation: they are already in the photo domain, and a part
+    # bought often must not outweigh its look-alikes' catalog rows
+    extra_parts: list[Part] = []
     if extra_images:
         known = {p.part_number for p in parts}
-        for i, part in enumerate(parts):
-            more = [x for x in extra_images.get(part.part_number, []) if Path(x).exists()]
-            if more:
-                parts[i] = part.model_copy(update={"image_paths": [*part.image_paths, *more]})
-                n_extra += len(more)
-        for pn, paths in extra_images.items():  # parts that have photos but no catalog image
-            if pn not in known:
-                part = store.get(pn)
-                paths = [x for x in paths if Path(x).exists()]
-                if part is not None and paths:
-                    parts.append(part.model_copy(update={"image_paths": paths}))
-                    n_extra += len(paths)
+        for pn, paths in extra_images.items():
+            paths = [x for x in paths if Path(x).exists()]
+            part = store.get(pn) if paths else None
+            if part is None:
+                continue
+            extra_parts.append(part.model_copy(update={"image_paths": paths}))
+            n_extra += len(paths)
+            if pn not in known:  # a part with photos but no catalog image still gets rows
+                known.add(pn)
     total = len(parts)
     existing: VectorIndex | None = None
     if only_new and out_path and (Path(out_path) / "meta.json").exists():
@@ -270,11 +271,9 @@ def build_index(
             have = set(existing.ids)
             parts = [p for p in parts if p.part_number not in have]
             log.info("incremental build: %d new parts (index holds %d)", len(parts), len(have))
-            if extra_images:  # only the photos of parts actually embedded in this run count
-                n_extra = sum(
-                    len([x for x in extra_images.get(p.part_number, []) if Path(x).exists()])
-                    for p in parts
-                )
+            if extra_parts:  # only the photos of parts actually embedded in this run count
+                extra_parts = [p for p in extra_parts if p.part_number not in have]
+                n_extra = sum(len(p.image_paths) for p in extra_parts)
 
     kw = dict(
         batch_size=batch_size,
@@ -297,15 +296,27 @@ def build_index(
         if len(ids):
             _centroids(index, vectors, cats, merge=True)
     else:
-        backend = choose_backend(len(ids), backend)
+        backend = choose_backend(len(ids) + n_extra, backend)
         index = open_index(backend, embedder.dim)
         if len(ids):
             index.add(ids, vectors)
         _centroids(index, vectors, cats)
+    if extra_parts:
+        eids, evecs, ecats = embed_parts(
+            extra_parts,
+            embedder,
+            image_size=image_size,
+            gallery_augment=0,
+            category_depth=category_depth,
+            seed=seed,
+        )
+        if len(eids):
+            index.add(eids, evecs)
+            _centroids(index, evecs, ecats, merge=True)
 
     learned = list((existing.meta.get("learned_paths") or []) if existing else [])
     if extra_images:
-        embedded = {p.part_number for p in parts}
+        embedded = {p.part_number for p in parts} | {p.part_number for p in extra_parts}
         learned += [
             x
             for pn, paths in extra_images.items()
