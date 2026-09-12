@@ -112,6 +112,19 @@ def next_basket(shop: Shop, parts: list[Part], rng: random.Random, size: int) ->
     return [p for p in basket if not (p.part_number in seen or seen.add(p.part_number))]
 
 
+def _why_kind(why: str) -> str:
+    """The kind of guess behind a recommendation reason."""
+    if why.startswith("often bought with"):
+        return "complement"
+    if "shops like yours" in why:
+        return "segment favourite"
+    if why.startswith("new in"):
+        return "usual aisle"
+    if why == "popular":
+        return "popular"
+    return "own history"
+
+
 def _rank(part_numbers: list[str], pn: str) -> int | None:
     return part_numbers.index(pn) + 1 if pn in part_numbers else None
 
@@ -137,6 +150,8 @@ def run_market(
     rng = random.Random(seed + 1)
     say = echo or (lambda *_: None)
     rec_hits = rec_shown = base_hits = rec_new_hits = 0
+    why_hits: Counter = Counter()  # never-bought recommendations bought, by kind of guess
+    why_shown: Counter = Counter()
     checkouts = 0
     bought_before: dict[str, Counter] = defaultdict(Counter)  # per shop, parts already bought
     max_orders = max(s.n_orders for s in shops)
@@ -155,10 +170,19 @@ def run_market(
                 base_hits += any(pn in want for pn in baseline)
                 try:
                     recs = client.get(f"/recommend?client_id={shop.client_id}&n=6").json()
-                    got = [r["part_number"] for r in recs if r["part_number"] in want]
+                    got = [r for r in recs if r["part_number"] in want]
                     rec_hits += bool(got)
-                    # the value over an order-again list: a part the shop never bought
-                    rec_new_hits += any(pn not in bought_before[shop.client_id] for pn in got)
+                    # the value over an order-again list: a part the shop never bought,
+                    # and which kind of guess found it
+                    fresh = [
+                        r for r in got if r["part_number"] not in bought_before[shop.client_id]
+                    ]
+                    rec_new_hits += bool(fresh)
+                    for r in fresh:
+                        why_hits[_why_kind(r.get("why", ""))] += 1
+                    for r in recs:
+                        if r["part_number"] not in bought_before[shop.client_id]:
+                            why_shown[_why_kind(r.get("why", ""))] += 1
                 except Exception:  # noqa: BLE001
                     pass
             for part in basket:
@@ -220,6 +244,9 @@ def run_market(
         "recommend_hits": rec_hits,
         "baseline_hits": base_hits,
         "recommend_new_hits": rec_new_hits,
+        "recommend_new_by_kind": {
+            k: {"shown": why_shown[k], "bought": why_hits.get(k, 0)} for k in sorted(why_shown)
+        },
     }
 
 
