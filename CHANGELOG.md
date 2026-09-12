@@ -42,6 +42,12 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Learning loop: measured at marketplace scale (`--learn-every 3`, 60 shops, photos only),
+  folding every purchased photo into the gallery made never-bought parts *worse* (82% -> 78%
+  top-1) and did not help the parts already bought: a part bought every week owned dozens of
+  augmented photo rows and pulled its look-alikes' photos to itself. Learned photos now join
+  the gallery as one row each (no gallery augmentation) and at most
+  `MCV_LEARN_MAX_PHOTOS_PER_PART` (8, newest first) per part.
 - Fixed: a new checkpoint shipped under the same file name served a gallery embedded by the
   old one (the version tag was the file name), at 10% top-1 until something rebuilt the
   index. The embedder version now carries a fingerprint of the checkpoint bytes

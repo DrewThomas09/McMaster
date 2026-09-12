@@ -62,6 +62,18 @@ class _Lock:
             self.fh.close()
 
 
+def _newest(paths: list[str], n: int) -> list[str]:
+    """The ``n`` most recently written of ``paths`` (unreadable ones sort oldest)."""
+
+    def when(p: str) -> float:
+        try:
+            return Path(p).stat().st_mtime
+        except OSError:
+            return 0.0
+
+    return sorted(paths, key=when, reverse=True)[:n] if len(paths) > n else list(paths)
+
+
 def learning_state(settings: Settings, feedback: FeedbackStore | None = None) -> dict[str, Any]:
     """What has been learned and what is waiting: counts of confirmations since the last
     index rebuild and since the last retrain, and whether a retrain is due."""
@@ -116,6 +128,11 @@ def _learn_index(settings: Settings, *, force: bool) -> dict[str, Any]:
         for pn, paths in feedback.labelled_images().items()
     }
     labelled = {pn: v for pn, v in labelled.items() if v}
+    # the newest few photos per part: a gallery where a popular part owns dozens of
+    # photo rows pulls its look-alikes' queries to it (measured: never-bought parts lost
+    # four points of top-1 when every purchase joined the gallery)
+    cap = max(1, int(settings.learn_max_photos_per_part))
+    labelled = {pn: _newest(v, cap) for pn, v in labelled.items()}
     n_photos = sum(len(v) for v in labelled.values())
     t = time.time()
     embedder = PartEmbedder(load_backbone(settings))

@@ -352,7 +352,6 @@ def add_photos(
         )
     known = set(index.meta.get("learned_paths") or [])
     depth = int(index.meta.get("category_depth", 2))
-    ga = int(index.meta.get("gallery_augment", gallery_augment))
     size = int(index.meta.get("image_size", image_size))
     parts: list[Part] = []
     for pn, paths in photos.items():
@@ -362,8 +361,10 @@ def add_photos(
             parts.append(part.model_copy(update={"image_paths": fresh}))
     if not parts:
         return 0
+    # a confirmed photo is already in the photo domain: one row, not the catalog's
+    # augmented three, or a part bought often outweighs its look-alikes' catalog rows
     ids, vectors, cats = embed_parts(
-        parts, embedder, image_size=size, gallery_augment=ga, category_depth=depth, seed=seed
+        parts, embedder, image_size=size, gallery_augment=0, category_depth=depth, seed=seed
     )
     if len(ids):
         index.add(ids, vectors)

@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     forwarded_allow_ips: str = "127.0.0.1"  # proxies whose X-Forwarded-For is trusted ("*")
     customers_refresh_s: float = 15.0  # how often the customer model is rebuilt from orders
     learn_retrain_after: int = 50  # new confirmations that trigger a full retrain in `mcv learn`
+    # confirmed photos of one part kept in the gallery (newest first): a part bought every
+    # week must not outnumber its look-alikes' catalog rows and pull their photos to itself
+    learn_max_photos_per_part: int = 8
     demo_mode: bool = False  # /demo/* endpoints (sample parts, printable sheet)
     cors_origins: str = (
         ""  # comma-separated origins allowed to call the API (native apps, other hosts)

@@ -369,3 +369,30 @@ def test_learn_event_does_not_compact_the_log(tmp_path):
     lines = (tmp_path / "logs" / "events.jsonl").read_text().splitlines()
     assert len(lines) == 41 and '"kind": "learn"' in lines[-1]
     assert len(EventLog(tmp_path / "logs" / "events.jsonl").rows("identify")) == 40
+
+
+def test_add_photos_adds_one_row_per_photo_without_augmentation(tmp_path, store, index, identifier):
+    from mcmaster_vision.index import add_photos
+
+    parts = list(store.iter_parts(with_images_only=True))
+    before = len(index)
+    photos = {
+        parts[0].part_number: [parts[0].image_paths[0]],
+        parts[1].part_number: parts[1].image_paths[:2],
+    }
+    n = add_photos(index, store, identifier.embedder, photos, out_path=tmp_path / "idx")
+    assert n == 3 and len(index) == before + 3  # not 3 x (1 + gallery_augment)
+    assert set(index.meta["learned_paths"]) == {p for v in photos.values() for p in v}
+
+
+def test_learn_keeps_only_the_newest_photos_per_part(tmp_path, demo_dir, store, index):
+    import time
+
+    s = _settings(tmp_path, demo_dir, index).model_copy(update={"learn_max_photos_per_part": 3})
+    parts = list(store.iter_parts(with_images_only=True))[:1]
+    fb = FeedbackStore(s.queries_dir)
+    for i in range(5):
+        fb.record(_photo(parts[0]), f"r{i}", parts[0].part_number, source="checkout")
+        time.sleep(0.01)
+    res = learn_index(s)
+    assert res["action"] == "index" and res["added"] == 3  # the newest three of five
