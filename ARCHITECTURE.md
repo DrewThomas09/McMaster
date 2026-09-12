@@ -355,6 +355,21 @@ a fresh 800-part catalog drawn that way the held-out evaluation reads Recall@1
 0.64 against 0.66 on the old draw, within the noise of 200 queries, so the
 twins were a marketplace artefact (staples repeat) more than a model ceiling.
 
+At 1000 shops and 15,015 orders on a fresh 800-part catalog drawn by the
+deduplicated generator, final code of 2026-09-12 (20,890 searches, 13,892 photos,
+30% with a coin; purity 0.94):
+
+| 800-part catalog, 1000 shops | plain | personalised | bought before | never bought |
+|---|---|---|---|---|
+| search top-1 | 24.7% | 45.4% | 28% -> 74% (n=9105) | 22% -> 23% (n=11785) |
+| search MRR | 0.437 | 0.611 | | |
+| photo top-1 | 64.6% | 70.1% | 64% -> 78% (n=5914) | 65% -> 64% (n=7978) |
+| photo top-1, with a coin | 74.4% | 78.5% | | 75% -> 75% (n=1870) |
+| photo top-1, no coin | 61.5% | 67.4% | | 62% -> 61% (n=6108) |
+
+A recommendation was in the next order 65.8% of the time against the order-again
+baseline's 67.1%, 1.1% of orders taking a never-bought part.
+
 The bigger the catalog, the more a shop's history is worth: a text search that
 lands the right part first 23% of the time on its own lands it 72% of the time
 for a part the shop has bought before, and the coin is worth 11 points on a
