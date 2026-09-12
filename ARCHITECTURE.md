@@ -410,6 +410,29 @@ search split. Runs dated before 2026-09-12 predate the exact-value promotion,
 which also moves the plain arm when a query word is itself an attribute value
 (`Brass Hex Nut`), so their plain columns are not directly comparable.
 
+Measured with the exact-value promotion and the chips (300 shops, 10-20 orders
+each, seed 0, 30% of photos with a coin, 2026-09-12):
+
+| | searches | plain | personalised | + chips | never bought: plain -> pers. -> chips | part off the page | chips tapped | ended first | worse |
+|---|---|---|---|---|---|---|---|---|---|
+| 200-part catalog, 4,466 orders | 6,090 | 51.9% (MRR 0.689) | 66.3% (0.788) | 66.3% (0.788) | 49.0% -> 48.1% -> 48.1% | 0 | 0 | - | 0 |
+| 800-part catalog, 4,513 orders | 6,301 | 28.2% (MRR 0.469) | 44.8% (0.606) | 46.6% (0.639) | 22.8% -> 22.4% -> 25.2% | 461 (7.3%) | 459 | 25% | 0 |
+
+On the small catalog every variant of a name fits on the page, so the honest
+simulation never taps (the chips still show; a customer may prefer a tap to a
+scroll, which this does not count). On the 800-part catalog one search in
+fourteen has the wanted part past the ten rows shown; chips were offered on
+every one of them, one tap put a quarter of them first and none lower, and
+never-bought search top-1 moved for the first time (22.4% -> 25.2%). The plain
+arm itself rose from 22-23% to 28% top-1 on this catalog against the runs
+above, the exact-value promotion's own effect on queries that name a material.
+Photos in the same runs: 84.2% -> 86.8% (200 parts) and 65.0% -> 69.1% (800
+parts) top-1 plain -> personalised, 78.5% with a coin against 66.2% without on
+the 800-part catalog; segments recovered the six industries with purity 0.91
+in both; the For-you strip was bought from in 74.1% / 66.7% of the orders that
+followed it against an order-again baseline of 75.5% / 68.0%, with a
+never-bought part in 4.0% / 1.7%.
+
 An earlier run at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147
 searches and 4,141 photos, before the eraser fixes and the segment vector
 change):

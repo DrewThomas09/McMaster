@@ -357,7 +357,16 @@ def market_report(shops: list[Shop], book, run: dict[str, Any]) -> dict[str, Any
                 else None,
                 "personal_top1": _summ(sub, "personal")["top1"],
                 "narrowed_top1": _summ(sub, "narrowed")["top1"],
+                "narrowed_top5": _summ(sub, "narrowed")["top5"],
                 "narrowed_mrr": _summ(sub, "narrowed")["mrr"],
+                # a tap that brings the part onto the page is a tap the customer can finish
+                "tapped_on_page_after": round(
+                    sum(1 for r in tapped if r["narrowed"] is not None and r["narrowed"] <= PAGE)
+                    / len(tapped),
+                    3,
+                )
+                if tapped
+                else None,
                 "tapped_top1_before": _summ(tapped, "personal")["top1"],
                 "tapped_top1_after": _summ(tapped, "narrowed")["top1"],
             }
@@ -518,7 +527,7 @@ def simulate_market(
                     f"offered on {c['offered']}, tapped on {c['tapped']} ({c['tapped_share']:.0%} "
                     f"of searches); top-1 {c['personal_top1']:.0%} -> {c['narrowed_top1']:.0%} "
                     f"over all searches, {c['tapped_top1_after']:.0%} of the tapped ones end "
-                    f"first, {c['tapped_worse']} worse"
+                    f"first and {c['tapped_on_page_after']:.0%} on the page, {c['tapped_worse']} worse"
                 )
     sg = rep["segments"]
     say(f"  segments: {sg['k']} found for {sg['industries']} industries, purity {sg['purity']}")

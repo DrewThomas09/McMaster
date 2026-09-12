@@ -63,6 +63,8 @@ def test_simulate_market_reports_lift_and_segments(tmp_path, demo_dir, index):
     chips = rep["search"]["chips"]
     assert 0 <= chips["tapped"] <= chips["offered"] <= chips["off_page"]
     assert chips["narrowed_top1"] >= chips["personal_top1"] and chips["tapped_worse"] >= 0
+    assert chips["narrowed_top5"] is not None
+    assert chips["tapped_on_page_after"] is None or 0 <= chips["tapped_on_page_after"] <= 1
     assert rep["search"]["new_part"]["narrowed_top1"] is not None
     photo = rep["identify"]
     assert photo["with_coin"]["n"] + photo["no_coin"]["n"] == photo["plain"]["n"]

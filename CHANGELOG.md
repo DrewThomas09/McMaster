@@ -15,7 +15,11 @@
   hits that carry it (`EXACT_VALUE_BONUS`), so the exact variants lead and the chips can
   narrow twice (promoted inside a fixed 200-hit window, so pages never overlap and an exact
   variant that bm25 ranked past the page still leads it); `mcv simulate-market` plays up to
-  two taps and reports the lift. No chips on a part-number prefix. Fixes a race
+  two taps and reports the lift (800-part catalog, 300 shops: one search in fourteen had the
+  part past the page, one tap put a quarter of those first and none lower, never-bought
+  search top-1 22.4% -> 25.2%, MRR 0.606 -> 0.639; on the 200-part catalog every variant
+  fits on the page and the honest simulation never taps). No chips on a part-number prefix.
+  Fixes a race
   where a checkout's customer-book invalidation could be swallowed by the two-second rebuild
   floor, or lost to a rebuild already under way, so the "bought" chip on a search right
   after checkout lagged.
