@@ -33,9 +33,16 @@ class Retriever:
         category_temp: float = 0.05,
         qe_k: int = 0,
         qe_alpha: float = 3.0,
+        photo_row_weight: float = 1.0,
     ):
         self.index = index
         self.top_k = top_k
+        # rows learned from confirmed photos are in the query's own domain and can pull a
+        # look-alike's photo query away from its catalog rows; below 1.0 their similarity
+        # counts for that much (meta['photo_rows'] says which rows they are)
+        self.photo_row_weight = photo_row_weight
+        self._photo_mask: np.ndarray | None = None
+        self._photo_mask_len = -1
         # alpha-weighted query expansion: re-query with the mean of the query and
         # its top-``qe_k`` gallery neighbours (weights = similarity ** alpha).
         self.qe_k = qe_k
@@ -72,6 +79,7 @@ class Retriever:
         n_parts = int(self.index.meta.get("parts") or len(set(self.index.ids)) or 1)
         rows_per_part = max(1, n_rows // max(1, n_parts))
         scores, rows = self.index.search(q, min(k * oversample * rows_per_part, n_rows))
+        scores = self._weigh_photo_rows(scores, rows)
         best: dict[str, Hit] = {}
         for v in range(q.shape[0]):
             seen_this_variant: set[str] = set()
@@ -88,6 +96,31 @@ class Retriever:
                         h.hits += 1
                 seen_this_variant.add(pn)
         return sorted(best.values(), key=lambda h: -h.similarity)[:k]
+
+    def photo_mask(self) -> np.ndarray | None:
+        """Boolean row mask of the rows that came from confirmed photos, or None."""
+        n = len(self.index)
+        if self._photo_mask_len != n:
+            ranges = self.index.meta.get("photo_rows") or []
+            mask = None
+            if ranges:
+                mask = np.zeros(n, dtype=bool)
+                for a, b in ranges:
+                    mask[max(0, int(a)) : min(n, int(b))] = True
+                if not mask.any():
+                    mask = None
+            self._photo_mask, self._photo_mask_len = mask, n
+        return self._photo_mask
+
+    def _weigh_photo_rows(self, scores: np.ndarray, rows: np.ndarray) -> np.ndarray:
+        w = self.photo_row_weight
+        if w == 1.0:
+            return scores
+        mask = self.photo_mask()
+        if mask is None:
+            return scores
+        hit = (rows >= 0) & mask[np.clip(rows, 0, len(mask) - 1)]
+        return np.where(hit, scores * w, scores)
 
     def expand_queries(self, q: np.ndarray) -> np.ndarray:
         """Alpha query expansion (Radenovic et al.): each variant is replaced by a

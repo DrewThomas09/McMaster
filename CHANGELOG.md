@@ -2,6 +2,10 @@
 
 ## 0.4.0
 
+- The index records which gallery rows came from confirmed photos (`meta.photo_rows`) and
+  `learned_row_weight` (default 1.0, unchanged behaviour) lets retrieval count those rows
+  for less than the catalog rows; the learning-loop measurement below says whether to.
+
 - `scripts/replay_recommendations.py` replays a market order log through the recommender
   and scores variants against the order-again list without re-running the simulation; the
   simulation now scores the For-you strip at the eight slots the phone shows (at eight, one

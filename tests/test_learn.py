@@ -386,6 +386,30 @@ def test_add_photos_adds_one_row_per_photo_without_augmentation(
     n = add_photos(idx, store, identifier.embedder, photos, out_path=tmp_path / "idx")
     assert n == 3 and len(idx) == before + 3  # not 3 x (1 + gallery_augment)
     assert set(idx.meta["learned_paths"]) == {p for v in photos.values() for p in v}
+    # the index knows which rows are photos, and retrieval can weigh them apart
+    assert idx.meta["photo_rows"] == [[before, before + 3]]
+
+
+def test_photo_rows_can_count_for_less_in_retrieval():
+    """A row learned from a confirmed photo is in the query's own domain; below 1.0 its
+    similarity counts for that much, catalog rows are untouched."""
+    import numpy as np
+
+    from mcmaster_vision.index.numpy_index import NumpyIndex
+    from mcmaster_vision.pipeline.retrieve import Retriever
+
+    v = np.array([1.0, 0.0, 0.0], np.float32)  # the photo row of part B (= the query)
+    u = np.array([0.8, 0.6, 0.0], np.float32)  # the catalog row of part A: cosine 0.8
+    idx = NumpyIndex(3)
+    idx.add(["A", "B"], np.stack([u, v]))
+    idx.meta.update(parts=2, photo_rows=[[1, 2]])
+    full = Retriever(idx, top_k=2).retrieve(v)
+    assert [h.part_number for h in full] == ["B", "A"] and full[0].similarity > 0.999
+    half = Retriever(idx, top_k=2, photo_row_weight=0.5).retrieve(v)
+    assert [h.part_number for h in half] == ["A", "B"]
+    assert abs(half[1].similarity - 0.5) < 1e-5 and abs(half[0].similarity - 0.8) < 1e-5
+    assert Retriever(idx, top_k=2, photo_row_weight=0.5).photo_mask().tolist() == [False, True]
+    assert Retriever(NumpyIndex(3), top_k=2, photo_row_weight=0.5).photo_mask() is None
 
 
 def test_learn_keeps_only_the_newest_photos_per_part(tmp_path, demo_dir, store, index):

@@ -311,6 +311,7 @@ def build_index(
             seed=seed,
         )
         if len(eids):
+            _note_photo_rows(index, len(eids))
             index.add(eids, evecs)
             _centroids(index, evecs, ecats, merge=True)
 
@@ -340,6 +341,18 @@ def build_index(
         index.save(out_path)
         store.set_meta("index_backbone", embedder.version)
     return index
+
+
+def _note_photo_rows(index: VectorIndex, n: int) -> None:
+    """Remember that the next ``n`` rows come from confirmed photos, not catalog images
+    (``meta['photo_rows']``: [start, end) ranges), so retrieval can weigh them apart."""
+    start = len(index)
+    ranges = [list(r) for r in (index.meta.get("photo_rows") or [])]
+    if ranges and ranges[-1][1] == start:
+        ranges[-1][1] = start + n
+    else:
+        ranges.append([start, start + n])
+    index.meta["photo_rows"] = ranges
 
 
 def add_photos(
@@ -378,6 +391,7 @@ def add_photos(
         parts, embedder, image_size=size, gallery_augment=0, category_depth=depth, seed=seed
     )
     if len(ids):
+        _note_photo_rows(index, len(ids))
         index.add(ids, vectors)
         _centroids(index, vectors, cats, merge=True)
     n = sum(len(p.image_paths) for p in parts)

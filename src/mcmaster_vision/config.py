@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     query_expansion_k: int = Field(
         default=0, ge=0, le=50, description="alpha-QE neighbours (0 = off)"
     )
+    learned_row_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="How much a gallery row learned from a confirmed photo counts against "
+        "the catalog rows (1.0 = the same)",
+    )
 
     # Reranking
     rerank_llm_enabled: bool = False
