@@ -42,6 +42,10 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Fixed: `mcv learn` compared the served index's gallery augmentation with the worker's own
+  `MCV_INDEX_GALLERY_AUGMENT` and, when they differed, rebuilt the whole gallery with the
+  worker's value (an augmented 1,800-row gallery became 600 rows plus photos). Learning now
+  keeps the index's own augmentation; the environment only matters for `mcv build-index`.
 - Learning loop: measured at marketplace scale (`--learn-every 3`, 60 shops, photos only),
   folding every purchased photo into the gallery made never-bought parts *worse* (82% -> 78%
   top-1) and did not help the parts already bought: a part bought every week owned dozens of
