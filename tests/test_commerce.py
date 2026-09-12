@@ -61,6 +61,23 @@ def test_cart_add_remove_and_validation(identifier, tmp_path):
     kinds = [e["kind"] for e in ev.rows()]
     assert kinds.count("cart_add") == 3 and kinds[-1] == "cart_remove"  # set_quantity logs nothing
     assert ev.rows("cart_add")[0]["rank"] == d["rank"]
+    # which door each part came through: a photo behind it says so by itself
+    assert ev.rows("cart_add")[0]["via"] == "photo" and ev.rows("cart_add")[1]["via"] is None
+    assert (
+        client.post(
+            "/cart", json={"client_id": "p3", "part_number": pn, "via": "search"}
+        ).status_code
+        == 200
+    )
+    assert ev.rows("cart_add")[-1]["via"] == "search"
+    assert (
+        client.post("/cart", json={"client_id": "p3", "part_number": pn, "via": "x y"}).status_code
+        == 422
+    )
+    from mcmaster_vision.pipeline.events import analytics
+
+    fb_by = analytics(ev)["found_by"]
+    assert fb_by["photo"] == 1 and fb_by["search"] == 1 and fb_by["other"] == 2
     assert ev.identify_row(req)["request_id"] == req and ev.identify_row("nope") is None
     # the cart add with a photo behind it already filed weak (weight 1) evidence
     fb = client.app.state.feedback

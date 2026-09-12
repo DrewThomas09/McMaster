@@ -245,6 +245,12 @@ class AddToCart(BaseModel):
     quantity: int = Field(1, ge=1, le=999)
     request_id: str | None = None
     set_quantity: bool = Field(False, description="Replace the line's quantity instead of adding")
+    via: str | None = Field(
+        None,
+        max_length=16,
+        pattern=r"^[a-z_]+$",
+        description="How the customer found the part: photo, search, for_you, order_again",
+    )
 
 
 def _price(part) -> float | None:
@@ -299,6 +305,7 @@ def add_to_cart(body: AddToCart, request: Request):
             rank=rank,
             was_top=bool(src and src.get("best") == part.part_number),
             quantity=body.quantity,
+            via=body.via or ("photo" if src else None),
         )
         # a cart add is weak evidence (weight 1) that the photo showed this part; a
         # checkout upgrades the same request id to weight 3, an abandoned cart keeps it.

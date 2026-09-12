@@ -266,6 +266,9 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
         if (correct_bought + wrong_bought)
         else None,
         "recommendations": recommendation_take(events.rows()),
+        # how customers reach the parts they add: a photo, a typed search, the For-you
+        # strip, an old order; the split says which door is worth widening
+        "found_by": dict(Counter(r.get("via") or "other" for r in carts).most_common()),
         "bought_rank_hist": dict(Counter(int(r) for r in ranks)),
         "tier_precision_bought": {
             t: {"bought": n, "top1_right": k, "precision": round(k / n, 3)}

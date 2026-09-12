@@ -324,6 +324,10 @@ def _learning_loop_html(request: Request) -> str:
     def pc(x):
         return f"{x:.0%}" if x is not None else "—"
 
+    found_by = " · ".join(
+        f"{e(k.replace('_', ' '))} {n}" for k, n in (a.get("found_by") or {}).items()
+    )
+
     issue_rows = (
         "".join(
             f'<tr><td><span class="tier {"unknown" if i["severity"] == "high" else "candidate" if i["severity"] == "medium" else "likely"}">{e(i["severity"])}</span></td>'
@@ -395,7 +399,8 @@ def _learning_loop_html(request: Request) -> str:
   <div class="card" style="padding:8px 12px;flex:1;min-width:260px"><b>When customers bought, was the tier right?</b><table class="spec"><tr><th>tier</th><th>bought</th><th>top-1 right</th></tr>{tier_rows or '<tr><td class="msg" colspan="3">Nothing bought yet.</td></tr>'}</table>
   {f'<table class="spec" style="margin-top:6px"><tr><th>weakest categories (bought)</th><th>bought</th><th>top-1 right</th></tr>{cat_rows}</table>' if cat_rows else ""}
   {"".join(f'<div class="crumbs">bought the top answer {pc(v["precision"])} of the time when {e(k)} ({v["bought"]})</div>' for k, v in a.get("measured_precision_bought", {}).items())}
-  <div class="crumbs">confidence when right {e(conf["when_right"] if conf["when_right"] is not None else "—")} · when wrong {e(conf["when_wrong"] if conf["when_wrong"] is not None else "—")} · p95 latency {e(a["latency_ms"]["p95"] or "—")} ms · errors {w["errors"]}</div></div>
+  <div class="crumbs">confidence when right {e(conf["when_right"] if conf["when_right"] is not None else "—")} · when wrong {e(conf["when_wrong"] if conf["when_wrong"] is not None else "—")} · p95 latency {e(a["latency_ms"]["p95"] or "—")} ms · errors {w["errors"]}</div>
+  <div class="crumbs">parts added by {found_by or "—"}</div></div>
 </div>
 {daily_html}
 <p class="crumbs" id="learnline">last learned {e((learn["learned_at"] or "never")[:19])} ({e(learn["learned_photos"] or 0)} photos) · {learn["since_retrain"]}/{learn["retrain_threshold"]} towards a retrain{cal_line}{' · <span class="tier candidate">retrain due: run mcv learn</span>' if due else ""} ·

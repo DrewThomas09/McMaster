@@ -2,6 +2,9 @@
 
 ## 0.4.0
 
+- Cart adds record which door the part came through (`via`: photo, search, for_you,
+  order_again); the analytics `found_by` split and a dashboard line show it.
+
 - Search facets: when a query matches several variants of one name, `GET /search/facets`
   returns what differs across the bm25 top tier (attribute -> value counts) and the phone
   shows the first two as chips under the results; one tap narrows the query. A spec value

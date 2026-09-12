@@ -535,7 +535,7 @@ async function search(q) {
       <div style="flex:1;min-width:0"><div class="pn">${esc(p.part_number)} <span style="font-weight:400">&mdash; ${esc(p.name)}</span>${bought[p.part_number] ? `<span class="chip usual" data-bought="${esc(p.part_number)}">&#9733; bought ${bought[p.part_number]}&times;</span>` : ''}</div>
       <div class="meta">${esc(p.category_path.join(' › '))}</div>${specTable(p.attributes)}
       <div class="meta" style="margin-top:6px"><a class="link" href="https://www.mcmaster.com/${encodeURIComponent(p.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div>
-      <div class="confirm"><button type="button" class="buy" data-buy="${esc(p.part_number)}" onclick="addToCart(${js(p.part_number)}, this)">&#128722; Add to cart</button></div></div></div>`).join('');
+      <div class="confirm"><button type="button" class="buy" data-buy="${esc(p.part_number)}" onclick="addToCart(${js(p.part_number)}, this, 'search')">&#128722; Add to cart</button></div></div></div>`).join('');
   updateCartBadge();
   showFacets(q, seq);
 }
@@ -670,10 +670,11 @@ async function loadCart() {
   const seq = cartSeq;
   try { const r = await fetch(`/cart?client_id=${encodeURIComponent(clientId())}`); if (r.ok) { const c = await r.json(); if (seq === cartSeq) { cart = c; updateCartBadge(); } } } catch (_) {}
 }
-async function addToCart(pn, btn) {
+async function addToCart(pn, btn, via) {
   if (btn) btn.disabled = true;
   const body = { client_id: clientId(), part_number: pn, quantity: 1 };
   if (lastResult && lastResult.candidates.some(c => c.part_number === pn)) body.request_id = lastResult.request_id;
+  body.via = via || (body.request_id ? 'photo' : 'other');  // which door the part came through
   let r = null;
   try { r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); } catch (_) {}
   if (btn) btn.disabled = false;
@@ -715,7 +716,7 @@ async function loadForYou() {  // re-orders, complements, favourites of shops li
   const known = recs.some(r => !/popular$/.test(r.why));
   box.hidden = !recs.length || !known;
   if (box.hidden) return;
-  $('foryoustrip').innerHTML = recs.map(r => `<figure><img src="${esc(r.thumb)}" alt="" loading="lazy" title="${esc(r.why)}" tabindex="0" role="button" onclick="addToCart(${js(r.part_number)}, null)" onkeydown="if (event.key === 'Enter') addToCart(${js(r.part_number)}, null)"><figcaption>${esc(r.part_number)}<br><small>${esc(r.why)}</small></figcaption></figure>`).join('');
+  $('foryoustrip').innerHTML = recs.map(r => `<figure><img src="${esc(r.thumb)}" alt="" loading="lazy" title="${esc(r.why)}" tabindex="0" role="button" onclick="addToCart(${js(r.part_number)}, null, 'for_you')" onkeydown="if (event.key === 'Enter') addToCart(${js(r.part_number)}, null)"><figcaption>${esc(r.part_number)}<br><small>${esc(r.why)}</small></figcaption></figure>`).join('');
 }
 function openCart() { renderCart(); loadOrders(); $('cart').classList.add('on'); }
 async function loadOrders() {
@@ -731,7 +732,7 @@ async function orderAgain(orderId) {  // the same parts back in the cart in one 
   const o = (window._pastOrders || []).find(x => x.order_id === orderId); if (!o) return;
   let added = 0;
   for (const it of o.items) {
-    try { const r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: it.part_number, quantity: it.quantity }) }); if (r.ok) { cartSeq++; cart = await r.json(); added++; } } catch (_) {}
+    try { const r = await fetch('/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_id: clientId(), part_number: it.part_number, quantity: it.quantity, via: 'order_again' }) }); if (r.ok) { cartSeq++; cart = await r.json(); added++; } } catch (_) {}
   }
   updateCartBadge(); renderCart();
   toast(added === o.items.length ? 'Added ' + added + ' part' + (added === 1 ? '' : 's') + ' from order ' + orderId : 'Added ' + added + ' of ' + o.items.length + ' parts (some are no longer in the catalog)');
