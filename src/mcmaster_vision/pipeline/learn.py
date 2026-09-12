@@ -307,7 +307,9 @@ def _event(settings: Settings, kind: str, **fields: Any) -> None:
     from mcmaster_vision.pipeline.events import EventLog
 
     try:
-        EventLog(settings.data_dir / "logs" / "events.jsonl", keep=1).log(kind, **fields)
+        # append only: opening the log with a small window would compact the file
+        # down to that window, wiping the analytics history every time learning ran
+        EventLog.append(settings.data_dir / "logs" / "events.jsonl", kind, **fields)
     except OSError:
         pass
 

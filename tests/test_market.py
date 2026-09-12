@@ -37,8 +37,19 @@ def test_simulate_market_reports_lift_and_segments(tmp_path, demo_dir, index):
     s.ensure_dirs()
     index.save(s.index_path)
     rep = simulate_market(
-        s, shops=8, orders=(3, 5), seed=1, tta="none", scratch=tmp_path / "m", coin_rate=0.5
+        s,
+        shops=8,
+        orders=(3, 5),
+        seed=1,
+        tta="none",
+        scratch=tmp_path / "m",
+        coin_rate=0.5,
+        learn_every=2,
     )
+    # the learning loop ran after rounds 2 and 4 and the gallery grew with the purchases
+    assert [x["round"] for x in rep["learned"]] == [2, 4]
+    assert any(x.get("action") == "index" for x in rep["learned"])
+    assert rep["served_rows"] and rep["served_rows"] > len(index)
     assert rep["shops"] == 8 and rep["checkouts"] >= 20
     for kind in ("search", "identify"):
         k = rep[kind]

@@ -353,3 +353,19 @@ def test_switched_retrain_does_not_claim_the_live_index_learned(tmp_path, demo_d
     assert m["retrained_at"] == "2026-01-01T00:00:00+00:00" and "learned_at" not in m
     mark_retrained(s, started_at="2026-01-02T00:00:00+00:00", checkpoint="y")
     assert read_manifest(s)["learned_at"] == "2026-01-02T00:00:00+00:00"
+
+
+def test_learn_event_does_not_compact_the_log(tmp_path):
+    """`mcv learn` writes its row into the API's event log; it must not shorten it."""
+    from mcmaster_vision.config import Settings
+    from mcmaster_vision.pipeline.events import EventLog
+    from mcmaster_vision.pipeline.learn import _event
+
+    s = Settings(data_dir=tmp_path, queries_dir=tmp_path / "q")
+    log = EventLog(tmp_path / "logs" / "events.jsonl")
+    for i in range(40):
+        log.log("identify", request_id=f"r{i}", best="A")
+    _event(s, "learn", how="index", added=3)
+    lines = (tmp_path / "logs" / "events.jsonl").read_text().splitlines()
+    assert len(lines) == 41 and '"kind": "learn"' in lines[-1]
+    assert len(EventLog(tmp_path / "logs" / "events.jsonl").rows("identify")) == 40

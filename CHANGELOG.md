@@ -42,6 +42,12 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Fixed: `mcv learn` and `mcv retrain` wrote their event row through an `EventLog` opened
+  with a one-row window, whose loader compacted `events.jsonl` down to that row, wiping the
+  analytics history every time learning ran; they append without reading now.
+- `mcv simulate-market --learn-every N` runs the learning loop (purchased photos into the
+  gallery, tiers refitted on outcomes) after every N order rounds and serves the result, as
+  a nightly job would, so the recursive loop is measured at marketplace scale.
 - Identify: two listings of one spec (same family, every attribute equal) count as one
   answer: their probabilities add up for the confidence tier and the margin is taken against
   the first candidate that is a different thing; the result carries `also_sold_as` and the

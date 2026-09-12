@@ -117,6 +117,17 @@ class EventLog:
                 fh.write(json.dumps(row, default=str) + "\n")
         return row
 
+    @staticmethod
+    def append(path: str | Path, kind: str, **fields: Any) -> dict:
+        """Append one row to a log file without reading it: for a process that is not
+        the API (``mcv learn``, ``mcv retrain``) and must never compact it away."""
+        row = {"kind": kind, "at": datetime.now(timezone.utc).isoformat(), **fields}
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, default=str) + "\n")
+        return row
+
     def rows(self, kind: str | None = None) -> list[dict]:
         with self._lock:
             if kind in CHATTY_KINDS:

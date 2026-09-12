@@ -156,7 +156,7 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 
 | command | purpose |
 |---|---|
-| `mcv simulate-market --shops N [--min-orders 10 --max-orders 20] [--search-rate 0.6] [--coin-rate 0]` | a demo marketplace on a scratch copy: shops from six industries search, photograph (a share of them next to a quarter), buy and come back; reports the personalisation lift split by parts bought before / never bought and with / without a coin, segment purity, and recommendation hits against an order-again baseline |
+| `mcv simulate-market --shops N [--min-orders 10 --max-orders 20] [--search-rate 0.6] [--coin-rate 0] [--learn-every N]` | a demo marketplace on a scratch copy: shops from six industries search, photograph (a share of them next to a quarter), buy and come back; reports the personalisation lift split by parts bought before / never bought and with / without a coin, segment purity, and recommendation hits against an order-again baseline |
 | `mcv report [--json]` | the purchase-loop analytics and issues list from the event log, plus the customer model (segments, the one served worst) and the For-you strip's take rate; same numbers as `/analytics` and the dashboard |
 | `mcv simulate --customers N [--learn] [--coin-rate R]` | self-run the journey on a scratch copy; before/after learning; `--live` writes real data |
 | `mcv learn [--index-only] [--retrain-after N] [--epochs N]` | fold confirmed and bought photos into the index; retrain when enough arrived |

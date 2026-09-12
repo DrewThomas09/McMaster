@@ -800,6 +800,9 @@ def simulate_market_cmd(
     coin_rate: float = typer.Option(
         0.0, help="Share of photos taken next to a quarter (size known)"
     ),
+    learn_every: int = typer.Option(
+        0, help="Run the learning loop after every N order rounds (0: never)"
+    ),
     as_json: bool = typer.Option(False, "--json"),
     live: bool = typer.Option(False, "--live", help="Write into the real data directory"),
 ) -> None:
@@ -820,6 +823,7 @@ def simulate_market_cmd(
         live=live,
         echo=None if as_json else typer.echo,
         coin_rate=coin_rate,
+        learn_every=learn_every,
     )
     if as_json:
         typer.echo(json.dumps(rep, indent=2, default=str))

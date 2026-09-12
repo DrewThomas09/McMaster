@@ -130,9 +130,10 @@ def run_market(
 ) -> dict[str, Any]:
     """Drive the shops through their orders against a TestClient of the API.
 
-    ``after_round`` runs once every shop has placed its k-th order: the customer model
-    is rebuilt there, so what a round buys is known from the next round on (a nightly
-    rebuild) and the numbers do not depend on how fast the machine runs."""
+    ``after_round(k)`` runs once every shop has placed its k-th order: the customer
+    model is rebuilt there (and, every ``learn_every`` rounds, the purchases are learned
+    into the gallery), so what a round buys is known from the next round on (a nightly
+    job) and the numbers do not depend on how fast the machine runs."""
     rng = random.Random(seed + 1)
     say = echo or (lambda *_: None)
     rec_hits = rec_shown = base_hits = rec_new_hits = 0
@@ -211,7 +212,7 @@ def run_market(
                 checkouts += 1
                 bought_before[shop.client_id].update(want)
         if after_round is not None:
-            after_round()
+            after_round(k)
         say(f"  round {k + 1}/{max_orders}: {len(active)} shops ordered")
     return {
         "checkouts": checkouts,
@@ -310,7 +311,11 @@ def simulate_market(
     live: bool = False,
     echo=None,
     coin_rate: float = 0.0,
+    learn_every: int = 0,
 ) -> dict[str, Any]:
+    """``learn_every`` > 0 runs the learning loop (``mcv learn``: purchased photos into
+    the gallery, tiers refitted on outcomes) after every that many order rounds, and
+    serves the result, as a nightly job would."""
     import tempfile
 
     from fastapi.testclient import TestClient
@@ -336,6 +341,23 @@ def simulate_market(
         parts = list(store.iter_parts(with_images_only=True))
     crowd = make_shops(parts, shops, seed=seed, orders=orders)
     app = create_app(s)
+    learned: list[dict] = []
+
+    def after_round(k: int) -> None:
+        app.state.customer_book(force=True)
+        if learn_every and (k + 1) % learn_every == 0:
+            from mcmaster_vision.pipeline.identify import load_identifier
+            from mcmaster_vision.pipeline.learn import learn_index
+
+            res = learn_index(s)
+            res["round"] = k + 1
+            learned.append(res)
+            if res.get("action") == "index":
+                app.state.identifier = load_identifier(s)  # serve it now, not in 15 s
+                say(
+                    f"  learned after round {k + 1}: {res.get('added', res.get('rows', ''))} photos"
+                )
+
     with TestClient(app) as client:
         say(
             f"{len(crowd)} shops in {len(set(x.industry for x in crowd))} industries, {sum(x.n_orders for x in crowd)} orders ..."
@@ -348,9 +370,11 @@ def simulate_market(
             search_rate=search_rate,
             tta=tta,
             echo=say,
-            after_round=lambda: app.state.customer_book(force=True),
+            after_round=after_round,
             coin_rate=coin_rate,
         )
+        run["learned"] = learned
+        run["served_rows"] = len(app.state.identifier.index) if app.state.identifier else None
         book = app.state.customer_book(force=True)
     rep = market_report(crowd, book, run)
     for kind in ("search", "identify"):
