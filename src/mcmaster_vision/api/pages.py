@@ -339,9 +339,15 @@ def _learning_loop_html(request: Request) -> str:
 
     conf_rows = "".join(
         f"<tr><td>{part_link(c['predicted'])}</td><td>{part_link(c['bought'])}</td>"
-        f"<td>{c['times']}</td></tr>"
+        f"<td>{c['times']}{' <small>(same spec)</small>' if c.get('equivalent') else ''}</td></tr>"
         for c in a["confusions"][:6]
     )
+    eq = a.get("confusions_equivalent_share")
+    if eq:
+        conf_rows += (
+            f'<tr><td colspan="3" class="msg">{eq:.0%} of the wrong top answers were the same '
+            "spec under another part number, which no photo tells apart.</td></tr>"
+        )
     tier_rows = "".join(
         f'<tr><td><span class="tier {e(t)}">{e(t)}</span></td><td>{v["bought"]}</td><td>{pc(v["precision"])}</td></tr>'
         for t, v in a["tier_precision_bought"].items()
