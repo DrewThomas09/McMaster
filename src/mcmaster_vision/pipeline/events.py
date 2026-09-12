@@ -320,15 +320,18 @@ def _daily(ident: list[dict], bought: list[dict], by_request: dict, learns: list
         d = row((src or {}).get("at") or it.get("at"))
         if d:
             d["bought"] += 1
-            if src and src.get("best") == it.get("part_number"):
-                d["bought_top1"] += 1
+            if src:  # a part that came from a photo: the only kind top-1 is defined for
+                d["bought_from_photo"] = d.get("bought_from_photo", 0) + 1
+                if src.get("best") == it.get("part_number"):
+                    d["bought_top1"] += 1
     for r in learns:
         d = row(r.get("at"))
         if d:
             d["retrains" if r.get("how") == "retrain" else "learns"] += 1
     out = []
     for d in sorted(days.values(), key=lambda x: x["day"]):
-        d["bought_top1_rate"] = round(d["bought_top1"] / d["bought"], 3) if d["bought"] else None
+        n = d.get("bought_from_photo", 0)
+        d["bought_top1_rate"] = round(d["bought_top1"] / n, 3) if n else None
         out.append(d)
     return out[-30:]
 

@@ -419,3 +419,22 @@ def test_equivalent_confusions_are_named(store, tmp_path):
             "same spec under another" in i["what"]
             for i in issues({**rep, "window": {"items_bought": 0}, "funnel": {}})
         )
+
+
+def test_daily_top1_rate_counts_only_parts_that_came_from_a_photo(tmp_path):
+    log = EventLog(tmp_path / "e.jsonl")
+    log.log("identify", request_id="r1", best="A")
+    log.log("identify", request_id="r2", best="B")
+    log.log(
+        "checkout",
+        client_id="s",
+        items=[
+            {"part_number": "A", "request_id": "r1"},  # photo, right
+            {"part_number": "C", "request_id": "r2"},  # photo, wrong
+            {"part_number": "D"},  # found by search: no photo, no top-1 to judge
+            {"part_number": "E"},
+        ],
+    )
+    day = analytics(log)["daily"][-1]
+    assert day["bought"] == 4 and day["bought_from_photo"] == 2 and day["bought_top1"] == 1
+    assert day["bought_top1_rate"] == 0.5
