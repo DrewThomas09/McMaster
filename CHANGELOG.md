@@ -46,12 +46,14 @@
   `MCV_INDEX_GALLERY_AUGMENT` and, when they differed, rebuilt the whole gallery with the
   worker's value (an augmented 1,800-row gallery became 600 rows plus photos). Learning now
   keeps the index's own augmentation; the environment only matters for `mcv build-index`.
-- Learning loop: measured at marketplace scale (`--learn-every 3`, 60 shops, photos only),
-  folding every purchased photo into the gallery made never-bought parts *worse* (82% -> 78%
-  top-1) and did not help the parts already bought: a part bought every week owned dozens of
-  augmented photo rows and pulled its look-alikes' photos to itself. Learned photos now join
-  the gallery as one row each (no gallery augmentation) and at most
-  `MCV_LEARN_MAX_PHOTOS_PER_PART` (8, newest first) per part.
+- Learning loop measured at marketplace scale (`--learn-every 3`, 60 shops, photos only,
+  the gallery learning from every purchase six times over 20 orders): parts bought before
+  86.5% -> 87.7% top-1 plain (91.1% -> 92.5% personalised), parts never bought 82.0% ->
+  81.2%, everything 84.4% -> 84.6% (86.1% -> 86.5%). Learned photos join the gallery as one
+  row each (no gallery augmentation) and at most `MCV_LEARN_MAX_PHOTOS_PER_PART` (8, newest
+  first) per part, so a part bought every week cannot outnumber its look-alikes' catalog
+  rows. The first measurement of this run read four points *worse* and led to the gallery
+  augmentation fix below.
 - Fixed: a new checkpoint shipped under the same file name served a gallery embedded by the
   old one (the version tag was the file name), at 10% top-1 until something rebuilt the
   index. The embedder version now carries a fingerprint of the checkpoint bytes

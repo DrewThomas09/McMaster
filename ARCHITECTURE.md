@@ -485,6 +485,32 @@ The review found the weight could overturn a text match; the tiered re-rank
 above gains more (65.7%) while never lifting a weaker text match over a
 stronger one.
 
+### The learning loop at marketplace scale
+
+`mcv simulate-market --learn-every 3` runs `mcv learn` (purchased photos into the
+gallery, tiers refitted on outcomes) after every third order round and serves the
+result, as a nightly job would. 60 shops, photos only, 20 rounds, six learns
+(2,029 lookups, 2026-09-12, same shops and photos as the no-learning run):
+
+| photos only | plain | personalised | bought before | never bought |
+|---|---|---|---|---|
+| no learning | 84.4% | 86.1% | 86.5% -> 91.1% | 82.0% -> 80.6% |
+| learning every 3 rounds | 84.6% | 86.5% | 87.7% -> 92.5% | 81.2% -> 79.8% |
+
+A gain on the parts the marketplace has photographed and bought, a smaller loss
+on the ones it has not: learned rows of a bought part attract the photos of its
+look-alikes. Two rules keep that in check, and both were set by measurement:
+a confirmed photo joins as one gallery row (a real photo is already in the photo
+domain; the catalog's three augmented rows per image would triple its pull), and
+a part keeps at most `MCV_LEARN_MAX_PHOTOS_PER_PART` (8) of them, newest first.
+The gain is small here by construction: a learned photo of a synthetic render
+adds little that the render lacked, where a real photo adds the whole domain
+gap. The first run of this measurement read four points worse across the board
+and turned out to be a bug worth the exercise: the simulation's worker had no
+`MCV_INDEX_GALLERY_AUGMENT`, and `mcv learn` rebuilt the augmented 1,800-row
+gallery as 600 unaugmented rows before adding photos. Learning now keeps the
+index's own augmentation.
+
 ## Durability (nothing learned at run time is lost)
 
 Every run-time artefact is a file under `data/` and is written before the
