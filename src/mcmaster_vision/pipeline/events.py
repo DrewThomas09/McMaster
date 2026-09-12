@@ -173,11 +173,15 @@ def search_funnel(searches: list[dict], carts: list[dict]) -> dict:
     # search kept, so the ratio compares one span with itself
     since = min((r.get("at") or "" for r in searches), default="")
     added = sum(1 for c in carts if c.get("via") == "search" and (c.get("at") or "") >= since)
+    # what customers typed that found nothing: the parts to import, or the names to fix
+    misses = Counter((r.get("q") or "").strip().lower() for r in searches if not r.get("results"))
+    misses.pop("", None)
     return {
         "searches": n,
         "narrowed_by_chip": narrowed,
         "narrowed_share": round(narrowed / n, 3) if n else None,
         "no_results_share": round(empty / n, 3) if n else None,
+        "no_result_queries": [{"q": q, "times": k} for q, k in misses.most_common(5)],
         "added_to_cart": added,
         "search_to_cart": round(min(1.0, added / n), 3) if n else None,
     }
@@ -496,6 +500,18 @@ def issues(a: dict) -> list[dict]:
                 "part number",
                 "do": "no photo tells those apart: merge duplicate listings in the catalog, or "
                 "show both numbers when the family and every attribute match",
+            }
+        )
+    sf = a.get("search") or {}
+    if sf.get("searches", 0) >= 50 and (sf.get("no_results_share") or 0) >= 0.2:
+        top = ", ".join(f'"{m["q"]}" ({m["times"]})' for m in sf.get("no_result_queries", [])[:3])
+        out.append(
+            {
+                "severity": "medium",
+                "what": f"{sf['no_results_share']:.0%} of {sf['searches']} searches found nothing"
+                + (f": {top}" if top else ""),
+                "do": "import those parts (`mcv import-web` / `mcv intake`) or add the words "
+                "customers use to the names; a part number typed in full always matches",
             }
         )
     rec = a.get("recommendations") or {}

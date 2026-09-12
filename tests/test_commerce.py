@@ -255,6 +255,19 @@ def test_none_of_these_issue(tmp_path):
     assert any("found nothing" in i["what"] for i in issues(a))
 
 
+def test_no_result_searches_are_named(tmp_path):
+    ev = EventLog(tmp_path / "e.jsonl")
+    for i in range(60):
+        hit = i % 5 != 0  # one in five finds nothing
+        ev.log("search", q="Hex Nut" if hit else "Widget Bracket", results=3 if hit else 0)
+    a = analytics(ev)
+    sf = a["search"]
+    assert sf["searches"] == 60 and sf["no_results_share"] == 0.2
+    assert sf["no_result_queries"] == [{"q": "widget bracket", "times": 12}]
+    (issue,) = [i for i in issues(a) if "found nothing" in i["what"]]
+    assert issue["severity"] == "medium" and "widget bracket" in issue["what"]
+
+
 def test_two_parts_from_one_photo_teach_nothing(identifier, tmp_path):
     client, _ = _client(identifier, tmp_path)
     pn, d = _identify_sample(client, seed=4)

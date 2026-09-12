@@ -772,6 +772,8 @@ def report(
             f"a chip, {pc(sf.get('no_results_share'))} found nothing, "
             f"{pc(sf.get('search_to_cart'))} led to a cart add)"
         )
+        for m in sf.get("no_result_queries", [])[:3]:
+            typer.echo(f'  found nothing: "{m["q"]}" x{m["times"]}')
     lat = a["latency_ms"]
     typer.echo(
         f"latency p50 {lat['p50'] if lat['p50'] is not None else '-'} ms, p95 "
