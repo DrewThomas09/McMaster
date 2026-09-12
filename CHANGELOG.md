@@ -4,7 +4,8 @@
 
 - The index records which gallery rows came from confirmed photos (`meta.photo_rows`) and
   `learned_row_weight` (default 1.0, unchanged behaviour) lets retrieval count those rows
-  for less than the catalog rows; the learning-loop measurement below says whether to.
+  for less than the catalog rows. Measured and left at 1.0: a discount of 0.9 drops the
+  bought photos from 99.3% to 83.7% top-1 and leaves new photos of the same parts at 85.7%.
 
 - `scripts/replay_recommendations.py` replays a market order log through the recommender
   and scores variants against the order-again list without re-running the simulation; the

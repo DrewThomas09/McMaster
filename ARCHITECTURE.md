@@ -607,6 +607,18 @@ and turned out to be a bug worth the exercise: the simulation's worker had no
 gallery as 600 unaugmented rows before adding photos. Learning now keeps the
 index's own augmentation.
 
+Could the learned rows count for less, so a neighbour's photo does not pull a
+look-alike's query away from its own catalog rows? The index now records which
+rows came from photos (`meta.photo_rows`) and `learned_row_weight` multiplies
+their similarity in retrieval. Measured with `mcv simulate --learn` (300
+customers, seed 1, 200-part catalog, 2026-09-12): at 1.0 the bought photos come
+back 99.3% top-1 and new photos of the same parts 85.7% (from 80.3% before
+learning); at 0.9 the bought photos fall to 83.7% and new photos stay at
+85.7%; at 0.75, 82.7% and 85.7%. The catalog rows of look-alikes sit above 0.9
+cosine in this space, so any discount on the exact photo match loses the
+"seen it before" promise and buys nothing on new photos. The weight stays at
+1.0; the knob is kept for a backbone with a wider spread.
+
 ## Durability (nothing learned at run time is lost)
 
 Every run-time artefact is a file under `data/` and is written before the
