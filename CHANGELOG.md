@@ -42,6 +42,10 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Recommendations: the guess tiers follow measured take (an unbought part from the shop's
+  usual aisle and material 5.7% when shown, a complement 1.8%, a segment favourite 0%), so
+  the reserved slot leads with the usual aisle; `simulate-market` reports never-bought
+  recommendations by kind of guess.
 - Fixed: `mcv learn` compared the served index's gallery augmentation with the worker's own
   `MCV_INDEX_GALLERY_AUGMENT` and, when they differed, rebuilt the whole gallery with the
   worker's value (an augmented 1,800-row gallery became 600 rows plus photos). Learning now

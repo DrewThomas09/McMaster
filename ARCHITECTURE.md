@@ -487,7 +487,12 @@ most-bought parts (an order-again list). On the same 60 shops, six slots:
 
 A shop's own history fills six slots after three orders, so without a reserved
 slot the discovery half of the list (complements, segment favourites, unbought
-parts in the shop's usual aisle and material) never showed. Keeping one slot
+parts in the shop's usual aisle and material) never showed. Which guess earns
+the slot was then measured by kind (2026-09-12, 60 shops): an unbought part from
+the usual aisle and material was bought 5.7% of the times it was shown, a
+complement 1.8%, a segment favourite never; the guess tiers now rank them in
+that order, and the same run reads 4.7% of orders taking a never-bought part
+(from 4.0%) at 74.0% overall. Keeping one slot
 costs 1.7 points of re-order hits and buys a tenfold rise in new parts bought
 from the strip. The synthetic shops pick their non-staple parts at random
 within their category mix, which is close to the ceiling for one guess; the
