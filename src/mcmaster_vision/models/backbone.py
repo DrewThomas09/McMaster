@@ -338,6 +338,33 @@ def _resolve_device(device: str) -> str:
     return "cpu"
 
 
+def checkpoint_digest(path: str | Path, n: int = 8) -> str:
+    """The first ``n`` hex digits of the checkpoint file's SHA-256 (a few MB: milliseconds)."""
+    import hashlib
+
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return ""
+    return h.hexdigest()[:n]
+
+
+def backbone_matches(indexed: str | None, current: str) -> bool:
+    """Does an index built by ``indexed`` fit the ``current`` embedder? Equal versions
+    match; an index from before fingerprints were recorded (no ``#``) matches on the
+    name and checkpoint alone, until it is rebuilt and gains one."""
+    if not indexed:
+        return True
+    if indexed == current:
+        return True
+    if "#" not in indexed:
+        return indexed == current.split("#")[0]
+    return False
+
+
 class TorchBackbone(Backbone):
     """Shared batching / device logic for torch-based backbones."""
 
@@ -375,11 +402,18 @@ class TorchBackbone(Backbone):
             self.projection = proj.to(self.device).eval()
             self.dim = state["projection_out"]
         self._checkpoint = str(path)
+        self._checkpoint_digest = checkpoint_digest(path)
 
     @property
     def version(self) -> str:
+        """The embedder identity an index records: architecture, checkpoint name and a
+        fingerprint of the checkpoint bytes, so a new model shipped under the same file
+        name cannot serve a gallery embedded by the old one."""
         ck = getattr(self, "_checkpoint", None)
-        return f"{self.name}@{Path(ck).stem}" if ck else self.name
+        if not ck:
+            return self.name
+        digest = getattr(self, "_checkpoint_digest", "")
+        return f"{self.name}@{Path(ck).stem}" + (f"#{digest}" if digest else "")
 
     def embed(self, images: Sequence[Image.Image]) -> np.ndarray:
 

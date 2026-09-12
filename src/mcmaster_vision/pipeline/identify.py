@@ -17,7 +17,7 @@ from PIL import Image
 from mcmaster_vision.catalog.store import CatalogStore
 from mcmaster_vision.config import Settings
 from mcmaster_vision.index.base import VectorIndex, load_index
-from mcmaster_vision.models.backbone import load_backbone
+from mcmaster_vision.models.backbone import backbone_matches, load_backbone
 from mcmaster_vision.models.embedder import PartEmbedder
 from mcmaster_vision.pipeline.calibration import Calibration
 from mcmaster_vision.pipeline.feedback import FeedbackStore
@@ -395,7 +395,7 @@ def load_identifier(settings: Settings) -> Identifier:
     backbone = load_backbone(settings)
     embedder = PartEmbedder(backbone)
     indexed_with = index.meta.get("backbone")
-    if indexed_with and indexed_with != embedder.version:
+    if indexed_with and not backbone_matches(indexed_with, embedder.version):
         # serving a mismatched pair would 500 on every photo (or silently degrade when the
         # dimensions happen to agree); refuse, and say exactly what to change
         raise RuntimeError(

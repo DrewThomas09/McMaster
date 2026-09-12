@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from mcmaster_vision.config import Settings
+from mcmaster_vision.models.backbone import backbone_matches
 from mcmaster_vision.pipeline.feedback import FeedbackStore
 from mcmaster_vision.pipeline.manifest import read_manifest, update_manifest
 
@@ -132,7 +133,7 @@ def _learn_index(settings: Settings, *, force: bool) -> dict[str, Any]:
         learned_before = list((idx.meta.get("learned_paths") or []) if idx is not None else [])
         incremental = (
             idx is not None
-            and idx.meta.get("backbone") == embedder.version
+            and backbone_matches(idx.meta.get("backbone"), embedder.version)
             and int(idx.meta.get("gallery_augment", -1)) == settings.index_gallery_augment
             and int(idx.meta.get("image_size", -1)) == settings.image_size
             # an older --with-feedback index does not say which photos it holds, and one

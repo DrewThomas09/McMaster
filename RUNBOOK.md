@@ -114,7 +114,9 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   for (it would fail on every photo); `mcv retrain` with a recipe for another backbone writes
   its index and calibration to sibling directories (`index-<backbone>`, `models-<backbone>`)
   and prints the environment to switch to. "Different" means the full model version,
-  checkpoint included: a retrain from the shipped checkpoint is a switch too.
+  checkpoint included: a retrain from the shipped checkpoint is a switch too, and so is a
+  new checkpoint file under the same name (the version carries a fingerprint of the bytes:
+  after swapping `assets/tinycnn_synthetic.pt`, run `mcv build-index` or `mcv learn`).
 * **Exposure.** Anyone who can reach the port can identify, search, fill a cart and check
   out under any client id they like: the id is the only key to a cart and its orders, so
   it is minted with `crypto.randomUUID` on the phone and must never be shared. Set

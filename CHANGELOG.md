@@ -42,6 +42,11 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Fixed: a new checkpoint shipped under the same file name served a gallery embedded by the
+  old one (the version tag was the file name), at 10% top-1 until something rebuilt the
+  index. The embedder version now carries a fingerprint of the checkpoint bytes
+  (`tinycnn:...@tinycnn_synthetic#1a2b3c4d`); the API refuses a stale index and `mcv learn`
+  rebuilds it. An index from before fingerprints still serves until it is rebuilt.
 - Fixed: `mcv learn` and `mcv retrain` wrote their event row through an `EventLog` opened
   with a one-row window, whose loader compacted `events.jsonl` down to that row, wiping the
   analytics history every time learning ran; they append without reading now.

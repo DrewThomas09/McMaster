@@ -104,3 +104,20 @@ def test_hash_thumbnail_weight_actually_applies():
     a, b = span["thumb_gray"]
     # a round part's thumbnail block must carry clearly less energy than a rod's
     assert np.linalg.norm(v_disc[a:b]) < 0.6 * np.linalg.norm(v_rod[a:b])
+
+
+def test_backbone_version_carries_a_checkpoint_fingerprint(tmp_path):
+    from mcmaster_vision.models.backbone import backbone_matches, checkpoint_digest
+
+    a = tmp_path / "m.pt"
+    a.write_bytes(b"weights v1")
+    d1 = checkpoint_digest(a)
+    a.write_bytes(b"weights v2 shipped under the same name")
+    d2 = checkpoint_digest(a)
+    assert len(d1) == 8 and d1 != d2
+    cur = f"tinycnn:w24:d128:96px@m#{d2}"
+    assert backbone_matches(cur, cur)
+    assert not backbone_matches(f"tinycnn:w24:d128:96px@m#{d1}", cur)  # swapped file: rebuild
+    assert backbone_matches("tinycnn:w24:d128:96px@m", cur)  # an index from before fingerprints
+    assert not backbone_matches("hash", cur)
+    assert backbone_matches(None, cur)

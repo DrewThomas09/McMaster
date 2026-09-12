@@ -25,7 +25,7 @@ from mcmaster_vision.catalog.store import CatalogStore
 from mcmaster_vision.catalog.taxonomy import Taxonomy
 from mcmaster_vision.data.augment import AugmentConfig, PhotoAugmenter
 from mcmaster_vision.index.base import VectorIndex, load_index, open_index
-from mcmaster_vision.models.backbone import l2_normalize
+from mcmaster_vision.models.backbone import backbone_matches, l2_normalize
 from mcmaster_vision.models.embedder import PartEmbedder
 from mcmaster_vision.pipeline.preprocess import preprocess_catalog
 from mcmaster_vision.schemas import Part
@@ -259,7 +259,7 @@ def build_index(
     if only_new and out_path and (Path(out_path) / "meta.json").exists():
         existing = load_index(out_path)
         if (
-            existing.meta.get("backbone") != embedder.version
+            not backbone_matches(existing.meta.get("backbone"), embedder.version)
             or int(existing.meta.get("gallery_augment", 0)) != gallery_augment
             or int(existing.meta.get("image_size", image_size)) != image_size
             or int(existing.meta.get("category_depth", category_depth)) != category_depth
@@ -346,7 +346,7 @@ def add_photos(
     (``meta['learned_paths']``) and append them as gallery rows of their part. Seconds
     instead of a full rebuild; the catalog rows stay as they are. Returns the number of
     photos added. The index must have been built with this embedder."""
-    if index.meta.get("backbone") != embedder.version:
+    if not backbone_matches(index.meta.get("backbone"), embedder.version):
         raise ValueError(
             f"index was built with {index.meta.get('backbone')!r}, not {embedder.version!r}"
         )
