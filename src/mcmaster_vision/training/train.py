@@ -395,7 +395,11 @@ def _train_cached(
     )
     eval_augmenter = PhotoAugmenter(AugmentConfig.evaluation(), seed=cfg["seed"] + 1)
     rng = np.random.default_rng(cfg["seed"])
-    part_labels = torch.arange(n_parts)
+    # one label per distinct spec: two numbers for the same part train as positives
+    from mcmaster_vision.data.dataset import build_label_map
+
+    _lm = build_label_map(train_parts)
+    part_labels = torch.tensor([_lm[p.part_number] for p in train_parts])
     arc_labels_all = torch.tensor([arc_label(p) for p in train_parts])
 
     x_u8: np.ndarray | None = None

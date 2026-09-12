@@ -20,8 +20,26 @@ def _require_torch():
     return Dataset
 
 
+def spec_key(part: Part) -> tuple:
+    """What makes two catalog entries the same thing: family and every attribute. Two
+    numbers for one spec (pack sizes, a superseded listing) look identical in every photo."""
+    return (
+        part.family_id or part.part_number,
+        tuple(sorted((k, str(v)) for k, v in part.attributes.items())),
+    )
+
+
 def build_label_map(parts: Sequence[Part]) -> dict[str, int]:
-    return {p.part_number: i for i, p in enumerate(sorted(parts, key=lambda p: p.part_number))}
+    """Contrastive labels: one per distinct spec, so twins are positives of each other
+    rather than negatives the loss can never separate."""
+    labels: dict[tuple, int] = {}
+    out: dict[str, int] = {}
+    for p in sorted(parts, key=lambda p: p.part_number):
+        key = spec_key(p)
+        if key not in labels:
+            labels[key] = len(labels)
+        out[p.part_number] = labels[key]
+    return out
 
 
 def worker_init_fn(worker_id: int) -> None:

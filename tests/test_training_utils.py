@@ -168,3 +168,33 @@ def test_view_cache_drops_unreadable_images(tmp_path):
     ]
     x, owners = build_view_cache(parts, 2, 32, workers=1)
     assert x.shape == (2, 32, 32, 3) and owners.tolist() == [0, 0]  # only the readable image
+
+
+def test_label_map_shares_a_label_between_identical_specs():
+    from mcmaster_vision.data.dataset import build_label_map
+    from mcmaster_vision.schemas import Part
+
+    a = Part(
+        part_number="A1",
+        name="Hex Nut",
+        category_path=["F"],
+        family_id="hex_nut:Steel",
+        attributes={"thread_size": '1/4"-20', "material": "Steel"},
+    )
+    twin = Part(
+        part_number="A2",
+        name="Hex Nut",
+        category_path=["F"],
+        family_id="hex_nut:Steel",
+        attributes={"material": "Steel", "thread_size": '1/4"-20'},
+    )
+    other = Part(
+        part_number="A3",
+        name="Hex Nut",
+        category_path=["F"],
+        family_id="hex_nut:Steel",
+        attributes={"thread_size": '5/16"-18', "material": "Steel"},
+    )
+    lm = build_label_map([other, twin, a])
+    assert lm["A1"] == lm["A2"] != lm["A3"]
+    assert sorted(set(lm.values())) == [0, 1]
