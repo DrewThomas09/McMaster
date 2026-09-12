@@ -70,8 +70,10 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
 * **Purchases are the strongest confirmations.** The storefront's `POST /checkout` files a
   `checkout` confirmation for every item that came from a photo (weight 3 vs 2 for a tap).
   `mcv learn` folds new confirmations into the index incrementally (seconds; the API picks
-  it up by itself) and runs a full `mcv retrain` once `MCV_LEARN_RETRAIN_AFTER` (default 50)
-  new confirmations arrived. Cron it hourly: `0 * * * * mcv learn` (`--index-only` never
+  it up by itself; one unaugmented gallery row per photo and at most
+  `MCV_LEARN_MAX_PHOTOS_PER_PART`, default 8, per part, newest first, so a part bought every
+  week does not pull its look-alikes' photos to itself) and runs a full `mcv retrain` once
+  `MCV_LEARN_RETRAIN_AFTER` (default 50) new confirmations arrived. Cron it hourly: `0 * * * * mcv learn` (`--index-only` never
   retrains; `--retrain-after N` and `--epochs N` override the recipe for a quick check). The dashboard's **Learning loop** panel and `GET /analytics` show the funnel
   (identify -> cart -> checkout), predicted-vs-bought confusion pairs, tier precision on
   what was bought, and a plain-language issues list with the command that fixes each.
