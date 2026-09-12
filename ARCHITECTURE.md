@@ -345,6 +345,16 @@ searches, 4,085 photos, 30% with a coin; purity 0.91):
 | photo top-1, with a coin | 72.7% | 76.6% | | 71% -> 71% (n=524) |
 | photo top-1, no coin | 61.8% | 66.7% | | 60% -> 59% (n=1779) |
 
+A third of that run's wrong photo answers were the same spec under another part
+number: the synthetic generator had listed 13% of the 800 parts as twins with an
+identical family and attributes, which no photo, coin or prior can separate
+(the analytics now report that share, `confusions_equivalent_share`, and raise
+an issue when it is large, since real catalogs carry such twins too). The
+generator no longer mints them (2.6% remain, where a family has few sizes); on
+a fresh 800-part catalog drawn that way the held-out evaluation reads Recall@1
+0.64 against 0.66 on the old draw, within the noise of 200 queries, so the
+twins were a marketplace artefact (staples repeat) more than a model ceiling.
+
 The bigger the catalog, the more a shop's history is worth: a text search that
 lands the right part first 23% of the time on its own lands it 72% of the time
 for a part the shop has bought before, and the coin is worth 11 points on a
