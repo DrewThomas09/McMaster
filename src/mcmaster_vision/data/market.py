@@ -130,33 +130,51 @@ def _rank(part_numbers: list[str], pn: str) -> int | None:
     return part_numbers.index(pn) + 1 if pn in part_numbers else None
 
 
-def _tap_a_chip(client, q: str, part: Part, client_id: str, personal: int | None, *, taps: int = 2):
-    """What the phone's facet chips add: while the wanted part is not first and chips are
-    offered, the shop taps the first chip (of the two shown) whose attribute its part
-    carries; the narrowed query is scored and may offer chips again. Returns (rank after,
-    number of taps)."""
-    rank, n = personal, 0
-    while rank != 1 and n < taps:
+PAGE = 10  # results the phone shows: a part on the page is tapped, not narrowed to
+
+
+def _tap_a_chip(
+    client, q: str, part: Part, client_id: str, personal: int | None, *, taps: int = 2
+) -> tuple[int | None, int, bool]:
+    """What the phone's facet chips add. While the wanted part is not on the page the
+    phone shows (``PAGE`` rows) and chips are offered, the shop taps the first chip (of
+    the two shown) whose attribute its part carries; the narrowed query is scored and
+    may offer chips again. The shop knows its part's specs and never taps a wrong chip,
+    so this is the perfect-knowledge reading of the chips. Returns (rank after, taps
+    made, whether chips were offered at all)."""
+    rank, n, offered = personal, 0, False
+    used: set[str] = set()
+    while (rank is None or rank > PAGE) and n < taps:
         try:
             f = client.get(f"/search/facets?q={quote(q)}").json()
         except Exception:  # noqa: BLE001
             break
         if f.get("variants", 0) < 2:
             break
+        offered = True
+        attrs = part.attributes or {}
         key = next(
             (
                 k
                 for k in list(f.get("facets") or {})[:2]
-                if str((part.attributes or {}).get(k)) in {v["value"] for v in f["facets"][k]}
+                if k not in used
+                and attrs.get(k) is not None
+                and str(attrs[k]) in {v["value"] for v in f["facets"][k]}
             ),
             None,
         )
         if key is None:
             break
-        q = f"{q} {part.attributes[key]}"
-        hits = client.get(f"/search?q={quote(q)}&limit=30&client_id={client_id}").json()
+        used.add(key)
+        q = f"{q} {attrs[key]}"
+        try:
+            hits = client.get(
+                f"/search?q={quote(q)}&limit=30&client_id={client_id}&narrowed=true"
+            ).json()
+        except Exception:  # noqa: BLE001
+            break
         rank, n = _rank([p["part_number"] for p in hits], part.part_number), n + 1
-    return rank, n
+    return rank, n, offered
 
 
 def run_market(
@@ -222,7 +240,9 @@ def run_market(
                     plain = client.get(f"/search?q={q}&limit=30").json()
                     pers = client.get(f"/search?q={q}&limit=30&client_id={shop.client_id}").json()
                     personal = _rank([p["part_number"] for p in pers], part.part_number)
-                    narrowed, tapped = _tap_a_chip(client, q, part, shop.client_id, personal)
+                    narrowed, tapped, offered = _tap_a_chip(
+                        client, q, part, shop.client_id, personal
+                    )
                     shop.ranks.append(
                         {
                             "order": k + 1,
@@ -230,8 +250,9 @@ def run_market(
                             "seen": seen,
                             "plain": _rank([p["part_number"] for p in plain], part.part_number),
                             "personal": personal,
-                            "narrowed": narrowed,  # after one facet chip, if one was offered
+                            "narrowed": narrowed,  # after the chip taps, if any
                             "tapped": tapped,
+                            "chips_offered": offered,
                         }
                     )
                     req = None
@@ -313,10 +334,24 @@ def market_report(shops: list[Shop], book, run: dict[str, Any]) -> dict[str, Any
         out[kind]["by_order"] = by_bucket
         if kind == "search" and sub:
             # the facet chips: the shop taps one when the wanted part is not first
+            # the chips: offered only when the part was off the page; a tap never raises
+            # top-1 by construction unless it works, so the honest numbers are the share of
+            # searches it changed and how many it made worse (MRR can fall)
             tapped = [r for r in sub if r.get("tapped")]
+            off_page = [r for r in sub if r["personal"] is None or r["personal"] > PAGE]
+            worse = [
+                r
+                for r in tapped
+                if r["narrowed"] is None
+                and r["personal"] is not None
+                or (r["narrowed"] or 0) > (r["personal"] or 0) > 0
+            ]
             out[kind]["chips"] = {
+                "off_page": len(off_page),
+                "offered": sum(1 for r in sub if r.get("chips_offered")),
                 "tapped": len(tapped),
                 "tapped_share": round(len(tapped) / len(sub), 3),
+                "tapped_worse": len(worse),
                 "taps_per_tapped": round(sum(r["tapped"] for r in tapped) / len(tapped), 2)
                 if tapped
                 else None,
@@ -479,9 +514,11 @@ def simulate_market(
             c = k.get("chips")
             if c and c["tapped"]:
                 say(
-                    f"    facet chips: tapped on {c['tapped_share']:.0%} of searches, top-1 "
-                    f"{c['personal_top1']:.0%} -> {c['narrowed_top1']:.0%} over all searches "
-                    f"({c['tapped_top1_before']:.0%} -> {c['tapped_top1_after']:.0%} on the tapped ones)"
+                    f"    facet chips: {c['off_page']} searches had the part off the page, chips "
+                    f"offered on {c['offered']}, tapped on {c['tapped']} ({c['tapped_share']:.0%} "
+                    f"of searches); top-1 {c['personal_top1']:.0%} -> {c['narrowed_top1']:.0%} "
+                    f"over all searches, {c['tapped_top1_after']:.0%} of the tapped ones end "
+                    f"first, {c['tapped_worse']} worse"
                 )
     sg = rep["segments"]
     say(f"  segments: {sg['k']} found for {sg['industries']} industries, purity {sg['purity']}")

@@ -395,13 +395,20 @@ written is then an exact match, not two more words for bm25: `1-1/2"` mentions
 text score of a hit whose attribute value appears in the query as a whole
 whitespace-delimited token by 25% per value (`_promote_exact_values`,
 `EXACT_VALUE_BONUS`). The exact variants form the leading tier, which the
-chips can narrow again (thread size, then length). A stranger's never-bought
-searches were 46% top-1 in every run above and no re-ranking moves them; the
-chips are the lever for that half of the traffic. `mcv simulate-market` now
-plays the tap: when the wanted part is not first and chips are offered, the
-shop taps the first of the two shown whose attribute its part carries, up to
-twice (`_tap_a_chip`), and the report carries `search.chips` and a
-`narrowed_top1` next to every search split.
+chips can narrow again (one key per tap, most widely carried first). A
+stranger's never-bought searches sit where the text alone puts them in every
+run above (46% top-1 on the 200-part catalog, 22-24% on the 800-part one) and
+no re-ranking moves them; the chips are the lever for that half of the
+traffic. `mcv simulate-market` plays the tap as a customer who knows the spec
+they want: when the wanted part is not on the page the phone shows (10 rows)
+and chips are offered, the shop taps the first of the two shown whose
+attribute its part carries, up to twice (`_tap_a_chip`), never a wrong chip,
+so the reading is the ceiling for a customer who knows the size. The report
+carries `search.chips` (how many searches had the part off the page, how many
+were offered chips, tapped, and made worse) and a `narrowed_top1` next to every
+search split. Runs dated before 2026-09-12 predate the exact-value promotion,
+which also moves the plain arm when a query word is itself an attribute value
+(`Brass Hex Nut`), so their plain columns are not directly comparable.
 
 An earlier run at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147
 searches and 4,141 photos, before the eraser fixes and the segment vector

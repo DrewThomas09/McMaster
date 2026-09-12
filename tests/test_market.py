@@ -58,10 +58,11 @@ def test_simulate_market_reports_lift_and_segments(tmp_path, demo_dir, index):
         # the honest split: parts the shop bought before vs parts it never bought
         assert k["seen_before"]["n"] + k["new_part"]["n"] == k["plain"]["n"]
         assert k["seen_before"]["n"] > 0 and k["new_part"]["n"] > 0
-    # the facet chips: a tap can only help, and only counts when one was offered
+    # the facet chips: tapped only when the part was off the page, so top-1 cannot fall
+    # (the honest columns are how often it changed anything and how often it hurt MRR)
     chips = rep["search"]["chips"]
-    assert 0 <= chips["tapped"] <= rep["search"]["plain"]["n"]
-    assert chips["narrowed_top1"] >= chips["personal_top1"]
+    assert 0 <= chips["tapped"] <= chips["offered"] <= chips["off_page"]
+    assert chips["narrowed_top1"] >= chips["personal_top1"] and chips["tapped_worse"] >= 0
     assert rep["search"]["new_part"]["narrowed_top1"] is not None
     photo = rep["identify"]
     assert photo["with_coin"]["n"] + photo["no_coin"]["n"] == photo["plain"]["n"]
