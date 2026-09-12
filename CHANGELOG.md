@@ -42,6 +42,10 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Synthetic catalog: the generator no longer lists one spec under two part numbers
+  (13% of an 800-part catalog were such twins, the largest single source of "wrong" top
+  answers, which no photo can tell apart); the analytics report the share of wrong top
+  answers that were an equivalent part and raise an issue when it is large.
 - Coin hint: the finder no longer needs a second blob 15% the size of the coin before it
   offers one (a 1/4" screw beside a quarter is 3% of it), and looks again at a finer working
   size when the coarse pass finds nothing (a small coin beside a six-inch nipple). Measured

@@ -352,6 +352,13 @@ def enrich_confusions(a: dict, store) -> dict:
         if p.category_path != b.category_path:
             differ.append("category")
         c["differ_by"] = differ
+        c["equivalent"] = c["same_family"] and not differ  # another number for the same spec
+    # how many wrong top answers were the same spec under another part number: not a
+    # miss a photo could have avoided, and worth knowing before blaming the model
+    conf = a.get("confusions", [])
+    total = sum(c.get("times", 0) for c in conf)
+    equiv = sum(c.get("times", 0) for c in conf if c.get("equivalent"))
+    a["confusions_equivalent_share"] = round(equiv / total, 3) if total else None
     return a
 
 
@@ -440,6 +447,17 @@ def issues(a: dict) -> list[dict]:
                     "most (`mcv learn`), and their categories deserve a look in the catalog",
                 }
             )
+    eq = a.get("confusions_equivalent_share")
+    if eq is not None and eq >= 0.3:
+        out.append(
+            {
+                "severity": "low",
+                "what": f"{eq:.0%} of the wrong top answers were the same spec under another "
+                "part number",
+                "do": "no photo tells those apart: merge duplicate listings in the catalog, or "
+                "show both numbers when the family and every attribute match",
+            }
+        )
     rec = a.get("recommendations") or {}
     if rec.get("orders_after_strip", 0) >= 30 and (rec.get("take_rate") or 0) < 0.2:
         out.append(

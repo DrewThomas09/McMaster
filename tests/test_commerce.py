@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mcmaster_vision.api import create_app
@@ -395,3 +396,26 @@ def test_cart_caps_and_missing_cart_creates_no_files(identifier, tmp_path):
             content=b"x",
         )
         assert r.status_code == 413
+
+
+def test_equivalent_confusions_are_named(store, tmp_path):
+    from mcmaster_vision.pipeline.events import enrich_confusions, issues
+
+    parts = list(store.iter_parts(with_images_only=True))
+    fam = {}
+    for p in parts:
+        fam.setdefault(p.family_id, []).append(p)
+    twins = next((v for v in fam.values() if len(v) >= 2), None)
+    if twins is None:
+        pytest.skip("no two parts of one family in the fixture")
+    a, b = twins[0], twins[1]
+    an = dict(a.attributes) == dict(b.attributes)
+    rep = {"confusions": [{"predicted": a.part_number, "bought": b.part_number, "times": 12}]}
+    enrich_confusions(rep, store)
+    assert rep["confusions"][0]["equivalent"] is an
+    assert rep["confusions_equivalent_share"] == (1.0 if an else 0.0)
+    if an:
+        assert any(
+            "same spec under another" in i["what"]
+            for i in issues({**rep, "window": {"items_bought": 0}, "funnel": {}})
+        )

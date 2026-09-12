@@ -56,3 +56,16 @@ def test_nipple_render_has_the_catalog_proportions(tmp_path):
         assert abs(long_px / short_px - want) / want < 0.2, (part.attributes, long_px, short_px)
         checked += 1
     assert checked >= 10
+
+
+def test_generator_avoids_identical_specs(tmp_path):
+    from collections import defaultdict
+
+    from mcmaster_vision.data.synthetic import SyntheticCatalog
+
+    groups = defaultdict(list)
+    parts = list(SyntheticCatalog(n_parts=400, images_per_part=1, seed=5).generate(tmp_path))
+    for p in parts:
+        groups[(p.family_id, tuple(sorted((k, str(v)) for k, v in p.attributes.items())))].append(p)
+    dup = sum(len(v) - 1 for v in groups.values() if len(v) > 1)
+    assert dup / len(parts) < 0.03, dup  # was about 13% on an 800-part catalog

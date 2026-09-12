@@ -1092,6 +1092,7 @@ class SyntheticCatalog:
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
         materials = list(_MATERIALS.items())
+        seen_specs: set[tuple] = set()
         for i in range(self.n_parts):
             kind = self.rng.choice(self.kinds)
             cat, name, _ = _FAMILIES[kind]
@@ -1102,6 +1103,16 @@ class SyntheticCatalog:
             p = self._params()
             pn = self._part_number(i)
             attrs = self._attributes(kind, material, p)
+            # a catalog does not list one spec under two numbers: re-draw the sizes of a
+            # part whose kind, material and attributes were already generated (a few
+            # tries; a family with few sizes may still repeat, as real catalogs do)
+            spec = (kind, material, tuple(sorted((k, str(v)) for k, v in attrs.items())))
+            for _ in range(6):
+                if spec not in seen_specs:
+                    break
+                attrs = self._attributes(kind, material, p)
+                spec = (kind, material, tuple(sorted((k, str(v)) for k, v in attrs.items())))
+            seen_specs.add(spec)
             if kind == "pipe_nipple":
                 # drawn to the catalog's proportions: length over pipe OD, so a photo of
                 # the render next to a coin measures like the real part
