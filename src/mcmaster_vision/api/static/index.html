@@ -537,7 +537,22 @@ async function search(q) {
       <div class="meta" style="margin-top:6px"><a class="link" href="https://www.mcmaster.com/${encodeURIComponent(p.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div>
       <div class="confirm"><button type="button" class="buy" data-buy="${esc(p.part_number)}" onclick="addToCart(${js(p.part_number)}, this)">&#128722; Add to cart</button></div></div></div>`).join('');
   updateCartBadge();
+  showFacets(q, seq);
 }
+// the variants of a name a query cannot tell apart: offer what differs as one tap
+async function showFacets(q, seq) {
+  let box = $('facets');
+  if (!box) { box = document.createElement('div'); box.id = 'facets'; box.className = 'chips'; results.parentNode.insertBefore(box, results); }
+  box.innerHTML = '';
+  let f = null;
+  try { const r = await fetch(`/search/facets?q=${encodeURIComponent(q)}`); if (r.ok) f = await r.json(); } catch (_) {}
+  if (seq !== sendSeq || !f || f.variants < 2) return;
+  const keys = Object.keys(f.facets).slice(0, 2);
+  if (!keys.length) return;
+  box.innerHTML = `<span class="meta">${f.variants} variants differ by ${keys.map(k => esc(k.replace(/_/g, ' '))).join(' and ')}:</span> ` +
+    keys.map(k => f.facets[k].map(v => `<button type="button" data-facet="${esc(k)}" onclick="narrow(${js(q)}, ${js(v.value)})">${esc(v.value)} <small>${v.count}</small></button>`).join('')).join(' ');
+}
+function narrow(q, value) { $('q').value = `${q} ${value}`; search(`${q} ${value}`); }
 let boughtCache = null;  // {part_number: times}, refreshed after every checkout
 async function boughtCounts() {
   if (boughtCache) return boughtCache;

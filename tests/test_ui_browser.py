@@ -453,3 +453,29 @@ def test_search_results_show_what_the_shop_bought_and_can_add_to_cart(server, tm
         page.wait_for_function("document.getElementById('cartn').textContent === '1'")
         page.screenshot(path=str(tmp_path / "search_bought.png"), full_page=True)
         browser.close()
+
+
+def test_search_chips_narrow_the_variants(server, store, tmp_path):
+    """A name that matches several variants shows what differs as chips; one tap narrows."""
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    from collections import Counter
+
+    parts = list(store.iter_parts(with_images_only=True))
+    name, n = Counter(" ".join(p.name.split()[-2:]) for p in parts).most_common(1)[0]
+    if n < 3:
+        pytest.skip("no name with three variants")
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.goto(server + "/")
+        page.fill("#q", name)
+        page.locator("#searchform").evaluate("f => f.requestSubmit()")
+        page.wait_for_selector("#facets button[data-facet]", timeout=30_000)
+        before = page.locator(".cand").count()
+        page.locator("#facets button[data-facet]").first.click()
+        page.wait_for_function(f"document.getElementById('q').value.length > {len(name)}")
+        page.wait_for_selector(".cand", timeout=30_000)
+        assert page.locator(".cand").count() <= before
+        browser.close()

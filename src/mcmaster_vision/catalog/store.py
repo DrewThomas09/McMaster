@@ -48,6 +48,34 @@ def _fts_tokens(text: str) -> list[str]:
     return re.findall(r"[0-9A-Za-z]+", text)
 
 
+EXACT_VALUE_BONUS = 0.25  # a spec value typed verbatim: that many times stronger a match
+
+
+def _promote_exact_values(hits: list[tuple[Part, float]], query: str) -> list[tuple[Part, float]]:
+    """A spec value typed as it is written (``1/2"``, ``Galvanized Steel``, ``M6``) is an
+    exact match, not two more words for bm25: ``1-1/2"`` mentions ``1`` twice and would
+    otherwise outscore ``1/2"``. A hit whose attribute value appears in the query as a
+    whole whitespace-delimited token gets its text score strengthened by
+    ``EXACT_VALUE_BONUS`` per such value, so the exact variants form the leading tier and
+    the facet chips can narrow twice. Part-number matches keep their pinned score."""
+    if not hits or not query:
+        return hits
+    q = query.lower()
+    out = []
+    for part, score in hits:
+        n = 0
+        if score > CatalogStore.PINNED_SCORE:
+            for v in (part.attributes or {}).values():
+                text = str(v).strip().lower()
+                if text and re.search(rf"(?<!\S){re.escape(text)}(?!\S)", q):
+                    n += 1
+        if n:
+            score = score * (1 + EXACT_VALUE_BONUS * n) if score < 0 else -EXACT_VALUE_BONUS * n
+        out.append((part, score))
+    out.sort(key=lambda x: x[1])
+    return out
+
+
 class CatalogStore:
     def __init__(self, path: str | Path = ":memory:"):
         self.path = str(path)
@@ -267,7 +295,8 @@ class CatalogStore:
                     ordered.append(r["part_number"])
                     scores[r["part_number"]] = float(r["score"] or 0.0)
         parts = self.get_many(ordered[:limit])
-        return [(parts[pn], scores[pn]) for pn in ordered[:limit] if pn in parts]
+        hits = [(parts[pn], scores[pn]) for pn in ordered[:limit] if pn in parts]
+        return _promote_exact_values(hits, query)
 
     def by_category(
         self,

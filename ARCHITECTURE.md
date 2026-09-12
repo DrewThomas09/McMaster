@@ -380,6 +380,26 @@ the same run with it reads plain search 26.1% top-1 (MRR 0.442), rising from
 24% in a shop's first three orders to 27% from its ninth as purchases pile up,
 with personalised search unchanged at 44.5% (a shop's own history outranks it).
 
+When neither the history nor popularity can tell the variants apart, the phone
+shows what does: `GET /search/facets?q=` takes the bm25 top tier of the query
+(`top_tier`: hits within 10% of the leader, the variants of one name) and
+returns the attributes that vary across it with their value counts (`facets`:
+keys at least half the tier carries, with at least two values, largest first),
+and the phone renders the first two as chips under the results (from two
+variants up). One tap appends the value to the query. A spec value typed as it is
+written is then an exact match, not two more words for bm25: `1-1/2"` mentions
+`1` twice and would outscore `1/2"`, so `search_text_scored` strengthens the
+text score of a hit whose attribute value appears in the query as a whole
+whitespace-delimited token by 25% per value (`_promote_exact_values`,
+`EXACT_VALUE_BONUS`). The exact variants form the leading tier, which the
+chips can narrow again (thread size, then length). A stranger's never-bought
+searches were 46% top-1 in every run above and no re-ranking moves them; the
+chips are the lever for that half of the traffic. `mcv simulate-market` now
+plays the tap: when the wanted part is not first and chips are offered, the
+shop taps the first of the two shown whose attribute its part carries, up to
+twice (`_tap_a_chip`), and the report carries `search.chips` and a
+`narrowed_top1` next to every search split.
+
 An earlier run at 300 shops and 4,481 orders (seed 3, 2026-09-09, 6,147
 searches and 4,141 photos, before the eraser fixes and the segment vector
 change):

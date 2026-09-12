@@ -6,12 +6,13 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mcmaster_vision.api import create_app
 from mcmaster_vision.config import Settings
 from mcmaster_vision.pipeline.customers import CustomerBook, customer_boost_weight
-from mcmaster_vision.schemas import CartItem, Order
+from mcmaster_vision.schemas import CartItem, Order, Part
 
 
 def _orders(store):
@@ -373,3 +374,79 @@ def test_naive_timestamps_do_not_break_the_model(store):
     book = CustomerBook(orders, {p.part_number: p for p in store.iter_parts()}, k=2)
     assert book.profiles["shop-a"].orders == 4
     assert a[1].part_number in dict(book.complements(a[0].part_number))  # adjacency path
+
+
+def test_search_facets_offer_what_tells_the_variants_apart(identifier, store, tmp_path):
+    from mcmaster_vision.pipeline.customers import facets, top_tier
+
+    client = _client(identifier, tmp_path)
+    parts = list(store.iter_parts(with_images_only=True))
+    # the most common name has variants that share it
+    names = Counter(" ".join(p.name.split()[-2:]) for p in parts)
+    name, n = names.most_common(1)[0]
+    if n < 3:
+        pytest.skip("the fixture catalog has no name with three variants")
+    f = client.get(f"/search/facets?q={name}").json()
+    assert f["variants"] >= 2 and f["facets"], f
+    key, vals = next(iter(f["facets"].items()))
+    assert len(vals) >= 2 and all(v["count"] >= 1 for v in vals)
+    # narrowing by a value cuts the list down to that value
+    narrowed = client.get(f"/search?q={name} {vals[0]['value']}&limit=30").json()
+    assert narrowed and all(
+        str(p["attributes"].get(key, "")) == vals[0]["value"] or vals[0]["value"] in p["name"]
+        for p in narrowed[: vals[0]["count"]]
+    )
+    # the helpers on their own
+    scored = store.search_text_scored(name, 60)
+    tier = top_tier(scored)
+    assert 2 <= len(tier) <= len(scored) and facets(tier)
+    assert facets(tier[:1]) == {}
+
+
+def test_checkout_marks_the_part_at_once_even_inside_the_rebuild_floor(identifier, store, tmp_path):
+    """The customer book is rebuilt at most every two seconds under load, but a checkout
+    must not wait for that floor: the phone searches right after and expects its chip."""
+    client = _client(identifier, tmp_path)
+    pn = next(store.iter_parts()).part_number
+    assert client.get("/me?client_id=shop-z").json()["known"] is False  # a fresh rebuild now
+    r = client.post("/cart", json={"client_id": "shop-z", "part_number": pn})
+    assert r.status_code == 200
+    assert client.post("/checkout", json={"client_id": "shop-z"}).status_code == 200
+    me = client.get("/me?client_id=shop-z").json()  # well inside the two seconds
+    assert me["known"] and me["profile"]["bought"][pn] == 1
+
+
+def test_a_spec_value_typed_verbatim_leads_the_search():
+    """``1/2"`` in the query is an exact match for the 1/2" variant, not two tokens that the
+    1-1/2" variant (which mentions 1 twice) scores higher on; the exact variants form the
+    leading tier, so a facet chip can narrow again."""
+    from mcmaster_vision.catalog import CatalogStore
+
+    st = CatalogStore(":memory:")
+    mk = lambda pn, od, mat: Part(  # noqa: E731
+        part_number=pn,
+        name="V-Belt Pulley",
+        description=f"V-Belt Pulley, {od} OD, {mat}",
+        attributes={"od": od, "material": mat},
+        category_path=["Power Transmission", "Pulleys"],
+    )
+    st.upsert(
+        [
+            mk("P1", '1-1/2"', "Bronze"),
+            mk("P2", '1/2"', "Bronze"),
+            mk("P3", '1/2"', "Aluminum"),
+            mk("P4", '3/4"', "Bronze"),
+        ]
+    )
+    plain = [p.part_number for p, _ in st.search_text_scored("V-Belt Pulley", 10)]
+    assert set(plain) == {"P1", "P2", "P3", "P4"}
+    half = st.search_text_scored('V-Belt Pulley 1/2"', 10)
+    assert [p.part_number for p, _ in half][:2] in (["P2", "P3"], ["P3", "P2"])
+    assert half[0][1] < half[2][1] * 1.1  # a tier of its own: the chips narrow inside it
+    assert [p.part_number for p, _ in st.search_text_scored('V-Belt Pulley 1-1/2"', 10)][0] == "P1"
+    both = st.search_text_scored('V-Belt Pulley 1/2" Aluminum', 10)
+    assert both[0][0].part_number == "P3"
+    # a value that is only part of a longer token was not typed verbatim
+    inch = st.search_text_scored('V-Belt Pulley 1-1/2" Bronze', 10)
+    assert inch[0][0].part_number == "P1"
+    st.close()

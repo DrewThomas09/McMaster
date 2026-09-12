@@ -143,7 +143,9 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         """A checkout changes the model: the next lookup rebuilds it (a phone that just
         bought a part must see it marked, not fifteen seconds later)."""
         with customers_lock:
+            # both clocks: the two-second storm floor must not swallow a real change
             customers_cache["built"] = 0.0
+            customers_cache["rebuilt"] = 0.0
 
     app.state.customers_invalidate = customers_invalidate
 
@@ -771,6 +773,28 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         if prefix or offset:
             return ident.store.by_category(prefix, limit=limit, offset=offset)
         raise HTTPException(400, "give q or category")
+
+    @app.get("/search/facets")
+    def search_facets(
+        request: Request,
+        q: str = Query(..., min_length=1, max_length=200),
+        ident: Identifier = Depends(get_identifier),
+    ) -> dict:
+        """What tells the top matches of a search apart: for the hits that match the words
+        equally well (the variants of one name), the attributes that vary and their
+        values, so the phone can offer a size or a material as one tap."""
+        from mcmaster_vision.pipeline.customers import facets, top_tier
+
+        check_rate(request)
+        scored = ident.store.search_text_scored(q, 60)
+        tier = top_tier(scored)
+        return {
+            "q": q,
+            "variants": len(tier),
+            "facets": {
+                k: [{"value": v, "count": n} for v, n in vals] for k, vals in facets(tier).items()
+            },
+        }
 
     @app.get("/me")
     def me(

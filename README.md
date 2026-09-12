@@ -197,7 +197,9 @@ camera access on iOS.
   and what `mcv train --query-dir data/queries` adds as training views, so
   accuracy on *your* parts improves with use. `/feedback/stats` reports how
   often the top-1 was confirmed.
-* **Text search** (`/search?q=`) is the fallback when nothing matches.
+* **Text search** (`/search?q=`) is the fallback when nothing matches. When a
+  name matches several variants, chips under the results show what differs
+  (`/search/facets`: thread size, length, material) and one tap narrows.
 * **Answer the family question in one tap.** The distinguishing values are shown
   as chips; tapping one re-queries with `constraints={"length": "1\""}`. API
   callers can pass any attributes they already know the same way.
@@ -261,6 +263,7 @@ POST /admin/reload                       header X-API-Token when MCV_API_TOKEN i
 GET  /parts/{part_number}                                    -> Part
 GET  /parts/{part_number}/image
 GET  /search?q=socket+head+screw
+GET  /search/facets?q=socket+head+screw   what differs across the matching variants
 GET  /categories?depth=2                 taxonomy with part counts
 GET  /stats  /health  /docs
 ```

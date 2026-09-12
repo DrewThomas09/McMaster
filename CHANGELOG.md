@@ -2,6 +2,15 @@
 
 ## 0.4.0
 
+- Search facets: when a query matches several variants of one name, `GET /search/facets`
+  returns what differs across the bm25 top tier (attribute -> value counts) and the phone
+  shows the first two as chips under the results; one tap narrows the query. A spec value
+  typed verbatim (`1/2"`, `M6`, `Galvanized Steel`) now strengthens the text score of the
+  hits that carry it (`EXACT_VALUE_BONUS`), so the exact variants lead and the chips can
+  narrow twice; `mcv simulate-market` plays up to two taps and reports the lift. Fixes a race
+  where a checkout's customer-book invalidation could be swallowed by the two-second rebuild
+  floor, so the "bought" chip on a search right after checkout lagged.
+
 - Marketplace personalisation: a customer model from the orders (`pipeline/customers.py`:
   profiles, k-means segments as an industry proxy, blended category priors, co-purchase
   complements) re-ranks `/search?client_id` and nudges `/identify?client_id` candidates as a

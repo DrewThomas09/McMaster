@@ -18,6 +18,7 @@ import zlib
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
 from mcmaster_vision.schemas import Part
 
@@ -129,6 +130,35 @@ def _rank(part_numbers: list[str], pn: str) -> int | None:
     return part_numbers.index(pn) + 1 if pn in part_numbers else None
 
 
+def _tap_a_chip(client, q: str, part: Part, client_id: str, personal: int | None, *, taps: int = 2):
+    """What the phone's facet chips add: while the wanted part is not first and chips are
+    offered, the shop taps the first chip (of the two shown) whose attribute its part
+    carries; the narrowed query is scored and may offer chips again. Returns (rank after,
+    number of taps)."""
+    rank, n = personal, 0
+    while rank != 1 and n < taps:
+        try:
+            f = client.get(f"/search/facets?q={quote(q)}").json()
+        except Exception:  # noqa: BLE001
+            break
+        if f.get("variants", 0) < 2:
+            break
+        key = next(
+            (
+                k
+                for k in list(f.get("facets") or {})[:2]
+                if str((part.attributes or {}).get(k)) in {v["value"] for v in f["facets"][k]}
+            ),
+            None,
+        )
+        if key is None:
+            break
+        q = f"{q} {part.attributes[key]}"
+        hits = client.get(f"/search?q={quote(q)}&limit=30&client_id={client_id}").json()
+        rank, n = _rank([p["part_number"] for p in hits], part.part_number), n + 1
+    return rank, n
+
+
 def run_market(
     client,
     parts: list[Part],
@@ -191,13 +221,17 @@ def run_market(
                     q = _tokens(part)
                     plain = client.get(f"/search?q={q}&limit=30").json()
                     pers = client.get(f"/search?q={q}&limit=30&client_id={shop.client_id}").json()
+                    personal = _rank([p["part_number"] for p in pers], part.part_number)
+                    narrowed, tapped = _tap_a_chip(client, q, part, shop.client_id, personal)
                     shop.ranks.append(
                         {
                             "order": k + 1,
                             "kind": "search",
                             "seen": seen,
                             "plain": _rank([p["part_number"] for p in plain], part.part_number),
-                            "personal": _rank([p["part_number"] for p in pers], part.part_number),
+                            "personal": personal,
+                            "narrowed": narrowed,  # after one facet chip, if one was offered
+                            "tapped": tapped,
                         }
                     )
                     req = None
@@ -277,6 +311,21 @@ def market_report(shops: list[Shop], book, run: dict[str, Any]) -> dict[str, Any
                     "n": len(b),
                 }
         out[kind]["by_order"] = by_bucket
+        if kind == "search" and sub:
+            # the facet chips: the shop taps one when the wanted part is not first
+            tapped = [r for r in sub if r.get("tapped")]
+            out[kind]["chips"] = {
+                "tapped": len(tapped),
+                "tapped_share": round(len(tapped) / len(sub), 3),
+                "taps_per_tapped": round(sum(r["tapped"] for r in tapped) / len(tapped), 2)
+                if tapped
+                else None,
+                "personal_top1": _summ(sub, "personal")["top1"],
+                "narrowed_top1": _summ(sub, "narrowed")["top1"],
+                "narrowed_mrr": _summ(sub, "narrowed")["mrr"],
+                "tapped_top1_before": _summ(tapped, "personal")["top1"],
+                "tapped_top1_after": _summ(tapped, "narrowed")["top1"],
+            }
         # a part the shop bought before is the easy case (the model has seen the
         # purchase); the honest number is the lift on parts it has never bought
         splits = [("seen_before", "seen", True), ("new_part", "seen", False)]
@@ -289,6 +338,8 @@ def market_report(shops: list[Shop], book, run: dict[str, Any]) -> dict[str, Any
                 "plain_top1": _summ(b, "plain")["top1"],
                 "personal_top1": _summ(b, "personal")["top1"],
             }
+            if kind == "search":
+                out[kind][name]["narrowed_top1"] = _summ(b, "narrowed")["top1"]
         if kind == "identify":
             # the case the prior gets wrong (a new size of a part bought before) is the
             # case a coin in the frame settles: the never-bought split, with and without
@@ -419,7 +470,19 @@ def simulate_market(
                     say(
                         f"    {name.replace('_', ' ')}: {v['plain_top1']:.0%} -> "
                         f"{v['personal_top1']:.0%} (n={v['n']})"
+                        + (
+                            f" -> {v['narrowed_top1']:.0%} after a chip"
+                            if v.get("narrowed_top1") is not None
+                            else ""
+                        )
                     )
+            c = k.get("chips")
+            if c and c["tapped"]:
+                say(
+                    f"    facet chips: tapped on {c['tapped_share']:.0%} of searches, top-1 "
+                    f"{c['personal_top1']:.0%} -> {c['narrowed_top1']:.0%} over all searches "
+                    f"({c['tapped_top1_before']:.0%} -> {c['tapped_top1_after']:.0%} on the tapped ones)"
+                )
     sg = rep["segments"]
     say(f"  segments: {sg['k']} found for {sg['industries']} industries, purity {sg['purity']}")
     say(

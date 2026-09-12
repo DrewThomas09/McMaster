@@ -492,6 +492,40 @@ def popularity_boosts(
     return out
 
 
+def top_tier(scored: list[tuple[Any, float]], *, tolerance: float = 0.1) -> list[Any]:
+    """The hits that match the words as well as the best one (bm25 within ``tolerance``
+    of the leader; part-number matches count as their own leader): the variants of a
+    name a query cannot tell apart."""
+    out: list[Any] = []
+    leader: float | None = None
+    for part, score in scored:
+        if leader is None:
+            leader = score
+        elif score > leader * (1.0 - tolerance):
+            break
+        out.append(part)
+    return out
+
+
+def facets(parts: list[Any], *, max_values: int = 8) -> dict[str, list[tuple[str, int]]]:
+    """Attributes that would tell the ``parts`` apart: keys most of them carry with at
+    least two values, each value with its count, most common first."""
+    if len(parts) < 2:
+        return {}
+    keys: Counter = Counter()
+    values: dict[str, Counter] = {}
+    for p in parts:
+        for k, v in (p.attributes or {}).items():
+            keys[k] += 1
+            values.setdefault(k, Counter())[str(v)] += 1
+    out = {}
+    for k, n in keys.most_common():
+        if n < len(parts) / 2 or len(values[k]) < 2:
+            continue
+        out[k] = values[k].most_common(max_values)
+    return out
+
+
 def rerank_within_tiers(
     scored: list[tuple[Any, float]],
     boosts: dict[str, float],
