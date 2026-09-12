@@ -131,6 +131,7 @@ def _rank(part_numbers: list[str], pn: str) -> int | None:
 
 
 PAGE = 10  # results the phone shows: a part on the page is tapped, not narrowed to
+STRIP_SLOTS = 8  # parts the phone's For-you strip asks for; the baseline gets as many
 
 
 def _tap_a_chip(
@@ -213,11 +214,13 @@ def run_market(
             if k >= 2:
                 # the recommendations against the dumbest baseline: the shop's own
                 # most-bought parts (what an "order again" list would show)
-                baseline = [pn for pn, _ in bought_before[shop.client_id].most_common(6)]
+                baseline = [pn for pn, _ in bought_before[shop.client_id].most_common(STRIP_SLOTS)]
                 rec_shown += 1
                 base_hits += any(pn in want for pn in baseline)
                 try:
-                    recs = client.get(f"/recommend?client_id={shop.client_id}&n=6").json()
+                    recs = client.get(
+                        f"/recommend?client_id={shop.client_id}&n={STRIP_SLOTS}"
+                    ).json()
                     got = [r for r in recs if r["part_number"] in want]
                     rec_hits += bool(got)
                     # the value over an order-again list: a part the shop never bought,

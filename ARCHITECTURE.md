@@ -551,6 +551,29 @@ from the strip. The synthetic shops pick their non-staple parts at random
 within their category mix, which is close to the ceiling for one guess; the
 number to watch on real customers is that last column.
 
+`scripts/replay_recommendations.py` replays a market's order log through the
+recommender round by round (the book built from the rounds before, as the
+nightly rebuild does) and scores variants in a minute instead of a two-hour
+run. On the two 300-shop logs of 2026-09-12 it reproduces the simulation
+(66.7% / 73.9% against 68.1% / 75.4% for the order-again list at six slots) and
+shows where the gap sits: the sixth re-order slot is bought 5-8% of the time,
+the guess that replaces it 1.7-3.6%, and the re-order ordering itself beats the
+baseline (68.4% / 76.2% with no new slot). The phone's strip scrolls and asks
+for eight, where the eighth re-order is worth 3-5% and one new slot costs
+nothing against the baseline:
+
+| eight slots, one kept for something new | 800-part catalog | 200-part catalog |
+|---|---|---|
+| order-again baseline (eight most-bought parts) | 71.2% | 78.6% |
+| the strip as shipped | 70.6% (2.2% never bought) | 79.2% (4.8% never bought) |
+| no new slot | 71.7% (1.1%) | 80.1% (2.9%) |
+| two new slots | 69.7% (3.7%) | 78.0% (6.5%) |
+
+A new slot only when the re-order it displaces was bought once and not recently
+scored the same as always keeping one (70.6% / 79.4%); the simpler rule stays.
+`mcv simulate-market` now scores the strip at the eight slots the phone shows,
+against an eight-part order-again list.
+
 The first 1000-shop run of the day (same shops and orders) used a search
 re-rank that could lift any hit in a 50-row window by up to 0.3 of the position
 score; it showed search top-1 48.6% -> 59.2% and photo top-1 79.8% -> 83.6%.

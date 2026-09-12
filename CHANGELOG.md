@@ -2,6 +2,12 @@
 
 ## 0.4.0
 
+- `scripts/replay_recommendations.py` replays a market order log through the recommender
+  and scores variants against the order-again list without re-running the simulation; the
+  simulation now scores the For-you strip at the eight slots the phone shows (at eight, one
+  slot kept for something new costs nothing against an eight-part order-again list: 70.6% vs
+  71.2% on the 800-part catalog, 79.2% vs 78.6% on the 200-part one).
+
 - Cart adds record which door the part came through (`via`: photo, search, for_you,
   order_again); the analytics `found_by` split and a dashboard line show it, next to a
   search funnel (`analytics()["search"]`: typed searches, the share narrowed by a facet
