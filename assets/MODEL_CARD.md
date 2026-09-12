@@ -139,7 +139,11 @@ inactivity; the third attempt finished one epoch before dying, and that checkpoi
 R@1 0.635, R@5 0.968, family R@1 0.823, MRR 0.774 against the shipped 0.623 / 0.958 /
 0.830 / 0.764 on the same held-out catalog: a point on Recall@1 and MRR, a point down on
 families, within the noise of 400 queries, so it was not shipped. The full 13-epoch tail
-needs a machine the session does not own, and is left as the next training step.
+needs a machine the session does not own, and is left as the next training step. So is a
+retrain on a catalog drawn by the deduplicated generator (2026-09-12): the 8,000-part
+training catalog behind every checkpoint so far listed about one part in eight as a twin
+of another (same family, same attributes, same render), and the contrastive loss treated
+each twin as a negative of the other, which is noise the next run should not pay for.
 
 By top-level category on the 800-part demo evaluation (200 photo-style queries, gallery
 augmentation 2; Recall@1 / Recall@5 / queries): Sealing 0.40 / 1.00 / 5; Hand Tools 0.50 /
