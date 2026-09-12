@@ -186,3 +186,4 @@ def test_report_lists_customers_and_the_strip(identifier, store, tmp_path):
     r = CliRunner().invoke(cli, ["report", "--config", str(cfg)])
     assert r.exit_code == 0, r.output
     assert "For-you strip" in r.output and "customers 1" in r.output
+    assert "parts added by" in r.output and "searches" in r.output

@@ -762,6 +762,16 @@ def report(
             f"For-you strip: bought from in {pc(rec['take_rate'])} of {rec['orders_after_strip']} "
             f"orders that followed it, a never-bought part in {pc(rec['new_part_take_rate'])}"
         )
+    fb = a.get("found_by") or {}
+    sf = a.get("search") or {}
+    if fb or sf.get("searches"):
+        typer.echo(
+            "parts added by "
+            + (", ".join(f"{k.replace('_', ' ')} {n}" for k, n in fb.items()) or "-")
+            + f"; {sf.get('searches', 0)} searches ({pc(sf.get('narrowed_share'))} narrowed by "
+            f"a chip, {pc(sf.get('no_results_share'))} found nothing, "
+            f"{pc(sf.get('search_to_cart'))} led to a cart add)"
+        )
     lat = a["latency_ms"]
     typer.echo(
         f"latency p50 {lat['p50'] if lat['p50'] is not None else '-'} ms, p95 "
