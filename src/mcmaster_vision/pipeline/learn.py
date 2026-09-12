@@ -148,10 +148,18 @@ def _learn_index(settings: Settings, *, force: bool) -> dict[str, Any]:
             except Exception as e:  # unreadable: rebuild below
                 log.warning("could not load the index for incremental learning: %s", e)
         learned_before = list((idx.meta.get("learned_paths") or []) if idx is not None else [])
+        # the served index says how its gallery was built: learning keeps that, whatever
+        # this process's environment says (a worker without MCV_INDEX_GALLERY_AUGMENT once
+        # rebuilt an augmented gallery unaugmented and lost a third of its rows)
+        gallery_augment = int(
+            idx.meta.get("gallery_augment", settings.index_gallery_augment)
+            if idx is not None
+            else settings.index_gallery_augment
+        )
         incremental = (
             idx is not None
             and backbone_matches(idx.meta.get("backbone"), embedder.version)
-            and int(idx.meta.get("gallery_augment", -1)) == settings.index_gallery_augment
+            and int(idx.meta.get("gallery_augment", -1)) == gallery_augment
             and int(idx.meta.get("image_size", -1)) == settings.image_size
             # an older --with-feedback index does not say which photos it holds, and one
             # without category counts would let a few photos overwrite the category prior
@@ -173,7 +181,7 @@ def _learn_index(settings: Settings, *, force: bool) -> dict[str, Any]:
                 embedder,
                 labelled,
                 image_size=settings.image_size,
-                gallery_augment=settings.index_gallery_augment,
+                gallery_augment=gallery_augment,
                 out_path=settings.index_path,
             )
         else:
@@ -183,7 +191,7 @@ def _learn_index(settings: Settings, *, force: bool) -> dict[str, Any]:
                 settings.index_backend,
                 out_path=settings.index_path,
                 image_size=settings.image_size,
-                gallery_augment=settings.index_gallery_augment,
+                gallery_augment=gallery_augment,
                 extra_images=labelled or None,
             )
             added = n_photos

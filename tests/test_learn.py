@@ -399,3 +399,19 @@ def test_learn_keeps_only_the_newest_photos_per_part(tmp_path, demo_dir, store, 
         time.sleep(0.01)
     res = learn_index(s)
     assert res["action"] == "index" and res["added"] == 3  # the newest three of five
+
+
+def test_learn_keeps_the_index_gallery_augmentation(tmp_path, demo_dir, store, embedder):
+    """An index built with gallery augmentation stays augmented when a worker whose
+    settings say 0 learns into it: incremental, no silent rebuild."""
+    from mcmaster_vision.index import build_index
+
+    idx = build_index(store, embedder, "numpy", out_path=tmp_path / "built", gallery_augment=1)
+    rows = len(idx)
+    s = _settings(tmp_path, demo_dir, idx)  # index_gallery_augment=0 in these settings
+    parts = list(store.iter_parts(with_images_only=True))[:1]
+    FeedbackStore(s.queries_dir).record(_photo(parts[0]), "r1", parts[0].part_number)
+    res = learn_index(s)
+    assert res["action"] == "index" and res["how"] == "incremental", res
+    after = load_index(s.index_path)
+    assert len(after) == rows + 1 and int(after.meta["gallery_augment"]) == 1
