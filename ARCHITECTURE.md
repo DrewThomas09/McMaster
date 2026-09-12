@@ -616,8 +616,13 @@ back 99.3% top-1 and new photos of the same parts 85.7% (from 80.3% before
 learning); at 0.9 the bought photos fall to 83.7% and new photos stay at
 85.7%; at 0.75, 82.7% and 85.7%. The catalog rows of look-alikes sit above 0.9
 cosine in this space, so any discount on the exact photo match loses the
-"seen it before" promise and buys nothing on new photos. The weight stays at
-1.0; the knob is kept for a backbone with a wider spread.
+"seen it before" promise and buys nothing on new photos. At marketplace scale
+the knob does not move anything: 100 shops on the 800-part catalog with the
+loop every four rounds (seed 0, 2026-09-12) read photo top-1 68.9% -> 72.1%
+plain -> personalised at 1.0 and 69.0% -> 72.0% at 0.75, parts bought before
+81.8% against 81.9%, never-bought 64.5% against 64.2%: learned rows seldom
+decide against catalog rows either way. The weight stays at 1.0; the knob is
+kept for a backbone with a wider spread.
 
 ## Durability (nothing learned at run time is lost)
 
