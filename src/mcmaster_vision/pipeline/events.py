@@ -161,6 +161,25 @@ class EventLog:
         return found if isinstance(found, dict) else None
 
 
+def search_funnel(searches: list[dict], carts: list[dict]) -> dict:
+    """Typed searches in the window: how many, how many came from a facet chip (the
+    variants of a name told apart by one tap), how many found nothing, and how many
+    cart adds came through the search door, so the chips can be judged on real traffic
+    the way ``mcv simulate-market`` judges them on synthetic shops."""
+    n = len(searches)
+    narrowed = sum(1 for r in searches if r.get("narrowed"))
+    empty = sum(1 for r in searches if not r.get("results"))
+    added = sum(1 for c in carts if c.get("via") == "search")
+    return {
+        "searches": n,
+        "narrowed_by_chip": narrowed,
+        "narrowed_share": round(narrowed / n, 3) if n else None,
+        "no_results_share": round(empty / n, 3) if n else None,
+        "added_to_cart": added,
+        "search_to_cart": round(min(1.0, added / n), 3) if n else None,
+    }
+
+
 def recommendation_take(rows: list[dict]) -> dict:
     """Of the orders placed after a For-you strip was shown, how many took a part from
     it, and how many took a part the customer had never bought before: the number that
@@ -269,6 +288,7 @@ def analytics(events: EventLog, feedback_stats: dict | None = None) -> dict:
         # how customers reach the parts they add: a photo, a typed search, the For-you
         # strip, an old order; the split says which door is worth widening
         "found_by": dict(Counter(r.get("via") or "other" for r in carts).most_common()),
+        "search": search_funnel(events.rows("search"), carts),
         "bought_rank_hist": dict(Counter(int(r) for r in ranks)),
         "tier_precision_bought": {
             t: {"bought": n, "top1_right": k, "precision": round(k / n, 3)}

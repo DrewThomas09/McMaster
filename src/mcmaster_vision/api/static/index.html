@@ -517,11 +517,11 @@ async function shareResult() {
 }
 
 // ---- search ----------------------------------------------------------------
-async function search(q) {
+async function search(q, narrowed) {
   const seq = ++sendSeq;
   results.innerHTML = '<p><span class="spinner"></span>Searching&hellip;</p>';
   let r;
-  try { r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10&client_id=${encodeURIComponent(clientId())}`); }
+  try { r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10&client_id=${encodeURIComponent(clientId())}${narrowed ? '&narrowed=true' : ''}`); }
   catch (e) { if (seq === sendSeq) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
   if (seq !== sendSeq) return;
   if (!r.ok) { results.innerHTML = `<p style="color:var(--bad)">Search failed (${r.status})</p>`; return; }
@@ -552,7 +552,7 @@ async function showFacets(q, seq) {
   box.innerHTML = `<span class="meta">${f.variants} variants differ by ${keys.map(k => esc(k.replace(/_/g, ' '))).join(' and ')}:</span> ` +
     keys.map(k => f.facets[k].map(v => `<button type="button" data-facet="${esc(k)}" onclick="narrow(${js(q)}, ${js(v.value)})">${esc(v.value)} <small>${v.count}</small></button>`).join('')).join(' ');
 }
-function narrow(q, value) { $('q').value = `${q} ${value}`; search(`${q} ${value}`); }
+function narrow(q, value) { $('q').value = `${q} ${value}`; search(`${q} ${value}`, true); }
 let boughtCache = null;  // {part_number: times}, refreshed after every checkout
 async function boughtCounts() {
   if (boughtCache) return boughtCache;

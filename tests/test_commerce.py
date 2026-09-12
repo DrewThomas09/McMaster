@@ -78,6 +78,14 @@ def test_cart_add_remove_and_validation(identifier, tmp_path):
 
     fb_by = analytics(ev)["found_by"]
     assert fb_by["photo"] == 1 and fb_by["search"] == 1 and fb_by["other"] == 2
+    # the search door in numbers: typed searches, chip-narrowed ones, and cart adds
+    name = client.get(f"/parts/{pn}").json()["name"]
+    assert client.get(f"/search?q={name}").status_code == 200
+    assert client.get(f"/search?q={name}&narrowed=true").status_code == 200
+    assert client.get("/search?q=zzzzqqqq").status_code == 200
+    sf = analytics(ev)["search"]
+    assert sf["searches"] == 3 and sf["narrowed_by_chip"] == 1 and sf["added_to_cart"] == 1
+    assert sf["no_results_share"] == round(1 / 3, 3) and sf["search_to_cart"] == round(1 / 3, 3)
     assert ev.identify_row(req)["request_id"] == req and ev.identify_row("nope") is None
     # the cart add with a photo behind it already filed weak (weight 1) evidence
     fb = client.app.state.feedback

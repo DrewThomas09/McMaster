@@ -3,7 +3,9 @@
 ## 0.4.0
 
 - Cart adds record which door the part came through (`via`: photo, search, for_you,
-  order_again); the analytics `found_by` split and a dashboard line show it.
+  order_again); the analytics `found_by` split and a dashboard line show it, next to a
+  search funnel (`analytics()["search"]`: typed searches, the share narrowed by a facet
+  chip, the share that found nothing, the share that led to a cart add).
 
 - Search facets: when a query matches several variants of one name, `GET /search/facets`
   returns what differs across the bm25 top tier (attribute -> value counts) and the phone

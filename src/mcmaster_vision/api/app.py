@@ -723,6 +723,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         client_id: str | None = Query(
             None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$", description="Personalise the order"
         ),
+        narrowed: bool = Query(False, description="The query came from a facet chip tap"),
         ident: Identifier = Depends(get_identifier),
     ):
         check_rate(request)
@@ -768,6 +769,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
                 results=len(hits),
                 top=[p.part_number for p in hits[:5]],
                 personalised=bool(prior),
+                narrowed=narrowed,
             )
             return hits[offset : offset + limit]
         if prefix or offset:
