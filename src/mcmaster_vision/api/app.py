@@ -96,7 +96,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
     app.state.get_identifier = lambda: get_identifier()
     app.state.check_admin = lambda request: check_admin(request)
 
-    customers_cache: dict = {"orders": None, "book": None, "built": 0.0}
+    customers_cache: dict = {"orders": None, "book": None, "built": 0.0, "gen": 0}
     customers_lock = threading.Lock()
 
     def customer_book(force: bool = False):
@@ -114,6 +114,7 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
             if fresh:
                 return customers_cache["book"]
             cached_orders, cached_book = customers_cache["orders"], customers_cache["book"]
+            gen = customers_cache["gen"]  # which invalidation this rebuild answers
             # a checkout storm may ask for a rebuild every few milliseconds: at most one
             # every two seconds, the current book serves meanwhile
             if (
@@ -127,14 +128,18 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         orders = app.state.carts.all_orders()
         if cached_orders is orders and cached_book is not None:
             with customers_lock:
-                customers_cache["built"] = time.time()
+                if customers_cache["gen"] == gen:
+                    customers_cache["built"] = time.time()
             return cached_book
         ident = get_identifier()
         pns = {it.part_number for o in orders for it in o.items}
         parts = ident.store.get_many(pns) if pns else {}
         book = CustomerBook(orders, parts)
         with customers_lock:
-            customers_cache.update(orders=orders, book=book, built=time.time(), rebuilt=time.time())
+            # a checkout that landed while this book was being built is not in it: then
+            # the clocks stay at zero and the next lookup builds again, orders included
+            now = time.time() if customers_cache["gen"] == gen else 0.0
+            customers_cache.update(orders=orders, book=book, built=now, rebuilt=now)
         return book
 
     app.state.customer_book = customer_book
@@ -143,9 +148,11 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
         """A checkout changes the model: the next lookup rebuilds it (a phone that just
         bought a part must see it marked, not fifteen seconds later)."""
         with customers_lock:
-            # both clocks: the two-second storm floor must not swallow a real change
+            # both clocks: the two-second storm floor must not swallow a real change; the
+            # generation lets a rebuild already under way know it missed this
             customers_cache["built"] = 0.0
             customers_cache["rebuilt"] = 0.0
+            customers_cache["gen"] += 1
 
     app.state.customers_invalidate = customers_invalidate
 
@@ -789,7 +796,9 @@ def create_app(settings: Settings | None = None, identifier: Identifier | None =
 
         check_rate(request)
         scored = ident.store.search_text_scored(q, 60)
-        tier = top_tier(scored)
+        # a part-number prefix has no words to add a value to: no chips on that tier
+        pinned = bool(scored) and scored[0][1] <= ident.store.PINNED_SCORE
+        tier = [] if pinned else top_tier(scored)
         return {
             "q": q,
             "variants": len(tier),

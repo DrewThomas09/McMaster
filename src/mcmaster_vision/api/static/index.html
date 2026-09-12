@@ -303,7 +303,7 @@ drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add(
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
 drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) { resetQuery(); addPhotos([...e.dataTransfer.files]); } });
 window.addEventListener('paste', e => { for (const it of e.clipboardData.items) if (it.type.startsWith('image/')) { resetQuery(); addPhotos([it.getAsFile()]); break; } });
-$('again').addEventListener('click', () => { resetQuery(); preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
+$('again').addEventListener('click', () => { resetQuery(); clearFacets(); preview.hidden = true; results.innerHTML = ''; thumbs.innerHTML = ''; window.scrollTo({top: 0, behavior: 'smooth'}); });
 $('searchform').addEventListener('submit', async e => { e.preventDefault(); const q = $('q').value.trim(); if (q) await search(q); });
 document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { document.querySelectorAll('.seg button').forEach(x => x.classList.remove('on')); b.classList.add('on'); tta = b.dataset.tta; if (photos.length) send(); }));
 function refine(k, v) { constraints[k] = v; send(); }
@@ -438,7 +438,9 @@ function specTable(attrs) {
   if (!rows.length) return '';
   return `<table class="spec">${rows.map(([k, v]) => `<tr><td>${esc(label(k))}</td><td>${esc(v)}</td></tr>`).join('')}</table>`;
 }
+function clearFacets() { const b = $('facets'); if (b) b.innerHTML = ''; }
 function render(res) {
+  clearFacets();  // chips belong to the last typed search, not to a photo
   const tierText = { exact: 'Exact match', likely: 'Likely match', candidate: 'Possible matches', unknown: 'No confident match' }[res.tier] || res.tier;
   let html = `<div class="card verdict"><span class="tier ${res.tier}">${esc(tierText)}</span>`;
   if (res.best) {
@@ -519,6 +521,7 @@ async function shareResult() {
 // ---- search ----------------------------------------------------------------
 async function search(q, narrowed) {
   const seq = ++sendSeq;
+  clearFacets();
   results.innerHTML = '<p><span class="spinner"></span>Searching&hellip;</p>';
   let r;
   try { r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10&client_id=${encodeURIComponent(clientId())}${narrowed ? '&narrowed=true' : ''}`); }
@@ -716,7 +719,7 @@ async function loadForYou() {  // re-orders, complements, favourites of shops li
   const known = recs.some(r => !/popular$/.test(r.why));
   box.hidden = !recs.length || !known;
   if (box.hidden) return;
-  $('foryoustrip').innerHTML = recs.map(r => `<figure><img src="${esc(r.thumb)}" alt="" loading="lazy" title="${esc(r.why)}" tabindex="0" role="button" onclick="addToCart(${js(r.part_number)}, null, 'for_you')" onkeydown="if (event.key === 'Enter') addToCart(${js(r.part_number)}, null)"><figcaption>${esc(r.part_number)}<br><small>${esc(r.why)}</small></figcaption></figure>`).join('');
+  $('foryoustrip').innerHTML = recs.map(r => `<figure><img src="${esc(r.thumb)}" alt="" loading="lazy" title="${esc(r.why)}" tabindex="0" role="button" onclick="addToCart(${js(r.part_number)}, null, 'for_you')" onkeydown="if (event.key === 'Enter') addToCart(${js(r.part_number)}, null, 'for_you')"><figcaption>${esc(r.part_number)}<br><small>${esc(r.why)}</small></figcaption></figure>`).join('');
 }
 function openCart() { renderCart(); loadOrders(); $('cart').classList.add('on'); }
 async function loadOrders() {

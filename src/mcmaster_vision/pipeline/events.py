@@ -169,7 +169,10 @@ def search_funnel(searches: list[dict], carts: list[dict]) -> dict:
     n = len(searches)
     narrowed = sum(1 for r in searches if r.get("narrowed"))
     empty = sum(1 for r in searches if not r.get("results"))
-    added = sum(1 for c in carts if c.get("via") == "search")
+    # searches live in a shorter window than cart adds: count the adds since the oldest
+    # search kept, so the ratio compares one span with itself
+    since = min((r.get("at") or "" for r in searches), default="")
+    added = sum(1 for c in carts if c.get("via") == "search" and (c.get("at") or "") >= since)
     return {
         "searches": n,
         "narrowed_by_chip": narrowed,

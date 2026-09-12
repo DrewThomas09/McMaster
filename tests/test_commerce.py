@@ -84,7 +84,12 @@ def test_cart_add_remove_and_validation(identifier, tmp_path):
     assert client.get(f"/search?q={name}&narrowed=true").status_code == 200
     assert client.get("/search?q=zzzzqqqq").status_code == 200
     sf = analytics(ev)["search"]
-    assert sf["searches"] == 3 and sf["narrowed_by_chip"] == 1 and sf["added_to_cart"] == 1
+    # the add via search above came before any search kept: not this span's
+    assert sf["searches"] == 3 and sf["narrowed_by_chip"] == 1 and sf["added_to_cart"] == 0
+    r = client.post("/cart", json={"client_id": "p4", "part_number": pn, "via": "search"})
+    assert r.status_code == 200
+    sf = analytics(ev)["search"]
+    assert sf["added_to_cart"] == 1
     assert sf["no_results_share"] == round(1 / 3, 3) and sf["search_to_cart"] == round(1 / 3, 3)
     assert ev.identify_row(req)["request_id"] == req and ev.identify_row("nope") is None
     # the cart add with a photo behind it already filed weak (weight 1) evidence

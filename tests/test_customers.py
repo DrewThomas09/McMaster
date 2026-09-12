@@ -450,3 +450,42 @@ def test_a_spec_value_typed_verbatim_leads_the_search():
     inch = st.search_text_scored('V-Belt Pulley 1-1/2" Bronze', 10)
     assert inch[0][0].part_number == "P1"
     st.close()
+
+
+def test_exact_values_are_promoted_from_beyond_the_page_and_pages_do_not_overlap():
+    """The exact variants may sit past the first page in bm25 order (longer descriptions
+    score lower); they are promoted inside a fixed window, so page one shows them and
+    page two continues the same ordering."""
+    from mcmaster_vision.catalog import CatalogStore
+
+    st = CatalogStore(":memory:")
+    rows = [
+        Part(
+            part_number=f"A{i:02d}",
+            name="V-Belt Pulley",
+            description='V-Belt Pulley 1-1/2" OD',
+            attributes={"od": '1-1/2"'},
+        )
+        for i in range(12)
+    ] + [
+        Part(
+            part_number=f"B{i}",
+            name="V-Belt Pulley",
+            description='V-Belt Pulley 1/2" OD, cast iron body, zinc plated, keyed bore',
+            attributes={"od": '1/2"'},
+        )
+        for i in range(3)
+    ]
+    st.upsert(rows)
+    page1 = [p.part_number for p, _ in st.search_text_scored('V-Belt Pulley 1/2"', 10)]
+    assert page1[:3] == ["B0", "B1", "B2"] and len(page1) == 10
+    page2 = [p.part_number for p, _ in st.search_text_scored('V-Belt Pulley 1/2"', 20)][10:]
+    assert not set(page1) & set(page2) and len(page1) + len(page2) == 15
+    st.close()
+
+
+def test_no_chips_on_a_part_number_prefix(identifier, store, tmp_path):
+    client = _client(identifier, tmp_path)
+    pn = next(store.iter_parts()).part_number
+    f = client.get(f"/search/facets?q={pn[:5]}").json()
+    assert f["variants"] == 0 and f["facets"] == {}

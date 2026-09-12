@@ -49,6 +49,7 @@ def _fts_tokens(text: str) -> list[str]:
 
 
 EXACT_VALUE_BONUS = 0.25  # a spec value typed verbatim: that many times stronger a match
+PROMOTE_WINDOW = 200  # text hits re-sorted for exact values: fixed, so pages never overlap
 
 
 def _promote_exact_values(hits: list[tuple[Part, float]], query: str) -> list[tuple[Part, float]]:
@@ -257,10 +258,13 @@ class CatalogStore:
     def search_text_scored(self, query: str, limit: int = 20) -> list[tuple[Part, float]]:
         """``search_text`` with each hit's text score: the FTS5 bm25 rank (more negative
         is a stronger match), ``PINNED_SCORE`` for part-number matches, 0 for the LIKE
-        fallback, where every hit is as good as any other."""
+        fallback, where every hit is as good as any other. Exact spec values in the query
+        are promoted inside the first ``PROMOTE_WINDOW`` text hits (a fixed window, so a
+        page further down is the same ordering continued) and ``limit`` rows come back."""
         query = query.strip()
         if not query:
             return []
+        want, limit = limit, max(limit, PROMOTE_WINDOW)
         ordered: list[str] = []
         scores: dict[str, float] = {}
         for row in self._conn.execute(
@@ -296,7 +300,7 @@ class CatalogStore:
                     scores[r["part_number"]] = float(r["score"] or 0.0)
         parts = self.get_many(ordered[:limit])
         hits = [(parts[pn], scores[pn]) for pn in ordered[:limit] if pn in parts]
-        return _promote_exact_values(hits, query)
+        return _promote_exact_values(hits, query)[:want]
 
     def by_category(
         self,
