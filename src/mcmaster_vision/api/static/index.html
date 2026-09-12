@@ -519,29 +519,39 @@ async function shareResult() {
 }
 
 // ---- search ----------------------------------------------------------------
-async function search(q, narrowed) {
+const SEARCH_PAGE = 10;
+let searchState = null;  // {q, narrowed, offset}: the page shown, for "More results"
+async function search(q, narrowed, offset) {
   const seq = ++sendSeq;
-  clearFacets();
-  results.innerHTML = '<p><span class="spinner"></span>Searching&hellip;</p>';
+  offset = offset || 0;
+  if (!offset) { clearFacets(); results.innerHTML = '<p><span class="spinner"></span>Searching&hellip;</p>'; }
+  const more = $('more'); if (more) more.disabled = true;
   let r;
-  try { r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=10&client_id=${encodeURIComponent(clientId())}${narrowed ? '&narrowed=true' : ''}`); }
-  catch (e) { if (seq === sendSeq) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
+  try { r = await fetch(`/search?q=${encodeURIComponent(q)}&limit=${SEARCH_PAGE}&offset=${offset}&client_id=${encodeURIComponent(clientId())}${narrowed ? '&narrowed=true' : ''}`); }
+  catch (e) { if (seq === sendSeq && !offset) results.innerHTML = `<p style="color:var(--bad)">Network error: ${esc(e.message)}</p>`; return; }
   if (seq !== sendSeq) return;
-  if (!r.ok) { results.innerHTML = `<p style="color:var(--bad)">Search failed (${r.status})</p>`; return; }
+  if (!r.ok) { if (!offset) results.innerHTML = `<p style="color:var(--bad)">Search failed (${r.status})</p>`; return; }
   const parts = await r.json();
   if (seq !== sendSeq) return;
-  if (!parts.length) { results.innerHTML = '<p>No catalog entries match.</p>'; return; }
+  if (!parts.length && !offset) { results.innerHTML = '<p>No catalog entries match.</p>'; return; }
   const bought = await boughtCounts();  // what this shop bought before: says why a result sits first
   if (seq !== sendSeq) return;
-  results.innerHTML = parts.map(p => `<div class="card cand">
+  const html = parts.map(p => `<div class="card cand">
       <img class="main" src="/parts/${encodeURIComponent(p.part_number)}/thumb?size=200" loading="lazy" alt="" onerror="this.style.visibility='hidden'" onclick="lightbox('/parts/${encodeURIComponent(p.part_number)}/image', null, ${js(p.part_number)})">
       <div style="flex:1;min-width:0"><div class="pn">${esc(p.part_number)} <span style="font-weight:400">&mdash; ${esc(p.name)}</span>${bought[p.part_number] ? `<span class="chip usual" data-bought="${esc(p.part_number)}">&#9733; bought ${bought[p.part_number]}&times;</span>` : ''}</div>
       <div class="meta">${esc(p.category_path.join(' › '))}</div>${specTable(p.attributes)}
       <div class="meta" style="margin-top:6px"><a class="link" href="https://www.mcmaster.com/${encodeURIComponent(p.part_number)}/" target="_blank" rel="noopener">open on mcmaster.com</a></div>
       <div class="confirm"><button type="button" class="buy" data-buy="${esc(p.part_number)}" onclick="addToCart(${js(p.part_number)}, this, 'search')">&#128722; Add to cart</button></div></div></div>`).join('');
+  searchState = { q, narrowed, offset };
+  // a full page may have more behind it: the next ten append below (the server keeps
+  // one ordering across pages, so nothing repeats or is skipped)
+  const tail = parts.length === SEARCH_PAGE ? `<div class="confirm" id="morerow"><button type="button" class="ghost" id="more" onclick="searchMore()">More results</button></div>` : '';
+  if (offset) { const old = $('morerow'); if (old) old.remove(); results.insertAdjacentHTML('beforeend', html + tail); }
+  else results.innerHTML = html + tail;
   updateCartBadge();
-  showFacets(q, seq);
+  if (!offset) showFacets(q, seq);
 }
+function searchMore() { if (searchState) search(searchState.q, searchState.narrowed, searchState.offset + SEARCH_PAGE); }
 // the variants of a name a query cannot tell apart: offer what differs as one tap
 async function showFacets(q, seq) {
   let box = $('facets');

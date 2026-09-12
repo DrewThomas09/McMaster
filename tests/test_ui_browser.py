@@ -479,3 +479,30 @@ def test_search_chips_narrow_the_variants(server, store, tmp_path):
         page.wait_for_selector(".cand", timeout=30_000)
         assert page.locator(".cand").count() <= before
         browser.close()
+
+
+def test_search_more_results_append_the_next_page(server, store, tmp_path):
+    """A full page of ten offers "More results"; a tap appends the next ten with no repeats."""
+    exe = _chromium_path()
+    if exe is None:
+        pytest.skip("no Playwright Chromium build available")
+    from collections import Counter
+
+    word, n = Counter(w for p in store.iter_parts() for w in p.name.split()).most_common(1)[0]
+    if n < 11:
+        pytest.skip("no word shared by more than ten parts")
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=exe, args=["--no-sandbox"])
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.goto(server + "/")
+        page.fill("#q", word)
+        page.locator("#searchform").evaluate("f => f.requestSubmit()")
+        page.wait_for_selector("#more", timeout=30_000)
+        assert page.locator(".cand").count() == 10
+        page.locator("#more").click()
+        page.wait_for_function("document.querySelectorAll('.cand').length > 10", timeout=30_000)
+        shown = page.eval_on_selector_all(
+            ".cand button[data-buy]", "els => els.map(e => e.dataset.buy)"
+        )
+        assert len(shown) == len(set(shown)) and 10 < len(shown) <= 20
+        browser.close()
