@@ -8,7 +8,7 @@ from typing import Any
 from PIL import Image
 
 from mcmaster_vision.data.augment import PhotoAugmenter
-from mcmaster_vision.schemas import Part
+from mcmaster_vision.schemas import Part, spec_key
 
 
 def _require_torch():
@@ -18,15 +18,6 @@ def _require_torch():
     except ImportError as e:  # pragma: no cover - exercised only without torch
         raise ImportError("Training datasets need torch: pip install 'mcmaster-vision[ml]'") from e
     return Dataset
-
-
-def spec_key(part: Part) -> tuple:
-    """What makes two catalog entries the same thing: family and every attribute. Two
-    numbers for one spec (pack sizes, a superseded listing) look identical in every photo."""
-    return (
-        part.family_id or part.part_number,
-        tuple(sorted((k, str(v)) for k, v in part.attributes.items())),
-    )
 
 
 def build_label_map(parts: Sequence[Part]) -> dict[str, int]:

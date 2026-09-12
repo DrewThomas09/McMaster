@@ -42,6 +42,10 @@
 - Phone UI: search results carry a "bought N times" chip for parts this shop has ordered
   (why a result sits first) and an Add-to-cart button like the photo candidates; `/me`
   reports the shop's purchase counts.
+- Identify: two listings of one spec (same family, every attribute equal) count as one
+  answer: their probabilities add up for the confidence tier and the margin is taken against
+  the first candidate that is a different thing; the result carries `also_sold_as` and the
+  verdict card shows "also sold as ..." under the part number.
 - Training: contrastive labels are one per distinct spec (family plus every attribute), so
   two part numbers for the same thing train as positives instead of negatives the loss can
   never separate; both trainer paths use it.

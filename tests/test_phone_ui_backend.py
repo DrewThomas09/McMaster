@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -94,3 +95,28 @@ def test_live_frames_have_their_own_rate_budget(identifier, tmp_path):
     assert r.status_code == 429  # the preview budget is spent ...
     r = client.post("/identify?top_n=1&tta=none", files={"file": ("p.png", png, "image/png")})
     assert r.status_code == 200  # ... but a real photo still goes through
+
+
+def test_phone_page_scripts_parse():
+    """Every inline script on the phone page must parse: a template-literal slip breaks the
+    whole page, and only the browser tests would notice, slowly."""
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not available")
+    html = Path("src/mcmaster_vision/api/static/index.html").read_text(encoding="utf-8")
+    scripts = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
+    assert scripts
+    for body in scripts:
+        r = subprocess.run(
+            [node, "-e", "new Function(require('fs').readFileSync(0, 'utf8'))"],
+            input=body,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        assert r.returncode == 0, r.stderr[-600:]

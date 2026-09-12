@@ -94,11 +94,25 @@ class FamilyHint(BaseModel):
     )
 
 
+def spec_key(part: Part) -> tuple:
+    """What makes two catalog entries the same thing: family and every attribute. Two
+    numbers for one spec (pack sizes, a superseded listing) look identical in every photo."""
+    return (
+        part.family_id or part.part_number,
+        tuple(sorted((k, str(v)) for k, v in part.attributes.items())),
+    )
+
+
 class IdentificationResult(BaseModel):
     request_id: str
     tier: MatchTier
     best: Candidate | None
     candidates: list[Candidate]
+    also_sold_as: list[str] = Field(
+        default_factory=list,
+        description="Other part numbers with the best answer's family and every attribute: "
+        "the same thing under another listing, which no photo can tell apart",
+    )
     family: FamilyHint | None = None
     category_guess: list[tuple[str, float]] = Field(
         default_factory=list,

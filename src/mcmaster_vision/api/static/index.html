@@ -446,6 +446,7 @@ function render(res) {
       <button type="button" class="iconbtn" onclick="copyText(${js(res.best.part_number)})">Copy</button>
       ${navigator.share ? `<button type="button" class="iconbtn" onclick="shareResult()">Share</button>` : ''}
       <a class="iconbtn" href="https://www.mcmaster.com/${encodeURIComponent(res.best.part_number)}/" target="_blank" rel="noopener">mcmaster.com &nearr;</a></div>
+      ${(res.also_sold_as && res.also_sold_as.length) ? `<div class="meta" data-also-sold>also sold as ${res.also_sold_as.map(pn => `<a href="/part/${encodeURIComponent(pn)}" style="color:inherit">${esc(pn)}</a>`).join(', ')} &mdash; the same part under another number</div>` : ''}
       <div class="name">${esc(res.best.name)} &middot; ${pct(res.best.confidence)} confidence</div>
       <div class="confirm"><button type="button" class="buy" data-buy="${esc(res.best.part_number)}" onclick="addToCart(${js(res.best.part_number)}, this)">&#128722; Add to cart</button>${(res.tier === 'exact' || res.tier === 'likely') ? `<button type="button" class="buy" onclick="buyNow(${js(res.best.part_number)}, this)">&#9889; Buy now</button>` : ''}</div>
       <div class="name">${esc(res.best.category_path.join(' › '))}</div>${specTable(res.best.attributes)}`;

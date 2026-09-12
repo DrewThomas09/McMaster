@@ -285,3 +285,23 @@ def test_query_cache_distinguishes_a_reference(identifier, store):
         [blob], top_n=5, tta="none", mm_per_px=24.26 / 160, reference=(40, 128, 200, 128)
     )
     assert {c.part_number: c.similarity for c in again.candidates} == sims_ref
+
+
+def test_merge_equivalents_adds_twins_and_keeps_the_rest():
+    from mcmaster_vision.pipeline.identify import merge_equivalents
+    from mcmaster_vision.schemas import Part
+
+    def P(pn, size, fam="hex_nut:Steel"):
+        return Part(
+            part_number=pn,
+            name="Hex Nut",
+            category_path=["F"],
+            family_id=fam,
+            attributes={"thread_size": size},
+        )
+
+    parts = [P("A", "1/4"), P("B", "1/4"), P("C", "5/16"), P("D", "1/4")]
+    probs, twins = merge_equivalents(parts, [0.4, 0.35, 0.15, 0.1])
+    assert twins == ["B", "D"]
+    assert abs(probs[0] - 0.85) < 1e-9 and probs[1:] == [0.15]
+    assert merge_equivalents([], []) == ([], [])

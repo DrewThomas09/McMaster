@@ -34,9 +34,30 @@ from mcmaster_vision.schemas import (
     FamilyHint,
     IdentificationResult,
     MatchTier,
+    Part,
+    spec_key,
 )
 
 log = logging.getLogger(__name__)
+
+
+def merge_equivalents(parts: list[Part], probs: list[float]) -> tuple[list[float], list[str]]:
+    """Fold candidates that are the same spec as the best one into it: returns the
+    probabilities to judge the tier on (the best's plus its twins', then the rest) and
+    the twins' part numbers."""
+    if not parts or not probs:
+        return list(probs), []
+    key = spec_key(parts[0])
+    merged = probs[0]
+    twins: list[str] = []
+    rest: list[float] = []
+    for part, p in zip(parts[1:], probs[1:], strict=False):
+        if spec_key(part) == key:
+            merged += p
+            twins.append(part.part_number)
+        else:
+            rest.append(p)
+    return [min(1.0, merged), *rest], twins
 
 
 class Identifier:
@@ -322,8 +343,11 @@ class Identifier:
         probs = self.calibration.probabilities([s.score for s in scored])[:top_n]
         candidates = self._to_candidates(top, probs)
         best_sim = top[0].similarity if top else 0.0
+        # two listings of one spec are one answer: their probability adds up and the
+        # runner-up for the margin is the first candidate that is a different thing
+        tier_probs, also_sold_as = merge_equivalents([s.part for s in top], probs)
         tier = self.calibration.tier(
-            probs,
+            tier_probs,
             best_sim,
             ocr_hit=bool(ocr_pns) and bool(top) and top[0].part.part_number in ocr_pns,
         )
@@ -337,6 +361,7 @@ class Identifier:
             tier=tier,
             best=candidates[0] if candidates and tier != MatchTier.UNKNOWN else None,
             candidates=candidates,
+            also_sold_as=also_sold_as if tier != MatchTier.UNKNOWN else [],
             family=self._family_hint(top, probs) if tier != MatchTier.UNKNOWN else None,
             category_guess=sorted(
                 self.retriever.category_prior(qvec).items(), key=lambda kv: -kv[1]
