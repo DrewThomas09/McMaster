@@ -72,7 +72,9 @@ stores confirmations; `POST /admin/reload` (header `X-API-Token` when
   `mcv learn` folds new confirmations into the index incrementally (seconds; the API picks
   it up by itself; one unaugmented gallery row per photo and at most
   `MCV_LEARN_MAX_PHOTOS_PER_PART`, default 8, per part, newest first, so a part bought every
-  week does not pull its look-alikes' photos to itself) and runs a full `mcv retrain` once
+  week does not pull its look-alikes' photos to itself; `MCV_LEARNED_ROW_WEIGHT`, default
+  1.0, can count those rows for less against the catalog rows, measured neutral to harmful
+  below 1.0 on the shipped backbone) and runs a full `mcv retrain` once
   `MCV_LEARN_RETRAIN_AFTER` (default 50) new confirmations arrived. Cron it hourly: `0 * * * * mcv learn` (`--index-only` never
   retrains; `--retrain-after N` and `--epochs N` override the recipe for a quick check). The dashboard's **Learning loop** panel and `GET /analytics` show the funnel
   (identify -> cart -> checkout), predicted-vs-bought confusion pairs, tier precision on
@@ -160,7 +162,8 @@ HNSW build ~2 min, index ~2 GB at 128-d or ~5 GB at 512-d.
 
 | command | purpose |
 |---|---|
-| `mcv simulate-market --shops N [--min-orders 10 --max-orders 20] [--search-rate 0.6] [--coin-rate 0] [--learn-every N]` | a demo marketplace on a scratch copy: shops from six industries search, photograph (a share of them next to a quarter), buy and come back; reports the personalisation lift split by parts bought before / never bought and with / without a coin, segment purity, and recommendation hits against an order-again baseline |
+| `mcv simulate-market --shops N [--min-orders 10 --max-orders 20] [--search-rate 0.6] [--coin-rate 0] [--learn-every N]` | a demo marketplace on a scratch copy: shops from six industries search, photograph (a share of them next to a quarter), buy and come back; reports the personalisation lift split by parts bought before / never bought and with / without a coin, what the facet chips add for a customer who knows the size, segment purity, and recommendation hits (eight slots, as the phone shows) against an order-again baseline |
+| `python3 scripts/replay_recommendations.py <scratch>/logs/orders.jsonl <catalog.sqlite> [--n 8]` | replays a market's order log through the recommender round by round and scores variants against the order-again list in a minute, without re-running the simulation |
 | `mcv report [--json]` | the purchase-loop analytics and issues list from the event log, plus the customer model (segments, the one served worst) and the For-you strip's take rate; same numbers as `/analytics` and the dashboard |
 | `mcv simulate --customers N [--learn] [--coin-rate R]` | self-run the journey on a scratch copy; before/after learning; `--live` writes real data |
 | `mcv learn [--index-only] [--retrain-after N] [--epochs N]` | fold confirmed and bought photos into the index; retrain when enough arrived |
